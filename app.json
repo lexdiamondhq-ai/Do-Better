@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Do Better",
+    "slug": "do-better",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "dobetter",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.dobetter.app",
+      "supportsTablet": false,
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.dobetter.app"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F7F4EE",
+          "dark": {
+            "backgroundColor": "#141311"
+          }
+        }
+      ],
+      "expo-apple-authentication"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
