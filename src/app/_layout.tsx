@@ -1,3 +1,6 @@
+import { Fredoka_600SemiBold, Fredoka_700Bold } from '@expo-google-fonts/fredoka';
+import { Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold, Nunito_800ExtraBold } from '@expo-google-fonts/nunito';
+import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -24,10 +27,13 @@ export default function RootLayout() {
   );
 }
 
-/** Sends signed-out users to sign-in and signed-in users into the app, once the stored session has been read. */
+/** Sends signed-out users to sign-in and signed-in users into the app, once the stored session and the fonts are ready. */
 function Gate() {
   const t = useTheme();
-  const { session, ready } = useAuth();
+  const { session, ready: authReady } = useAuth();
+  const [fontsLoaded, fontError] = useFonts({ Fredoka_600SemiBold, Fredoka_700Bold, Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold, Nunito_800ExtraBold });
+  // A font that fails to load falls back to the system font rather than blocking the app.
+  const ready = authReady && (fontsLoaded || !!fontError);
   const segments = useSegments();
   const router = useRouter();
   const inAuth = segments[0] === '(auth)';

@@ -11,11 +11,15 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@expo-google-fonts/fredoka": "^0.4.1",
+    "@expo-google-fonts/nunito": "^0.4.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.116.0",
     "expo": "~57.0.23",
     "expo-apple-authentication": "~57.0.2",
     "expo-constants": "~57.0.18",
+    "expo-font": "~57.0.4",
+    "expo-haptics": "~57.0.3",
     "expo-linking": "~57.0.10",
     "expo-router": "~57.0.21",
     "expo-splash-screen": "~57.0.9",
