@@ -34,3 +34,12 @@ export async function verifyEmailCode(email: string, code: string) {
   const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'email' });
   if (error) throw error;
 }
+
+/**
+ * A throwaway account with no email or Apple ID, for trying the app in Expo Go, where Sign in with
+ * Apple isn't available. Needs "Allow anonymous sign-ins" turned on in Supabase. Dev builds only.
+ */
+export async function signInAsGuest() {
+  const { error } = await supabase.auth.signInAnonymously();
+  if (error) throw error;
+}

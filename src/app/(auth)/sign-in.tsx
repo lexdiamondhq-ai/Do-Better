@@ -1,10 +1,11 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Body, Button, Display, Label } from '@/components/ui';
-import { sendEmailCode, signInWithApple, verifyEmailCode } from '@/lib/signIn';
+import { sendEmailCode, signInAsGuest, signInWithApple, verifyEmailCode } from '@/lib/signIn';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, fonts, radius, space, type CardColor } from '@/theme/tokens';
 
@@ -14,6 +15,9 @@ const FAN: { color: CardColor; name: string; rotate: number; x: number }[] = [
   { color: 'sun', name: 'Write', rotate: 6, x: 30 },
   { color: 'tomato', name: 'Do Better', rotate: 14, x: 70 },
 ];
+
+/** Expo Go doesn't ship the native Apple sign-in button, so it can only be offered in a real build. */
+const APPLE = Platform.OS === 'ios' && Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
 
 /** Apple on iOS, or a 6-digit email code anywhere. The Gate moves the user on once a session exists. */
 export default function SignIn() {
@@ -76,7 +80,9 @@ export default function SignIn() {
           <Body color={t.textSecondary}>A habit deck for people who want to get better without starting over every Monday.</Body>
         </View>
 
-        {Platform.OS === 'ios' ? (
+        {__DEV__ ? <Button label="Try it as a guest" busy={busy} onPress={() => run(signInAsGuest)} /> : null}
+
+        {APPLE ? (
           <AppleAuthentication.AppleAuthenticationButton
             buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
             buttonStyle={t.scheme === 'dark' ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
@@ -86,7 +92,7 @@ export default function SignIn() {
           />
         ) : null}
 
-        {Platform.OS === 'ios' ? <Label style={{ textAlign: 'center' }}>or with email</Label> : null}
+        {APPLE || __DEV__ ? <Label style={{ textAlign: 'center' }}>or with email</Label> : null}
 
         {codeSent ? (
           <TextInput style={input} value={code} onChangeText={setCode} placeholder="6-digit code" placeholderTextColor={t.textFaint} keyboardType="number-pad" textContentType="oneTimeCode" maxLength={6} />
@@ -96,7 +102,7 @@ export default function SignIn() {
 
         <Button
           label={codeSent ? 'Sign in' : 'Email me a code'}
-          variant={Platform.OS === 'ios' ? 'ghost' : 'primary'}
+          variant={APPLE || __DEV__ ? 'ghost' : 'primary'}
           busy={busy}
           onPress={() =>
             run(async () => {
