@@ -1,0 +1,253 @@
+import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { SwipeCard } from '@/components/SwipeCard';
+import { Body, Button, Chip, Display, Label } from '@/components/ui';
+import { CATEGORIES, PRINCIPLES, RECIPES, suggestRecipes, type Category, type Recipe } from '@/engine/playbook';
+import { CATEGORY_COLOR } from '@/lib/categoryColor';
+import { useData } from '@/lib/data';
+import { useTheme } from '@/theme/ThemeProvider';
+import { CARD_COLORS, cardColors, fonts, radius, space, type CardColor } from '@/theme/tokens';
+
+type Intro = { color: CardColor | 'back'; eyebrow: string; title: string; body: string; source?: string; hint: string };
+
+const INTRO: Intro[] = [
+  {
+    color: 'tomato',
+    eyebrow: 'Do Better',
+    title: 'Every habit is a card.',
+    body: 'Each card has a Ceiling, what a great day looks like, and a Floor, a version so small you can do it on your worst day. Hit either one and the day is kept.',
+    hint: 'Swipe the card away',
+  },
+  {
+    color: 'pine',
+    eyebrow: 'How it works',
+    title: 'Down for the Floor. Up for the Ceiling.',
+    body: 'Each morning your deck is dealt. Swipe a card down when you did the minimum, up when you hit the Ceiling, sideways to come back to it later.',
+    hint: 'Try it: swipe down or up',
+  },
+  {
+    color: 'back',
+    eyebrow: 'Never twice',
+    title: 'Missing once is human.',
+    body: 'The morning after a miss, the card turns over and offers a two-minute version. Missing once is an accident. Missing twice is the start of a new habit, so the app helps you stop at one.',
+    source: PRINCIPLES['never-miss-twice'].source,
+    hint: 'Swipe to keep going',
+  },
+  {
+    color: 'sun',
+    eyebrow: 'Identity',
+    title: 'Every kept day is a vote.',
+    body: 'Give each card an identity, like "a reader". Votes add up to who you are becoming, and to cards for your collection. There are no streaks here, so nothing ever resets to zero.',
+    source: PRINCIPLES.identity.source,
+    hint: 'Swipe to build your deck',
+  },
+];
+
+/** Identities to start from, grouped like the Playbook. */
+const IDENTITIES: { category: Category; identities: string[] }[] = (Object.keys(CATEGORIES) as Category[]).map((category) => ({
+  category,
+  identities: [...new Set(RECIPES.filter((r) => r.category === category).map((r) => r.identity))],
+}));
+
+/** First run: four cards that teach the gestures, then who you want to be, then a starter deck. */
+export default function Onboarding() {
+  const t = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { createHabit, saveProfile } = useData();
+  const [step, setStep] = useState(0);
+  const [identities, setIdentities] = useState<string[]>([]);
+  const [northStar, setNorthStar] = useState('');
+  const [picked, setPicked] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const introDone = step >= INTRO.length;
+  const suggestions = suggestRecipes(identities, [], 12);
+
+  function toggle<T>(list: T[], item: T): T[] {
+    return list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
+  }
+
+  async function finish(recipes: Recipe[]) {
+    setBusy(true);
+    try {
+      // Colours follow the recipe's category, but neighbours never share one.
+      let previous: CardColor | null = null;
+      for (const r of recipes) {
+        let color = CATEGORY_COLOR[r.category];
+        if (color === previous) color = CARD_COLORS[(CARD_COLORS.indexOf(color) + 1) % CARD_COLORS.length];
+        previous = color;
+        await createHabit({ name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color, anchor: r.anchor, whenWhere: '', why: r.why, recipeKey: r.key });
+      }
+      await saveProfile({ northStar, onboarded: true });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace('/');
+      if (recipes.length === 0) router.push('/habit/edit');
+    } catch (e) {
+      Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Try again.');
+      setBusy(false);
+    }
+  }
+
+  if (!introDone) {
+    const card = INTRO[step];
+    const bg = card.color === 'back' ? t.cardBack : cardColors[card.color].bg;
+    const ink = card.color === 'back' ? t.onCardBack : cardColors[card.color].ink;
+    const next = INTRO[step + 1];
+    const nextBg = next ? (next.color === 'back' ? t.cardBack : cardColors[next.color].bg) : t.bgRaised;
+    return (
+      <View style={{ flex: 1, paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.lg, paddingHorizontal: space.xl, gap: space.lg }}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          {INTRO.map((_, i) => (
+            <View key={i} style={{ flex: 1, height: 5, borderRadius: 3, backgroundColor: i <= step ? t.text : t.border }} />
+          ))}
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={{ position: 'absolute', top: 18, bottom: 0, left: 14, right: -6, borderRadius: radius.card, backgroundColor: nextBg, transform: [{ rotate: '4deg' }] }} />
+          <SwipeCard
+            key={step}
+            onSwipe={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setStep((s) => s + 1);
+            }}
+            labels={step === 1 ? { up: 'CEILING', down: 'FLOOR', left: 'LATER', right: 'LATER' } : { up: 'NEXT', down: 'NEXT', left: 'NEXT', right: 'NEXT' }}
+          >
+            <View style={{ flex: 1, backgroundColor: bg, borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }}>
+              <Label color={ink} style={{ opacity: 0.7 }}>{card.eyebrow}</Label>
+              <View style={{ gap: space.lg }}>
+                <Display size={46} color={ink}>{card.title}</Display>
+                <Body size={17} weight="semi" color={ink} style={{ opacity: 0.9 }}>{card.body}</Body>
+                {card.source ? <Body size={13} weight="heavy" color={ink} style={{ opacity: 0.6 }}>{card.source}</Body> : null}
+              </View>
+              <Body weight="heavy" color={ink} style={{ opacity: 0.75 }}>{`${step === 1 ? '↑ ↓' : '↔'}  ${card.hint}`}</Body>
+            </View>
+          </SwipeCard>
+        </View>
+        <Pressable onPress={() => setStep(INTRO.length)} hitSlop={12} style={{ alignSelf: 'center' }}>
+          <Body weight="bold" color={t.textSecondary}>Skip the tour</Body>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (step === INTRO.length) {
+    return (
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: insets.top + space.xl, paddingBottom: insets.bottom + space.xxxl, paddingHorizontal: space.xl, gap: space.xl }}>
+          <View style={{ gap: space.sm }}>
+            <Label>Step 1 of 2</Label>
+            <Display size={42}>Who are you becoming?</Display>
+            <Body color={t.textSecondary}>Pick the people you want to be more of. Your starter deck is built from them.</Body>
+          </View>
+
+          {IDENTITIES.map((group) => {
+            const col = cardColors[CATEGORY_COLOR[group.category]];
+            return (
+              <View key={group.category} style={{ gap: space.sm }}>
+                <Label>{CATEGORIES[group.category]}</Label>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+                  {group.identities.map((id) => (
+                    <Chip
+                      key={id}
+                      label={id}
+                      active={identities.includes(id)}
+                      color={col.bg}
+                      ink={col.ink}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setIdentities((l) => toggle(l, id));
+                      }}
+                    />
+                  ))}
+                </View>
+              </View>
+            );
+          })}
+
+          <View style={{ backgroundColor: t.cardBack, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}>
+            <Label color={t.onCardBack} style={{ opacity: 0.6 }}>Your north star · optional</Label>
+            <TextInput
+              value={northStar}
+              onChangeText={setNorthStar}
+              placeholder="In a year, I want to be someone who…"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              multiline
+              style={{ fontFamily: fonts.display, fontSize: 24, color: t.onCardBack, minHeight: 64, textAlignVertical: 'top' }}
+            />
+            <Body size={13} color={t.onCardBack} style={{ opacity: 0.6 }}>It sits at the top of your You page, so you see why on the hard days.</Body>
+          </View>
+
+          <Button
+            label={identities.length ? 'Build my deck' : 'Show me everything'}
+            onPress={() => {
+              setPicked(suggestRecipes(identities, [], 3).filter((r) => identities.includes(r.identity)).map((r) => r.key));
+              setStep(INTRO.length + 1);
+            }}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  const chosen = suggestions.filter((r) => picked.includes(r.key));
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={{ paddingTop: insets.top + space.xl, paddingBottom: insets.bottom + 160, paddingHorizontal: space.xl, gap: space.xl }}>
+        <Pressable onPress={() => setStep(INTRO.length)} hitSlop={12}>
+          <Body weight="bold" color={t.textSecondary}>← Back</Body>
+        </Pressable>
+        <View style={{ gap: space.sm }}>
+          <Label>Step 2 of 2</Label>
+          <Display size={42}>Deal your first cards.</Display>
+          <Body color={t.textSecondary}>{`Start with one to three. ${PRINCIPLES.focus.idea} You can edit every word later.`}</Body>
+        </View>
+
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
+          {suggestions.map((r, i) => {
+            const on = picked.includes(r.key);
+            const col = cardColors[CATEGORY_COLOR[r.category]];
+            return (
+              <Pressable
+                key={r.key}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: on }}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setPicked((l) => toggle(l, r.key));
+                }}
+                style={{
+                  width: '47.5%',
+                  aspectRatio: 0.72,
+                  backgroundColor: on ? col.bg : t.bgRaised,
+                  borderRadius: radius.lg,
+                  padding: space.lg,
+                  justifyContent: 'space-between',
+                  transform: [{ rotate: on ? `${i % 2 ? 2 : -2}deg` : '0deg' }, { scale: on ? 1.02 : 1 }],
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Label color={on ? col.ink : t.textSecondary}>{CATEGORIES[r.category]}</Label>
+                  <Display size={18} color={on ? col.ink : t.textFaint}>{on ? '✓' : '+'}</Display>
+                </View>
+                <View style={{ gap: 4 }}>
+                  <Display size={26} color={on ? col.ink : t.text}>{r.name}</Display>
+                  <Body size={12} weight="bold" color={on ? col.ink : t.textSecondary}>{`↑ ${r.ceiling}`}</Body>
+                  <Body size={12} weight="bold" color={on ? col.ink : t.textSecondary}>{`↓ ${r.floor}`}</Body>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      </ScrollView>
+
+      <View style={{ position: 'absolute', left: space.xl, right: space.xl, bottom: insets.bottom + space.lg, gap: space.sm }}>
+        <Button label={chosen.length ? `Deal ${chosen.length} ${chosen.length === 1 ? 'card' : 'cards'}` : 'I’ll make my own'} busy={busy} onPress={() => finish(chosen)} />
+        {chosen.length > 3 ? <Body size={13} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>That’s a big deck to start. Fewer cards are easier to keep.</Body> : null}
+      </View>
+    </View>
+  );
+}

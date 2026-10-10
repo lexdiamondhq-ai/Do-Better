@@ -1,11 +1,19 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Body, Button, Display, Label } from '@/components/ui';
 import { sendEmailCode, signInWithApple, verifyEmailCode } from '@/lib/signIn';
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, space } from '@/theme/tokens';
+import { cardColors, fonts, radius, space, type CardColor } from '@/theme/tokens';
+
+const FAN: { color: CardColor; name: string; rotate: number; x: number }[] = [
+  { color: 'sky', name: 'Walk', rotate: -14, x: -70 },
+  { color: 'pine', name: 'Read', rotate: -4, x: -20 },
+  { color: 'sun', name: 'Write', rotate: 6, x: 30 },
+  { color: 'tomato', name: 'Do Better', rotate: 14, x: 70 },
+];
 
 /** Apple on iOS, or a 6-digit email code anywhere. The Gate moves the user on once a session exists. */
 export default function SignIn() {
@@ -29,45 +37,80 @@ export default function SignIn() {
     }
   }
 
-  const input = { color: t.text, backgroundColor: t.bgRaised, borderColor: t.border, borderWidth: 1, borderRadius: radius.md, padding: space.lg, fontSize: 17 };
+  const input = { fontFamily: fonts.bodyBold, color: t.text, backgroundColor: t.bgRaised, borderRadius: radius.pill, paddingVertical: space.lg, paddingHorizontal: space.xl, fontSize: 17 };
 
   return (
-    <View style={{ flex: 1, paddingTop: insets.top + space.xxl, paddingHorizontal: space.xl, gap: space.lg }}>
-      <Text style={{ color: t.text, fontSize: 32, fontWeight: '700' }}>Do Better</Text>
-      <Text style={{ color: t.textSecondary, fontSize: 17 }}>Keep the Floor. Reach for the Ceiling.</Text>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={{ flex: 1, paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.lg, paddingHorizontal: space.xl, gap: space.lg }}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }} accessible={false} importantForAccessibility="no-hide-descendants">
+          {FAN.map((card) => {
+            const c = cardColors[card.color];
+            return (
+              <View
+                key={card.name}
+                style={{
+                  position: 'absolute',
+                  width: 170,
+                  height: 240,
+                  borderRadius: radius.lg + 4,
+                  backgroundColor: c.bg,
+                  padding: space.lg,
+                  justifyContent: 'space-between',
+                  transform: [{ translateX: card.x }, { rotate: `${card.rotate}deg` }],
+                  shadowColor: '#000',
+                  shadowOpacity: 0.18,
+                  shadowRadius: 18,
+                  shadowOffset: { width: 0, height: 10 },
+                }}
+              >
+                <Body weight="heavy" size={13} color={c.ink}>↑</Body>
+                <Display size={card.name.length > 6 ? 30 : 34} color={c.ink}>{card.name}</Display>
+                <Body weight="heavy" size={13} color={c.ink}>↓</Body>
+              </View>
+            );
+          })}
+        </View>
 
-      {Platform.OS === 'ios' ? (
-        <AppleAuthentication.AppleAuthenticationButton
-          buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-          buttonStyle={t.scheme === 'dark' ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-          cornerRadius={radius.md}
-          style={{ height: 50 }}
-          onPress={() => run(signInWithApple)}
-        />
-      ) : null}
+        <View style={{ gap: space.sm }}>
+          <Display size={44}>Keep the Floor.{'\n'}Reach for the Ceiling.</Display>
+          <Body color={t.textSecondary}>A habit deck for people who want to get better without starting over every Monday.</Body>
+        </View>
 
-      {codeSent ? (
-        <TextInput style={input} value={code} onChangeText={setCode} placeholder="6-digit code" placeholderTextColor={t.textSecondary} keyboardType="number-pad" textContentType="oneTimeCode" maxLength={6} />
-      ) : (
-        <TextInput style={input} value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor={t.textSecondary} keyboardType="email-address" autoCapitalize="none" autoComplete="email" textContentType="emailAddress" />
-      )}
+        {Platform.OS === 'ios' ? (
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+            buttonStyle={t.scheme === 'dark' ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+            cornerRadius={radius.pill}
+            style={{ height: 54 }}
+            onPress={() => run(signInWithApple)}
+          />
+        ) : null}
 
-      <Pressable
-        accessibilityRole="button"
-        disabled={busy}
-        onPress={() => run(async () => {
-          if (codeSent) await verifyEmailCode(email.trim(), code.trim());
-          else {
-            await sendEmailCode(email.trim());
-            setCodeSent(true);
+        {Platform.OS === 'ios' ? <Label style={{ textAlign: 'center' }}>or with email</Label> : null}
+
+        {codeSent ? (
+          <TextInput style={input} value={code} onChangeText={setCode} placeholder="6-digit code" placeholderTextColor={t.textFaint} keyboardType="number-pad" textContentType="oneTimeCode" maxLength={6} />
+        ) : (
+          <TextInput style={input} value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor={t.textFaint} keyboardType="email-address" autoCapitalize="none" autoComplete="email" textContentType="emailAddress" />
+        )}
+
+        <Button
+          label={codeSent ? 'Sign in' : 'Email me a code'}
+          variant={Platform.OS === 'ios' ? 'ghost' : 'primary'}
+          busy={busy}
+          onPress={() =>
+            run(async () => {
+              if (codeSent) await verifyEmailCode(email.trim(), code.trim());
+              else {
+                await sendEmailCode(email.trim());
+                setCodeSent(true);
+              }
+            })
           }
-        })}
-        style={{ backgroundColor: t.accent, borderRadius: radius.md, padding: space.lg, alignItems: 'center', opacity: busy ? 0.6 : 1 }}
-      >
-        {busy ? <ActivityIndicator color={t.onAccent} /> : <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: '600' }}>{codeSent ? 'Sign in' : 'Email me a code'}</Text>}
-      </Pressable>
+        />
 
-      {error ? <Text style={{ color: t.textSecondary, fontSize: 15 }}>{error}</Text> : null}
-    </View>
+        {error ? <Body size={14} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>{error}</Body> : null}
+      </View>
+    </KeyboardAvoidingView>
   );
 }
