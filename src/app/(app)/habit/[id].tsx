@@ -8,7 +8,7 @@ import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Centered, Display, Label, Section } from '@/components/ui';
 import { SUIT_INFO } from '@/engine/cards';
 import { best30, bounceBacks, recentDays } from '@/engine/kept';
-import { PRINCIPLES, RECIPES } from '@/engine/playbook';
+import { playsLine, PRINCIPLES, RECIPES } from '@/engine/playbook';
 import { useDeck } from '@/lib/deck';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, radius, space } from '@/theme/tokens';
@@ -69,7 +69,7 @@ export default function HabitDetail() {
         <View style={{ gap: space.sm }}>
           <Body weight="bold" color={c.ink}>{`↑ Ceiling · ${habit.ceilingLabel}`}</Body>
           <Body weight="bold" color={c.ink}>{`↓ Floor · ${habit.floorLabel}`}</Body>
-          {habit.twoMinuteLabel ? <Body weight="bold" color={c.ink} style={{ opacity: 0.8 }}>{`⏱ Two minutes · ${habit.twoMinuteLabel}`}</Body> : null}
+          {habit.twoMinuteLabel ? <Body weight="bold" color={c.ink} style={{ opacity: 0.8 }}>{`→ First move · ${habit.twoMinuteLabel}`}</Body> : null}
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.sm }}>
           <Display size={84} color={c.ink} style={{ lineHeight: 80 }}>{window30.keptDays}</Display>
@@ -98,12 +98,12 @@ export default function HabitDetail() {
             <View style={{ flex: 1, gap: space.xs }}>
               <SuitTag suit={court.suit} name color={t.onCardBack} />
               <Display size={22} color={t.onCardBack}>
-                {court.face ? `${court.face.name} of ${suit.name} · ${court.face.title}` : `${court.votes} ${court.votes === 1 ? 'vote' : 'votes'} for your ${suit.part.toLowerCase()}`}
+                {court.face ? `${court.face.name} of ${suit.name} · ${court.face.title}` : `${court.votes} kept ${court.votes === 1 ? 'day' : 'days'} for your ${suit.part.toLowerCase()}`}
               </Display>
               <Body size={14} color={t.onCardBack} style={{ opacity: 0.8 }}>
-                {`Every day you keep ${habit.name} is a vote in the Court of ${suit.name}. `}
+                {`Every day you keep ${habit.name} counts in the Court of ${suit.name}. `}
                 {court.next ? `${court.next.needed} more to the ${court.next.face.name}, and a Joker the day you earn it.` : 'Every face card is earned. This is who you are.'}
-                {court.habitIds.length > 1 ? ` ${court.habitIds.length} cards vote in ${suit.name}.` : ''}
+                {court.habitIds.length > 1 ? ` ${court.habitIds.length} habits add to ${suit.name}.` : ''}
               </Body>
             </View>
           </View>
@@ -112,7 +112,7 @@ export default function HabitDetail() {
         {!habit.identity ? (
           <Pressable onPress={() => router.push({ pathname: '/habit/edit', params: { id: habit.id } })} style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.dashed, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}>
             <Display size={22}>Who does this make you?</Display>
-            <Body color={t.textSecondary}>{`${PRINCIPLES.identity.tryThis} (${PRINCIPLES.identity.source})`}</Body>
+            <Body color={t.textSecondary}>{PRINCIPLES.identity.tryThis}</Body>
           </Pressable>
         ) : null}
 
@@ -120,7 +120,7 @@ export default function HabitDetail() {
           <Section title="Why and when">
             <View style={{ gap: space.md }}>
               {habit.why ? <Display size={24} style={{ lineHeight: 30 }}>{`“${habit.why}”`}</Display> : null}
-              {habit.anchor ? <Body weight="bold">{`Cue · ${habit.anchor}`}</Body> : null}
+              {habit.anchor ? <Body weight="bold">{playsLine(habit.anchor)}</Body> : null}
               {habit.whenWhere ? <Body weight="bold">{`Plan · ${habit.whenWhere}`}</Body> : null}
             </View>
           </Section>
@@ -131,7 +131,6 @@ export default function HabitDetail() {
             <Label color={c.ink}>The idea behind this card</Label>
             <Display size={22} color={c.ink}>{principle.title}</Display>
             <Body color={c.ink}>{principle.idea}</Body>
-            <Body size={13} weight="bold" color={c.ink} style={{ opacity: 0.7 }}>{principle.source}</Body>
           </View>
         ) : null}
 

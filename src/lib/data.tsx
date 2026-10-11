@@ -32,7 +32,7 @@ type DataApi = {
   createHabit: (draft: HabitDraft) => Promise<Habit>;
   updateHabit: (id: string, draft: HabitDraft) => Promise<void>;
   archiveHabit: (id: string) => Promise<void>;
-  /** Writes the Never Twice prompt the first time it is shown, and again with the response. */
+  /** Writes the Comeback prompt the first time it is shown, and again with the response. */
   recordPrompt: (habitId: string, missedDay: Day, response: RecoveryResponse | null) => Promise<void>;
   saveProfile: (patch: { northStar?: string | null; onboarded?: boolean }) => Promise<void>;
   /** Calls a hand for this week. Only on Monday; the screen checks before offering it. */

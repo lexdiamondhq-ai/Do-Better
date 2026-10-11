@@ -11,8 +11,8 @@
  *
  * A blank day (habits running, nothing kept) deals nothing, unless you come back the next day: then it is
  * rescued with a low card, 2 to Queen, in one suit: the leading suit of the day you came back. Miss twice
- * in a row and the first day stays empty. That is Never Twice as a rule of the game. A rescued card is
- * exactly what keeping one habit in that suit would have dealt, and keeping it would also have voted in
+ * in a row and the first day stays empty. That is the comeback as a rule of the game. A rescued card is
+ * exactly what keeping one habit in that suit would have dealt, and keeping it would also have counted in
  * the Court, so skipping a day never pays. Sunday can't be rescued, because the hand is settled at midnight.
  *
  * The day you earn a face card in the Court, that day's card is dealt as a Joker, which plays as any card.

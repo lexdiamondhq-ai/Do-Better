@@ -137,7 +137,7 @@ function FaceEarned({ event, onDone }: { event: Extract<GameEvent, { kind: 'face
           <Display size={34} color="#FFFFFF" style={{ textAlign: 'center' }}>{`${event.face.name} of ${info.name}`}</Display>
           <Display size={20} color={chip.bg} style={{ textAlign: 'center' }}>{`“${event.face.title}”`}</Display>
           <Body color="rgba(255,255,255,0.8)" style={{ textAlign: 'center' }}>
-            {`${event.face.votes} kept days voted for ${who}. Face cards are never lost.`}
+            {`${event.face.votes} kept days for ${who}. Face cards are never lost.`}
           </Body>
           {event.joker ? (
             <Body weight="bold" color="#FFFFFF" style={{ textAlign: 'center' }}>

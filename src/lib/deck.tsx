@@ -16,7 +16,7 @@ export type HabitView = {
   habit: Habit;
   checkIns: CheckIns;
   today: Level | null;
-  /** The missed day to show the Never Twice card for, unless the user already answered it. */
+  /** The missed day to show the Comeback card for, unless the user already answered it. */
   neverTwice: Day | null;
   window30: ReturnType<typeof summarizeWindow>;
   allTime: { kept: number; ceiling: number };
@@ -32,7 +32,7 @@ export type Deck = {
   /** Today's card so far, and the tier it was dealt from. */
   todayCard: DayCard | null;
   todayTier: Tier | null;
-  /** Every suit, in deck order, with its votes and face card. */
+  /** Every suit, in deck order, with its kept days and face card. */
   court: CourtSuit[];
   recommendations: Recommendation[];
   idea: Recommendation;

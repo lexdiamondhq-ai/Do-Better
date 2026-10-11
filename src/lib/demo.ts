@@ -69,7 +69,7 @@ function buildHistory(today: Day): { habits: Habit[]; days: HabitDay[] } {
       if (keep && !blanks.has(day)) days.push({ habitId: habits[i].id, day, level: ceiling ? 'ceiling' : 'floor' });
     }
   });
-  // Leave Hearts one vote short of its Queen, so keeping "Reach out" today earns it and deals a Joker.
+  // Leave Hearts one kept day short of its Queen, so keeping "Reach out" today earns it and deals a Joker.
   const hearts = days.filter((d) => d.habitId === 'demo-reach-out');
   for (const d of hearts.slice(0, Math.max(0, hearts.length - 29))) days.splice(days.indexOf(d), 1);
   for (let ago = PLANS[3].daysAgo, have = hearts.length; have < 29 && ago >= 1; ago--) {

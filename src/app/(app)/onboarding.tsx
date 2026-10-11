@@ -17,7 +17,7 @@ import { cardColors, fonts, radius, space, suitColors, type CardColor } from '@/
 
 type Art = 'deal' | 'hand' | 'suits';
 
-type Intro = { color: CardColor | 'back'; eyebrow: string; title: string; body: string; source?: string; hint: string; art?: Art };
+type Intro = { color: CardColor | 'back'; eyebrow: string; title: string; body: string; hint: string; art?: Art };
 
 const INTRO: Intro[] = [
   {
@@ -54,17 +54,15 @@ const INTRO: Intro[] = [
     color: 'lilac',
     eyebrow: 'Identity',
     title: 'Suits are who you are.',
-    body: 'Body, Heart, Craft and Mind. Every kept day is a vote for that part of you, and enough votes earn it a face card in your Court. Each new face card deals a Joker.',
-    source: PRINCIPLES.identity.source,
+    body: 'Body, Heart, Craft and Mind. Every kept day counts for that part of you, and enough of them earn it a face card in your Court. Each new face card deals a Joker.',
     hint: 'Swipe to keep going',
     art: 'suits',
   },
   {
     color: 'back',
-    eyebrow: 'Never twice',
+    eyebrow: 'The comeback',
     title: 'Missing once is human.',
-    body: 'Miss a day and come back the next, and the missed day still gets its card. Miss twice and it stays empty. There are no streaks here, so nothing ever resets to zero.',
-    source: PRINCIPLES['never-miss-twice'].source,
+    body: 'Miss a day and come back the next, and the missed day still gets its card. Miss two in a row and the first stays empty. There are no streaks here, so nothing ever resets to zero.',
     hint: 'Swipe to build your deck',
   },
 ];
@@ -166,7 +164,6 @@ export default function Onboarding() {
                 {card.art ? <IntroArt art={card.art} /> : null}
                 <Display size={card.art ? 38 : 46} color={ink}>{card.title}</Display>
                 <Body size={card.art ? 16 : 17} weight="semi" color={ink} style={{ opacity: 0.9 }}>{card.body}</Body>
-                {card.source ? <Body size={13} weight="heavy" color={ink} style={{ opacity: 0.6 }}>{card.source}</Body> : null}
               </View>
               <Body weight="heavy" color={ink} style={{ opacity: 0.75 }}>{`${step === 1 ? '↑ ↓' : '↔'}  ${replay && !next ? 'Swipe to get back to the game' : card.hint}`}</Body>
             </View>

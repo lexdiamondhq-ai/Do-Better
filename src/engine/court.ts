@@ -1,8 +1,9 @@
 /**
- * The Court: who you are becoming, one suit at a time. Every habit-day you keep is a vote for the part
- * of you its suit stands for. Enough votes and the suit earns a face card: a Jack for showing up, a
- * Queen for becoming, a King when it's who you are, and an Ace when it's second nature. Votes only add
- * up, so a face card, once earned, is never lost.
+ * The Court: who you are becoming, one suit at a time. Every habit-day you keep counts for the part of
+ * you its suit stands for. Enough of them and the suit earns a face card: a Jack for showing up, a
+ * Queen for becoming, a King when it's who you are, and an Ace when it's second nature. Kept days only
+ * add up, so a face card, once earned, is never lost. The code counts them as `votes`; on screen they
+ * are always kept days.
  */
 
 import { SUITS, type Suit } from './cards';
@@ -39,11 +40,11 @@ export type CourtSuit = {
   suit: Suit;
   votes: number;
   ceilings: number;
-  /** Votes in the last seven days, today included. */
+  /** Kept days in the last seven days, today included. */
   lastWeek: number;
   face: FaceInfo | null;
   next: { face: FaceInfo; needed: number } | null;
-  /** Who the habits in this suit say you are becoming ("a reader", "calm"), most voted first. */
+  /** Who the habits in this suit say you are becoming ("a reader", "calm"), most kept first. */
   identities: string[];
   habitIds: string[];
 };
@@ -54,7 +55,7 @@ export function cleanIdentity(identity: string | null): string | null {
   return label ? label : null;
 }
 
-/** Every suit, in deck order, with its votes and face card. Pass archived habits too: their votes still count. */
+/** Every suit, in deck order, with its kept days and face card. Pass archived habits too: their days still count. */
 export function summarizeCourt(habits: readonly CourtHabit[], checkIns: ReadonlyMap<string, CheckIns>, today: Day): CourtSuit[] {
   const since = addDays(today, -6);
   return SUITS.map((suit) => {
@@ -88,8 +89,8 @@ export function summarizeCourt(habits: readonly CourtHabit[], checkIns: Readonly
 }
 
 /**
- * When each face card was earned: the day its last needed vote came in. That day's card is dealt as a
- * Joker. Several habits in one suit can vote on the same day, and the card belongs to that day.
+ * When each face card was earned: the day the suit reached the kept days it needs. That day's card is
+ * dealt as a Joker. Several habits in one suit can be kept on the same day, and the card belongs to that day.
  */
 export function faceDays(habits: readonly Pick<CourtHabit, 'id' | 'suit'>[], checkIns: ReadonlyMap<string, CheckIns>, upTo: Day): { day: Day; suit: Suit; face: FaceInfo }[] {
   const out: { day: Day; suit: Suit; face: FaceInfo }[] = [];

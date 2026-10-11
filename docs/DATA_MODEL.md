@@ -15,15 +15,16 @@ Written for its own Supabase project, using Dog Better's conventions: `owner_id`
 | Table | One row per | Serves |
 |---|---|---|
 | `profiles` | user | Stores the user's timezone so "today" means their local day. Created by a signup trigger, same as Dog Better. |
-| `habits` | habit | Floor and Ceiling setup. Labels are required ("1 page" / "20 pages"); numeric targets and a unit are optional. `two_minute_label` holds the tiny version the recovery prompt offers. `identity` holds the optional onboarding line. |
+| `habits` | habit | Floor and Ceiling setup. Labels are required ("1 page" / "20 pages"); numeric targets and a unit are optional. `two_minute_label` holds the first move the Comeback card offers. `identity` holds the optional onboarding line. |
 | `habit_days` | habit per day | Daily check-in. `level` is `floor` or `ceiling`. Going from Floor to Ceiling later that day is an upsert on `(habit_id, day)`. |
-| `recovery_prompts` | missed day | Never Twice. Records which day was missed, which day the user is asked to keep, when the prompt was shown, and what they tapped (`floor_only`, `two_minute`, `dismissed`, or nothing). |
+| `recovery_prompts` | missed day | The comeback. Records which day was missed, which day the user is asked to keep, when the prompt was shown, and what they tapped (`floor_only`, `two_minute`, `dismissed`, or nothing). |
 | `hand_calls` | user per week | The hand a user calls on Monday (`pair` up to `royal-flush`). One per week, keyed on the week's Monday; making it or better by Sunday midnight pays the called hand's chips again. |
 
 ## Choices worth knowing
 
 - **A miss is not stored.** A missed day is a day with no check-in once it has ended. The app never writes a "missed" row, so a late sync or a forgotten tap can't leave a fake miss behind. The app detects a miss by finding yesterday empty and then writes a `recovery_prompts` row when it shows the prompt.
 - **"Kept the next day" is computed, not stored.** The `never_twice_outcomes` view joins each prompt to the check-in on its recovery day. `recovery_day_kept` is true when that day has a check-in, false once the day has passed without one, and empty while it is still today.
+- **Some names are older than the app's words.** `two_minute_label`, the `two_minute` response and the `never_twice_outcomes` view keep the names they were made with, so migrations that have already run stay valid. On screen they are the first move and the comeback.
 - **`day` is a plain local date.** The app writes the device's calendar date. `profiles.timezone` is used only by the views to work out today.
 - **Check-ins can't land on someone else's habit.** `habit_days` and `recovery_prompts` reference `habits (id, owner_id)` together, so the owner on the row must match the habit's owner.
 - **The card game is derived, not stored.** Day cards, weekly hands, chips, the Hall of Hands, the Court, card backs and tables are all dealt on the device from `habit_days`, `habits.suit` and `hand_calls`, using a shuffle seeded by the user's id. The same history always deals the same cards on every device, and nothing can drift from the check-ins. Because past days are dealt in their habit's current suit, the app stops a suit from changing once a day before today has been kept with it, so old hands never change. Which unlocked card back and table each player picked is saved on the phone, not in Supabase.
@@ -32,7 +33,7 @@ Written for its own Supabase project, using Dog Better's conventions: `owner_id`
 
 ## Answering the validation question
 
-Do users act on the Never Twice prompt, and does acting help?
+Do users act on the comeback prompt, and does acting help?
 
 ```sql
 select
@@ -47,5 +48,5 @@ where recovery_day_kept is not null;
 ## Left out on purpose
 
 - No streak columns. Streaks are what the app is positioned against, and anything streak-like can be derived from `habit_days`.
-- No reminder or notification tables yet. Those come with the Never Twice trigger in step 3.
+- No reminder or notification tables yet. Those come with the comeback trigger in step 3.
 - No tables for cards, hands, chips or unlocks. They are derived, as above.

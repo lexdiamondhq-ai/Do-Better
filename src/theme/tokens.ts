@@ -66,7 +66,7 @@ export type Theme = {
   dashed: string;
   accent: string;
   onAccent: string;
-  /** The dark side of a card: Never Twice, the backs of cards still to come. */
+  /** The dark side of a card: the Comeback card, the backs of cards still to come. */
   cardBack: string;
   onCardBack: string;
 };

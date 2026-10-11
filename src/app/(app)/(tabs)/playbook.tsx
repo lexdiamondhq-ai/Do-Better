@@ -11,7 +11,7 @@ import { useDeck } from '@/lib/deck';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, radius, space, suitColors } from '@/theme/tokens';
 
-/** Ideas from the habit books, picked for where you are, and ready-made cards for each part of you. */
+/** Do Better's ideas about keeping a habit, picked for where you are, and ready-made cards for each part of you. */
 export default function Playbook() {
   const t = useTheme();
   const router = useRouter();
@@ -37,7 +37,6 @@ export default function Playbook() {
                 <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{r.reason}</Label>
                 <Display size={24} color={t.onCardBack}>{r.principle.title}</Display>
                 <Body size={15} color={t.onCardBack} style={{ opacity: 0.85 }}>{r.principle.tryThis}</Body>
-                <Body size={12} weight="bold" color={t.onCardBack} style={{ opacity: 0.5 }}>{r.principle.source}</Body>
               </Pressable>
             ))}
           </ScrollView>
@@ -45,7 +44,7 @@ export default function Playbook() {
       ) : null}
 
       <Section title="Ready-made cards">
-        <Body size={14} color={t.textSecondary}>Every card belongs to a suit, the part of you it builds. Its kept days are dealt in that suit and vote in its Court.</Body>
+        <Body size={14} color={t.textSecondary}>Every card belongs to a suit, the part of you it builds. Its kept days are dealt in that suit and count in its Court.</Body>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space.xl }} contentContainerStyle={{ paddingHorizontal: space.xl, gap: space.sm }}>
           <Chip label="All" active={suit === 'all'} onPress={() => setSuit('all')} />
           {SUITS.map((k) => (
@@ -87,10 +86,9 @@ export default function Playbook() {
                   <>
                     <Body>{p.idea}</Body>
                     <Body weight="bold">{`Try this: ${p.tryThis}`}</Body>
-                    <Body size={12} weight="bold" color={t.textSecondary}>{p.source}</Body>
                   </>
                 ) : (
-                  <Body size={13} color={t.textSecondary} numberOfLines={1}>{p.source}</Body>
+                  <Body size={13} color={t.textSecondary} numberOfLines={1}>{p.idea}</Body>
                 )}
               </Pressable>
             );

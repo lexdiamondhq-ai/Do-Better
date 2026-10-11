@@ -90,7 +90,7 @@ export default function You() {
 
       <Section title="The Court" action={<Label>{`${faces} of 4 suits crowned`}</Label>}>
         <Body size={14} color={t.textSecondary}>
-          Every kept day is a vote for a part of you. Ten votes earn a suit its Jack, then the Queen, the King and the Ace. Each new face card deals you a Joker.
+          Every kept day counts for a part of you. Ten kept days earn a suit its Jack, then come the Queen, the King and the Ace. Each new face card deals you a Joker.
         </Body>
         <View style={{ gap: space.sm }}>
           {deck.court.map((suit) => (
@@ -175,7 +175,7 @@ export default function You() {
           {[
             { n: deck.totals.kept, label: 'habit-days kept' },
             { n: deck.totals.ceilings, label: 'Ceilings reached' },
-            { n: deck.totals.rescues, label: 'days saved, never twice' },
+            { n: deck.totals.rescues, label: 'days saved by a comeback' },
             { n: deck.totals.jokers, label: 'Jokers dealt' },
           ].map((s) => (
             <View key={s.label} style={{ width: '48.5%', backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg }}>
@@ -232,7 +232,7 @@ function CourtRow({ suit, onFind }: { suit: CourtSuit; onFind: () => void }) {
               <View style={{ width: `${Math.max(3, Math.min(1, progress) * 100)}%`, height: '100%', backgroundColor: color }} />
             </View>
             <Body size={12} weight="bold" color={t.textSecondary}>
-              {`${suit.votes} votes · ${suit.next ? `${suit.next.needed} to the ${suit.next.face.name}` : 'every face earned'}${suit.lastWeek ? ` · +${suit.lastWeek} this week` : ''}`}
+              {`${suit.votes} kept days · ${suit.next ? `${suit.next.needed} to the ${suit.next.face.name}` : 'every face earned'}${suit.lastWeek ? ` · +${suit.lastWeek} this week` : ''}`}
             </Body>
           </>
         )}
