@@ -33,22 +33,29 @@ function Gate() {
   const { session, ready: authReady } = useAuth();
   const [fontsLoaded, fontError] = useFonts({ Fredoka_600SemiBold, Fredoka_700Bold, Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold, Nunito_800ExtraBold });
   // A font that fails to load falls back to the system font rather than blocking the app.
-  const ready = authReady && (fontsLoaded || !!fontError);
+  const fontsReady = fontsLoaded || !!fontError;
+  const ready = authReady && fontsReady;
   const segments = useSegments();
   const router = useRouter();
   const inAuth = segments[0] === '(auth)';
+  // The sketch shows sample cards only, so it opens without an account.
+  const inSketch = segments[0] === 'sketch';
 
   useEffect(() => {
     if (!ready) return;
     SplashScreen.hideAsync();
-    if (!session && !inAuth) router.replace('/sign-in');
+    if (!session && !inAuth && !inSketch) router.replace('/sign-in');
     else if (session && inAuth) router.replace('/');
-  }, [ready, session, inAuth, router]);
+  }, [ready, session, inAuth, inSketch, router]);
 
   return (
     <>
       <StatusBar style={t.scheme === 'dark' ? 'light' : 'dark'} />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }} />
+      <Stack
+        screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }}
+        // Text drawn before its font has loaded keeps the system font, so every screen waits for the fonts.
+        screenLayout={({ children }) => <>{fontsReady ? children : null}</>}
+      />
     </>
   );
 }
