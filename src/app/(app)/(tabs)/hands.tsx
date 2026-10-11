@@ -10,9 +10,8 @@ import { Body, Button, Display, Label, Page, PageTitle, Section } from '@/compon
 import { WeekStrip } from '@/components/WeekStrip';
 import { HAND_KINDS, HANDS, atLeast } from '@/engine/poker';
 import type { Game, HallEntry, Week } from '@/engine/game';
-import { useDeck } from '@/lib/deck';
+import { useDeck, useLook } from '@/lib/deck';
 import { shortDate, weekOf, weekRange } from '@/lib/format';
-import { usePrefs } from '@/lib/prefs';
 import { useTheme } from '@/theme/ThemeProvider';
 import { chip, radius, space } from '@/theme/tokens';
 
@@ -21,7 +20,7 @@ export default function Hands() {
   const t = useTheme();
   const router = useRouter();
   const deck = useDeck();
-  const { prefs } = usePrefs();
+  const { back } = useLook();
   const [allWeeks, setAllWeeks] = useState(false);
   if (!deck) return null;
 
@@ -61,7 +60,7 @@ export default function Hands() {
         ) : null}
       </View>
 
-      <WeekStrip week={current} back={prefs.back} rescue={game.rescue} />
+      <WeekStrip week={current} back={back} rescue={game.rescue} />
 
       <CallPanel game={game} onCall={() => router.push('/call')} />
 
@@ -69,7 +68,7 @@ export default function Hands() {
         <Body size={14} color={t.textSecondary}>Every kind of hand you have finished a week with. Card backs unlock as your best hand climbs.</Body>
         <View style={{ gap: space.sm }}>
           {[...game.hall].reverse().map((entry) => (
-            <HallRow key={entry.kind} entry={entry} back={prefs.back} />
+            <HallRow key={entry.kind} entry={entry} back={back} />
           ))}
         </View>
       </Section>

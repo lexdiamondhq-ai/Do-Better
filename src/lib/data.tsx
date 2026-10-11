@@ -17,7 +17,7 @@ type DataState = { status: 'loading' } | { status: 'error'; message: string } | 
 
 /** Something a check-in caused that's worth a moment on screen. */
 export type GameEvent =
-  /** Today's card changed. `saved` is yesterday's card when the same check-in rescued it. */
+  /** Today's card got better. `saved` is yesterday's card when the same check-in rescued it. */
   | { id: number; kind: 'deal'; deal: DealEvent; saved: DayCard | null }
   | { id: number; kind: 'face'; suit: Suit; face: FaceInfo; identities: string[]; joker: boolean };
 

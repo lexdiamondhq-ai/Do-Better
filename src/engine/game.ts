@@ -306,17 +306,23 @@ function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; cal
 /** What one check-in changed about today: the card before and after, and the hand before and after. */
 export type DealEvent = { card: DayCard; was: DayCard | null; hand: Hand | null; handWas: Hand | null };
 
-function sameCard(a: DayCard | null, b: DayCard | null): boolean {
-  if (!a || !b) return a === b;
-  if (a.kind !== b.kind || a.suits.join() !== b.suits.join()) return false;
-  return a.kind === 'joker' || (b.kind === 'card' && a.rank === b.rank);
+/** Whether a day's card got better: a first card, a Joker, a higher rank, or the same rank in more suits. */
+export function improves(card: DayCard, was: DayCard | null): boolean {
+  if (!was) return true;
+  if (card.kind === 'joker') return was.kind !== 'joker';
+  if (was.kind === 'joker') return false;
+  if (card.rank !== was.rank) return card.rank > was.rank;
+  return card.suits.length > was.suits.length;
 }
 
-/** The deal a check-in caused, from the live week before and after it, or null when today's card didn't change. */
+/**
+ * The deal a check-in caused, from the live week before and after it. Null when today's card didn't get
+ * better, so turning a Ceiling back into a Floor, or keeping more habits on a Joker day, stays quiet.
+ */
 export function dealEvent(before: Week, after: Week): DealEvent | null {
   const was = before.slots.find((s) => s.isToday)?.card ?? null;
   const card = after.slots.find((s) => s.isToday)?.card ?? null;
-  if (!card || sameCard(card, was)) return null;
+  if (!card || !improves(card, was)) return null;
   return { card, was, hand: after.hand, handWas: before.hand };
 }
 

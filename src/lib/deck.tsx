@@ -1,14 +1,15 @@
-import { createContext, useContext, useMemo, type PropsWithChildren } from 'react';
+import { createContext, useCallback, useContext, useMemo, type PropsWithChildren } from 'react';
 
 import { summarizeCourt, type CourtSuit } from '@/engine/court';
 import { addDays, type Day } from '@/engine/day';
 import { tallyDay, tierOf, type DayCard, type Tier } from '@/engine/deal';
-import type { Game } from '@/engine/game';
+import type { BackKey, Game, TableKey } from '@/engine/game';
 import { indexCheckIns, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level } from '@/engine/kept';
 import { ideaOfTheDay, recommend, type Recommendation, type RecommendationContext } from '@/engine/playbook';
 
 import { useData } from './data';
 import { courtHabits, dealHabits, playGameFor } from './play';
+import { usePrefs, type Look } from './prefs';
 import type { Habit, Profile, RecoveryPrompt } from './types';
 
 export type HabitView = {
@@ -134,4 +135,16 @@ export function DeckProvider({ children }: PropsWithChildren) {
 
 export function useDeck(): Deck | null {
   return useContext(DeckContext);
+}
+
+/** The card back and table this player picked. Until a pick is unlocked, the classic back and the kitchen table. */
+export function useLook(): Look & { setLook: (patch: Partial<Look>) => void } {
+  const deck = useDeck();
+  const { seed } = useData();
+  const { prefs, setPrefs } = usePrefs();
+  const picked = prefs.looks[seed];
+  const back: BackKey = picked?.back && deck?.game.backs.has(picked.back) ? picked.back : 'classic';
+  const table: TableKey = picked?.table && deck?.game.tables.has(picked.table) ? picked.table : 'kitchen';
+  const setLook = useCallback((patch: Partial<Look>) => setPrefs((p) => ({ looks: { ...p.looks, [seed]: { ...p.looks[seed], ...patch } } })), [seed, setPrefs]);
+  return { back, table, setLook };
 }

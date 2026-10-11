@@ -16,7 +16,7 @@ import { BACKS, lastShowdown, TABLES, unlocksFor, type BackKey, type TableKey } 
 import { HANDS } from '@/engine/poker';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
-import { useDeck } from '@/lib/deck';
+import { useDeck, useLook } from '@/lib/deck';
 import { weekOf } from '@/lib/format';
 import { usePrefs } from '@/lib/prefs';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -73,6 +73,7 @@ export default function Showdown() {
   const { seed } = useData();
   const { demo } = useAuth();
   const { prefs, setPrefs } = usePrefs();
+  const look = useLook();
   const [phase, setPhase] = useState(0);
   const settle = useSharedValue(0);
   const reveal = useSharedValue(0);
@@ -133,7 +134,7 @@ export default function Showdown() {
           {week.slots.map((slot, i) => (
             <View key={slot.day} style={{ marginLeft: i ? -4 : 0 }}>
               {slot.card ? (
-                <FlipCard face={faceOfDay(slot.card, played.get(slot.day))} back={prefs.back} delay={300 + dealtDays.indexOf(slot.day) * FLIP_GAP} held={played.has(slot.day)} settle={settle} />
+                <FlipCard face={faceOfDay(slot.card, played.get(slot.day))} back={look.back} delay={300 + dealtDays.indexOf(slot.day) * FLIP_GAP} held={played.has(slot.day)} settle={settle} />
               ) : (
                 <CardSlot size="sm" color={t.dashed} />
               )}
@@ -187,7 +188,7 @@ export default function Showdown() {
                 key={key}
                 art={<CardBack back={key} size="xs" />}
                 title={`New card back: ${BACKS.find((b) => b.key === key)?.name}`}
-                action={prefs.back === key ? undefined : { label: 'Use it', onPress: () => setPrefs({ back: key }) }}
+                action={look.back === key ? undefined : { label: 'Use it', onPress: () => look.setLook({ back: key }) }}
               />
             ))}
             {unlocks.tables.map((key) => (
@@ -196,7 +197,7 @@ export default function Showdown() {
                 art={<TableSwatch table={key} />}
                 title={`${TABLES.find((x) => x.key === key)?.name} is open`}
                 body={TABLES.find((x) => x.key === key)?.about}
-                action={prefs.table === key ? undefined : { label: 'Sit down', onPress: () => setPrefs({ table: key }) }}
+                action={look.table === key ? undefined : { label: 'Sit down', onPress: () => look.setLook({ table: key }) }}
               />
             ))}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: space.xs }}>

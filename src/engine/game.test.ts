@@ -171,6 +171,54 @@ describe('dealEvent', () => {
     const week = playLiveWeek(input({ days: { read: keep(W3, 'floor', 3) } }));
     expect(dealEvent(week, week)).toBeNull();
   });
+
+  it('stays quiet when the card gets worse, and announces it when it gets better', () => {
+    const today = '2026-10-07';
+    const week = (seed: string, level: Level) => playLiveWeek(input({ seed, days: { read: { ...keep(W3, 'floor', 2), [today]: level } } }));
+    const rank = (w: Week) => {
+      const card = w.slots[2].card;
+      return card?.kind === 'card' ? card.rank : 0;
+    };
+    let checked = 0;
+    for (let i = 0; i < 40; i++) {
+      // One habit: its Floor deals 2 to Ace and its Ceiling 10 to Ace, so on most seeds the Ceiling is higher.
+      const floor = week(`p-${i}`, 'floor');
+      const ceiling = week(`p-${i}`, 'ceiling');
+      if (rank(floor) === rank(ceiling)) continue;
+      checked++;
+      expect(rank(floor)).toBeLessThan(rank(ceiling));
+      expect(dealEvent(floor, ceiling)?.card.day).toBe(today);
+      expect(dealEvent(ceiling, floor)).toBeNull();
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('announces the same rank in one more suit, and stays quiet when it loses one', () => {
+    const today = '2026-10-07';
+    const craft: DealHabit = { id: 'craft', suit: 'diamonds', startedOn: W1, archivedOn: null };
+    const habits = [read, walk, craft];
+    // One or two of three kept is Showed up either way, so the rank stays and only the suits change.
+    const one = playLiveWeek(input({ habits, days: { read: { [today]: 'floor' } } }));
+    const two = playLiveWeek(input({ habits, days: { read: { [today]: 'floor' }, walk: { [today]: 'floor' } } }));
+    const [a, b] = [one.slots[2].card, two.slots[2].card];
+    expect(a?.kind === 'card' && b?.kind === 'card' && a.rank === b.rank).toBe(true);
+    expect(b?.suits).toEqual(['clubs', 'spades']);
+    expect(dealEvent(one, two)?.was).toEqual(a);
+    expect(dealEvent(two, one)).toBeNull();
+  });
+
+  it('announces a Joker once, not again when more habits are kept that day', () => {
+    const today = '2026-10-07';
+    // Nine Clubs votes so far: keeping Read today earns the Jack, which deals today's Joker.
+    const nine = Object.fromEntries(weekDays(W2).concat(weekDays(W3).slice(0, 2)).map((d) => [d, 'floor' as Level]));
+    const habits = [read, walk];
+    const before = playLiveWeek(input({ habits, days: { read: nine } }));
+    const one = playLiveWeek(input({ habits, days: { read: { ...nine, [today]: 'floor' } } }));
+    const two = playLiveWeek(input({ habits, days: { read: { ...nine, [today]: 'floor' }, walk: { [today]: 'floor' } } }));
+    expect(dealEvent(before, one)?.card.kind).toBe('joker');
+    expect(two.slots[2].card?.kind).toBe('joker');
+    expect(dealEvent(one, two)).toBeNull();
+  });
 });
 
 describe('showdown', () => {

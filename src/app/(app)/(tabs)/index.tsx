@@ -16,9 +16,8 @@ import { recentDays } from '@/engine/kept';
 import { atLeast, HANDS } from '@/engine/poker';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
-import { useDeck, type Deck, type HabitView } from '@/lib/deck';
+import { useDeck, useLook, type Deck, type HabitView } from '@/lib/deck';
 import { longDate } from '@/lib/format';
-import { usePrefs } from '@/lib/prefs';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, chip, radius, space } from '@/theme/tokens';
 
@@ -32,7 +31,7 @@ export default function Today() {
   const router = useRouter();
   const deck = useDeck();
   const { demo } = useAuth();
-  const { prefs } = usePrefs();
+  const { back } = useLook();
   const { checkIn, undoCheckIn, recordPrompt } = useData();
   // Cards swiped sideways go to the back of the deck for the rest of the session.
   const [deferred, setDeferred] = useState<string[]>([]);
@@ -121,7 +120,7 @@ export default function Today() {
       {total > 0 ? (
         <>
           <View style={{ paddingHorizontal: space.xl, marginTop: space.md }}>
-            <WeekStrip week={game.current} back={prefs.back} rescue={game.rescue} onPress={() => router.push('/hands')} />
+            <WeekStrip week={game.current} back={back} rescue={game.rescue} onPress={() => router.push('/hands')} />
           </View>
 
           <View style={{ marginHorizontal: space.xl, marginTop: space.md, flexDirection: 'row', alignItems: 'center', gap: space.md }}>

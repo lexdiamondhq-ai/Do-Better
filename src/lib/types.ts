@@ -15,6 +15,8 @@ export type Habit = {
   color: CardColor;
   /** The part of you it builds, and the suit its days are dealt in. */
   suit: Suit;
+  /** False for a habit made before suits existed: its suit is a guess until the card is next saved. */
+  suitSet: boolean;
   anchor: string | null;
   whenWhere: string | null;
   why: string | null;
@@ -68,8 +70,9 @@ export function habitFromRow(r: Row): Habit {
     ceilingLabel: String(r.ceiling_label),
     twoMinuteLabel: str(r.two_minute_label),
     color: isCardColor(r.color) ? r.color : 'tomato',
-    // Habits made before suits existed get a best guess until they are edited.
+    // Habits made before suits existed get a best guess until they are saved.
     suit: isSuit(r.suit) ? r.suit : inferSuit(String(r.name), str(r.identity)),
+    suitSet: isSuit(r.suit),
     anchor: str(r.anchor),
     whenWhere: str(r.when_where),
     why: str(r.why),

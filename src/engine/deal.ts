@@ -10,9 +10,10 @@
  * The suits are the suits of the habits you kept, so a day you read and walked counts as Clubs and Spades.
  *
  * A blank day (habits running, nothing kept) deals nothing, unless you come back the next day: then it is
- * rescued with a low card, 2 to Queen. Miss twice in a row and the first day stays empty. That is Never
- * Twice as a rule of the game. A rescued card is never better than keeping the day would have been, so
- * skipping a day never pays. Sunday can't be rescued, because the hand is settled at midnight.
+ * rescued with a low card, 2 to Queen, in one suit: the leading suit of the day you came back. Miss twice
+ * in a row and the first day stays empty. That is Never Twice as a rule of the game. A rescued card is
+ * exactly what keeping one habit in that suit would have dealt, and keeping it would also have voted in
+ * the Court, so skipping a day never pays. Sunday can't be rescued, because the hand is settled at midnight.
  *
  * The day you earn a face card in the Court, that day's card is dealt as a Joker, which plays as any card.
  * One Joker a week at most, so a burst of face cards in the same week can't stack them.
@@ -78,6 +79,8 @@ type DayTally = {
   counted: number;
   kept: number;
   ceilings: number;
+  /** Habits started that day and kept at the Floor. They join "everything" only by being kept. */
+  freshFloors: number;
   /** Suits of the kept habits, strongest first (a Ceiling outweighs a Floor), then in deck order. */
   suits: Suit[];
   /** At least one habit was running before this day, so a day with nothing kept is a real blank. */
@@ -98,6 +101,7 @@ export function tallyDay(day: Day, habits: readonly DealHabit[], checkIns: Reado
   let counted = 0;
   let kept = 0;
   let ceilings = 0;
+  let freshFloors = 0;
   let running = false;
   const weight = new Map<Suit, number>();
   const order: Suit[] = [];
@@ -110,19 +114,33 @@ export function tallyDay(day: Day, habits: readonly DealHabit[], checkIns: Reado
     if (!level) continue;
     kept++;
     if (level === 'ceiling') ceilings++;
+    else if (!before) freshFloors++;
     if (!weight.has(h.suit)) order.push(h.suit);
     weight.set(h.suit, (weight.get(h.suit) ?? 0) + (level === 'ceiling' ? 2 : 1));
   }
   const suits = order.map((s, i) => ({ s, i })).sort((a, b) => (weight.get(b.s) ?? 0) - (weight.get(a.s) ?? 0) || a.i - b.i).map((x) => x.s);
-  return { counted, kept, ceilings, suits, running };
+  return { counted, kept, ceilings, freshFloors, suits, running };
 }
 
-export function tierOf(t: Pick<DayTally, 'counted' | 'kept' | 'ceilings'>): Tier | null {
-  if (t.kept === 0) return null;
-  if (t.kept < t.counted) return 'showed-up';
-  if (t.ceilings === t.kept) return 'perfect';
-  if (t.ceilings > 0) return 'reached-up';
+function tierFrom(counted: number, kept: number, ceilings: number): Tier | null {
+  if (kept === 0) return null;
+  if (kept < counted) return 'showed-up';
+  if (ceilings === kept) return 'perfect';
+  if (ceilings > 0) return 'reached-up';
   return 'kept-all';
+}
+
+/**
+ * The tier a day deals from. A habit started that day and kept at its Floor is judged both ways and the
+ * better tier wins, so keeping a brand-new card can't pull a perfect day down to "reached up".
+ */
+export function tierOf(t: Pick<DayTally, 'counted' | 'kept' | 'ceilings'> & { freshFloors?: number }): Tier | null {
+  const tier = tierFrom(t.counted, t.kept, t.ceilings);
+  const fresh = t.freshFloors ?? 0;
+  if (!fresh) return tier;
+  const without = tierFrom(t.counted - fresh, t.kept - fresh, t.ceilings);
+  const rank = (x: Tier | null) => (x ? TIER_ORDER.indexOf(x) : -1);
+  return rank(without) > rank(tier) ? without : tier;
 }
 
 /** A past day with habits running and nothing kept. Days before your first habit are never blank. */
@@ -139,9 +157,9 @@ export function dealDay(day: Day, habits: readonly DealHabit[], checkIns: Readon
   return { kind: 'card', day, rank: rankFor(tier, unit(`${seed}:${day}`)), suits: t.suits, tier, rescued: false };
 }
 
-/** The low card a blank day gets when you come back the next day, in the suits you came back with. */
-export function rescueCard(day: Day, seed: string, suits: readonly Suit[]): DayCard {
-  return { kind: 'card', day, rank: rankFor('showed-up', unit(`${seed}:${day}`)), suits: [...suits], tier: 'showed-up', rescued: true };
+/** The low card a blank day gets when you come back the next day, in the leading suit you came back with. */
+export function rescueCard(day: Day, seed: string, suit: Suit): DayCard {
+  return { kind: 'card', day, rank: rankFor('showed-up', unit(`${seed}:${day}`)), suits: [suit], tier: 'showed-up', rescued: true };
 }
 
 export type SlotState = 'before' | 'blank' | 'open' | 'future' | 'dealt';
@@ -179,7 +197,7 @@ export function dealWeek(
   // Sunday is never followed by a day of the same week, so it can't be rescued.
   for (let i = 0; i < slots.length - 1; i++) {
     const next = slots[i + 1].card;
-    if (slots[i].state === 'blank' && next) slots[i] = { ...slots[i], state: 'dealt', card: rescueCard(slots[i].day, seed, next.suits) };
+    if (slots[i].state === 'blank' && next) slots[i] = { ...slots[i], state: 'dealt', card: rescueCard(slots[i].day, seed, next.suits[0]) };
   }
   return slots;
 }

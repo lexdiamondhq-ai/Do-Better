@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Suit } from './cards';
-import { dealDay, dealWeek, isBlank, rankFor, rescueWaiting, TIER_ORDER, TIERS, tallyDay, tierOf, unit, type DealHabit } from './deal';
+import { dealDay, dealWeek, isBlank, rankFor, rescueWaiting, TIER_ORDER, TIERS, tallyDay, tierOf, unit, type DayCard, type DealHabit } from './deal';
 import type { CheckIns, Level } from './kept';
 
 const habit = (id: string, suit: Suit, startedOn = '2026-09-01', archivedOn: string | null = null): DealHabit => ({ id, suit, startedOn, archivedOn });
@@ -111,6 +111,24 @@ describe('dealDay', () => {
     }
   });
 
+  it('never lowers a perfect day when a habit started that day is kept at its Floor', () => {
+    const fresh = [habit('read', 'clubs', MON), habit('walk', 'spades', MON)];
+    for (let i = 0; i < 200; i++) {
+      const seed = `person-${i}`;
+      const alone = dealDay(MON, fresh, log({ read: { [MON]: 'ceiling' } }), seed);
+      const both = dealDay(MON, fresh, log({ read: { [MON]: 'ceiling' }, walk: { [MON]: 'floor' } }), seed);
+      expect(alone?.kind === 'card' && alone.tier).toBe('perfect');
+      expect(both?.kind === 'card' && both.tier).toBe('perfect');
+      expect(both?.kind === 'card' && alone?.kind === 'card' && both.rank >= alone.rank).toBe(true);
+      expect(both?.suits).toEqual(['clubs', 'spades']);
+    }
+  });
+
+  it('still asks habits that were already running to reach their Ceiling for a perfect day', () => {
+    const t = tallyDay(MON, [habit('read', 'clubs'), habit('walk', 'spades')], log({ read: { [MON]: 'ceiling' }, walk: { [MON]: 'floor' } }));
+    expect(tierOf(t)).toBe('reached-up');
+  });
+
   it('can preview a check-in without saving it', () => {
     const card = dealDay(MON, [habit('read', 'clubs')], log({}), 'me', { habitId: 'read', level: 'ceiling' });
     expect(card?.kind === 'card' && card.tier).toBe('perfect');
@@ -133,6 +151,20 @@ describe('dealWeek', () => {
     expect(saved?.kind === 'card' && saved.rescued).toBe(true);
     expect(saved?.kind === 'card' && saved.rank).toBeLessThanOrEqual(TIERS['showed-up'].hi);
     expect(saved?.suits).toEqual(['clubs']);
+  });
+
+  it('gives a rescued day one suit, the leading suit of the day you came back', () => {
+    const four = [habit('read', 'clubs', MON), habit('walk', 'spades', MON), habit('call', 'hearts', MON), habit('work', 'diamonds', MON)];
+    const back = { '2026-10-07': 'floor' as const };
+    const checkIns = log({ read: { '2026-10-05': 'floor', ...back }, walk: { '2026-10-07': 'ceiling' }, call: back, work: back });
+    const slots = dealWeek(MON, '2026-10-08', four, checkIns, 'me');
+    expect(slots[1].card?.kind === 'card' && slots[1].card.rescued).toBe(true);
+    expect(slots[1].card?.suits).toEqual(['spades']);
+    // Keeping one Spades habit that day would have dealt the very same card.
+    const kept = dealWeek(MON, '2026-10-08', four, log({ read: { '2026-10-05': 'floor', ...back }, walk: { '2026-10-06': 'floor', '2026-10-07': 'ceiling' }, call: back, work: back }), 'me');
+    const rankOf = (card: DayCard | null) => (card?.kind === 'card' ? card.rank : 0);
+    expect(rankOf(kept[1].card)).toBe(rankOf(slots[1].card));
+    expect(kept[1].card?.suits).toEqual(['spades']);
   });
 
   it('leaves the first of two missed days in a row empty', () => {

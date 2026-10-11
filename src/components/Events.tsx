@@ -5,6 +5,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSequence, wi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SUIT_INFO } from '@/engine/cards';
+import { improves } from '@/engine/game';
 import { HANDS } from '@/engine/poker';
 import { useData, type GameEvent } from '@/lib/data';
 import { cardFace, chip, space } from '@/theme/tokens';
@@ -32,7 +33,9 @@ export function GameEvents({ back }: { back: Parameters<typeof CardBack>[0]['bac
     run.push(e);
   }
   const last = run[run.length - 1];
-  const shown: DealShown = { ...last, deal: { ...last.deal, was: run[0].deal.was }, saved: run.find((e) => e.saved)?.saved ?? null };
+  // Flip from the card before the whole run, unless a quiet step down in between makes that look like a loss.
+  const was = improves(last.deal.card, run[0].deal.was) ? run[0].deal.was : last.deal.was;
+  const shown: DealShown = { ...last, deal: { ...last.deal, was }, saved: run.find((e) => e.saved)?.saved ?? null };
   return <DealToast key={last.id} event={shown} back={back} onDone={() => run.forEach((e) => dismissEvent(e.id))} />;
 }
 
@@ -60,8 +63,8 @@ function DealToast({ event, back, onDone }: { event: DealShown; back: Parameters
   const front = useAnimatedStyle(() => ({ transform: [{ perspective: 600 }, { rotateY: `${180 - flip.get() * 180}deg` }] }));
   const behind = useAnimatedStyle(() => ({ transform: [{ perspective: 600 }, { rotateY: `${-flip.get() * 180}deg` }] }));
 
-  const upgraded = !!was;
-  const title = card.kind === 'joker' ? 'A Joker!' : upgraded ? 'Today’s card went up' : 'Today’s card';
+  const wentUp = was?.kind === 'card' && card.kind === 'card' && card.rank > was.rank;
+  const title = card.kind === 'joker' ? 'A Joker!' : wentUp ? 'Today’s card went up' : 'Today’s card';
   const better = !!hand && !!handWas && hand.score > handWas.score;
   const handLine = !hand ? '' : !better ? `Your hand: ${hand.title}.` : hand.title === handWas?.title ? `Your ${hand.title} just got stronger.` : `Your hand is now ${hand.title}.`;
   const savedLine = event.saved ? ' Yesterday’s card was saved too.' : '';

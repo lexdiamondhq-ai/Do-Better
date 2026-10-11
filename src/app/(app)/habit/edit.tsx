@@ -36,7 +36,7 @@ export default function EditHabit() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id, recipe } = useLocalSearchParams<{ id?: string; recipe?: string }>();
-  const { state, createHabit, updateHabit, archiveHabit } = useData();
+  const { state, today, createHabit, updateHabit, archiveHabit } = useData();
   const existing = state.status === 'ready' && id ? state.habits.find((h) => h.id === id) : undefined;
   const fromRecipe = existing ? undefined : RECIPES.find((x) => x.key === recipe);
 
@@ -55,7 +55,18 @@ export default function EditHabit() {
   const color = colorPicked ? draft.color : suitColors[suit].habit;
   const final: HabitDraft = { ...draft, suit, color };
   const problem = draftProblem(final);
-  const resuited = !!existing && existing.suit !== suit;
+  // Once a day before today has been dealt, a new suit would change hands already played. Only a suit
+  // that was guessed, on a card made before suits existed, can still be picked, and then only once.
+  const played = !!existing && state.status === 'ready' && state.days.some((d) => d.habitId === existing.id && d.day < today);
+  const suitLocked = played && !!existing?.suitSet;
+  const guessed = played && existing?.suitSet === false;
+  const suitLabel = suitLocked
+    ? 'Suit · set once its days were dealt'
+    : guessed
+      ? 'Suit · guessed, pick the one that fits'
+      : suitPicked
+        ? 'Suit · the part of you it builds'
+        : 'Suit · guessed from the name, tap to choose';
 
   const preview: Habit = {
     id: 'preview',
@@ -66,6 +77,7 @@ export default function EditHabit() {
     twoMinuteLabel: draft.twoMinuteLabel || null,
     color,
     suit,
+    suitSet: true,
     anchor: draft.anchor || null,
     whenWhere: draft.whenWhere || null,
     why: draft.why || null,
@@ -128,7 +140,7 @@ export default function EditHabit() {
         <Field label="Name" value={draft.name} onChangeText={(name) => set({ name })} placeholder="Read" autoFocus={!existing && !recipe} />
 
         <View style={{ gap: space.sm }}>
-          <Label>{suitPicked ? 'Suit · the part of you it builds' : 'Suit · guessed from the name, tap to choose'}</Label>
+          <Label>{suitLabel}</Label>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }} accessibilityRole="radiogroup" accessibilityLabel="Suit">
             {SUITS.map((s) => {
               const on = suit === s;
@@ -137,14 +149,15 @@ export default function EditHabit() {
                 <Pressable
                   key={s}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected: on }}
+                  accessibilityState={{ selected: on, disabled: suitLocked }}
                   accessibilityLabel={`${info.name}, ${info.part}. ${info.about}`}
+                  disabled={suitLocked}
                   onPress={() => {
                     Haptics.selectionAsync();
                     setSuitPicked(true);
                     set({ suit: s });
                   }}
-                  style={{ width: '48.5%', borderRadius: radius.md, padding: space.md, gap: 4, backgroundColor: on ? suitColors[s].glyph : t.bgRaised }}
+                  style={{ width: '48.5%', borderRadius: radius.md, padding: space.md, gap: 4, backgroundColor: on ? suitColors[s].glyph : t.bgRaised, opacity: suitLocked && !on ? 0.4 : 1 }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
                     <SuitGlyph suit={s} size={20} color={on ? '#FFFFFF' : undefined} />
@@ -155,9 +168,13 @@ export default function EditHabit() {
               );
             })}
           </View>
-          {resuited ? (
+          {suitLocked ? (
             <Body size={13} weight="bold" color={t.textSecondary}>
-              {`Its past days will be dealt again as ${SUIT_INFO[suit].name}, so old hands can change.`}
+              A suit is set once its days are dealt, so your past hands never change. To build another part of you, archive this card and start a new one.
+            </Body>
+          ) : guessed ? (
+            <Body size={13} weight="bold" color={t.textSecondary}>
+              This card was made before suits, so its suit is a guess. When you save, its past days are dealt in the suit you pick, and the suit is set for good.
             </Body>
           ) : null}
         </View>

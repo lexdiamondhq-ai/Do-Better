@@ -14,8 +14,7 @@ import { BACKS, TABLES, type TableKey } from '@/engine/game';
 import { HANDS } from '@/engine/poker';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
-import { useDeck } from '@/lib/deck';
-import { usePrefs } from '@/lib/prefs';
+import { useDeck, useLook } from '@/lib/deck';
 import { supabase } from '@/lib/supabase';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fonts, radius, space, suitColors, themes, tables } from '@/theme/tokens';
@@ -26,7 +25,7 @@ export default function You() {
   const router = useRouter();
   const deck = useDeck();
   const { demo, endDemo } = useAuth();
-  const { prefs, setPrefs } = usePrefs();
+  const { back: myBack, table: myTable, setLook } = useLook();
   const { saveProfile } = useData();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -50,7 +49,7 @@ export default function You() {
 
   function pickTable(key: TableKey) {
     Haptics.selectionAsync();
-    setPrefs({ table: key });
+    setLook({ table: key });
   }
 
   return (
@@ -109,8 +108,8 @@ export default function You() {
         <View style={{ gap: space.sm }}>
           {TABLES.map((table) => {
             const open = game.tables.has(table.key);
-            const on = prefs.table === table.key || (!game.tables.has(prefs.table) && table.key === 'kitchen');
-            const look = table.key === 'kitchen' ? (t.scheme === 'dark' && prefs.table === 'kitchen' ? themes.dark : themes.light) : tables[table.key];
+            const on = myTable === table.key;
+            const look = table.key === 'kitchen' ? (t.scheme === 'dark' && on ? themes.dark : themes.light) : tables[table.key];
             return (
               <Pressable
                 key={table.key}
@@ -139,7 +138,7 @@ export default function You() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space.xl }} contentContainerStyle={{ paddingHorizontal: space.xl, gap: space.md }}>
           {BACKS.map((b) => {
             const open = game.backs.has(b.key);
-            const on = prefs.back === b.key;
+            const on = myBack === b.key;
             const secret = HANDS[b.hand].secret && !open;
             return (
               <Pressable
@@ -150,7 +149,7 @@ export default function You() {
                 accessibilityState={{ selected: on, disabled: !open }}
                 onPress={() => {
                   Haptics.selectionAsync();
-                  setPrefs({ back: b.key });
+                  setLook({ back: b.key });
                 }}
                 style={{ alignItems: 'center', gap: 6, width: 84 }}
               >

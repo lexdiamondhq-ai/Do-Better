@@ -6,8 +6,7 @@ import { GameEvents } from '@/components/Events';
 import { useAuth } from '@/lib/auth';
 import { supabaseBackend } from '@/lib/backend';
 import { DataProvider } from '@/lib/data';
-import { DeckProvider, useDeck } from '@/lib/deck';
-import { usePrefs } from '@/lib/prefs';
+import { DeckProvider, useLook } from '@/lib/deck';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 
 export default function AppLayout() {
@@ -29,15 +28,13 @@ export default function AppLayout() {
 
 /** The table the player picked, once their stack has opened it. Until then, the kitchen table. */
 function Table({ children }: PropsWithChildren) {
-  const deck = useDeck();
-  const { prefs } = usePrefs();
-  const table = deck?.game.tables.has(prefs.table) ? prefs.table : 'kitchen';
+  const { table } = useLook();
   return <ThemeProvider table={table}>{children}</ThemeProvider>;
 }
 
 function Screens() {
   const t = useTheme();
-  const { prefs } = usePrefs();
+  const { back } = useLook();
   return (
     <>
       <StatusBar style={t.scheme === 'dark' ? 'light' : 'dark'} />
@@ -49,7 +46,7 @@ function Screens() {
         <Stack.Screen name="showdown" options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }} />
         <Stack.Screen name="onboarding" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
       </Stack>
-      <GameEvents back={prefs.back} />
+      <GameEvents back={back} />
     </>
   );
 }

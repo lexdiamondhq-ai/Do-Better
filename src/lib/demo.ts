@@ -49,6 +49,7 @@ function buildHistory(today: Day): { habits: Habit[]; days: HabitDay[] } {
       twoMinuteLabel: r.twoMinute,
       color: suitColors[r.suit].habit,
       suit: r.suit,
+      suitSet: true,
       anchor: r.anchor,
       whenWhere: null,
       why: r.why,
@@ -142,6 +143,7 @@ export function createDemoBackend(today: Day): Backend {
     async createHabit(draft, startedOn, position) {
       const habit: Habit = {
         ...draft,
+        suitSet: true,
         id: `demo-${Date.now()}`,
         identity: draft.identity.trim() || null,
         twoMinuteLabel: draft.twoMinuteLabel.trim() || null,
@@ -161,6 +163,7 @@ export function createDemoBackend(today: Day): Backend {
       const habit: Habit = {
         ...old,
         ...draft,
+        suitSet: true,
         identity: draft.identity.trim() || null,
         twoMinuteLabel: draft.twoMinuteLabel.trim() || null,
         anchor: draft.anchor.trim() || null,
