@@ -13,6 +13,8 @@ Alex also wants Do Better to stand on its own, with no book or author names and 
    It is the swipe, the print, the flip, and the tilt, with sample cards and no saved data.
    Proof: the three checks pass, the bundle builds, the simulator shows the print and flip, and Alex opens `/sketch` from the QR code.
    The tilt shine is not proven until Alex sees it move on the phone, because the simulator has no motion sensor.
+   Proven on 2026-10-11 in the iPhone 17 Pro simulator: the feed-out and the flip, the matte Floor and the foil Ceiling, two card colours, light and dark, and two held tilts.
+   Still open: Alex opening it on the phone, a real finger swipe, and the phone's tilt moving the shine.
 2. [ ] Alex says how the sketch feels.
    Proof: Alex's reply.
 3. [ ] Own words everywhere.
@@ -43,5 +45,9 @@ Alex also wants Do Better to stand on its own, with no book or author names and 
 - The tilt uses Reanimated's own sensor hook, so there is no extra package and no permission prompt on iPhone.
 - `src/app/sketch.tsx` and the sign-in exception for it in `src/app/_layout.tsx` are throwaway.
   Remove both when step 5 puts the print moment on the Today screen.
+- The font wait in `src/app/_layout.tsx` (`screenLayout`) is a real fix and stays.
+  Without it, a screen opened straight from a link drew its first text in the system font.
+- In the simulator, use iPhone 17 Pro.
+  The iPhone 17 simulator hung on installing and launching apps on 2026-10-11.
 - The sketch opens without an account, and accepts `?auto=ceiling` or `?auto=floor` plus `tx`, `ty`, and `card` so it can be checked without touching the screen.
 - The dev server runs with `npx expo start --tunnel --go --port 8082`.
