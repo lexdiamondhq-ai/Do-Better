@@ -8,7 +8,7 @@ import { radius, space } from '@/theme/tokens';
 
 import { Body } from './ui';
 
-const LABELS: Record<string, string> = { index: 'Today', pile: 'Pile', you: 'You', playbook: 'Playbook' };
+const LABELS: Record<string, string> = { index: 'Today', hands: 'Hands', you: 'You', playbook: 'Playbook' };
 
 /** A floating ink pill. The active tab is a raised chip inside it. */
 export function TabBar({ state, navigation }: BottomTabBarProps) {

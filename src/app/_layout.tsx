@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { PrefsProvider } from '@/lib/prefs';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 
 SplashScreen.preventAutoHideAsync();
@@ -18,19 +19,25 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AuthProvider>
-            <Gate />
-          </AuthProvider>
+          <PrefsProvider>
+            <AuthProvider>
+              <Gate />
+            </AuthProvider>
+          </PrefsProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
 
-/** Sends signed-out users to sign-in and signed-in users into the app, once the stored session and the fonts are ready. */
+/**
+ * Sends signed-out users to sign-in and signed-in users into the app, once the stored session and the
+ * fonts are ready. Someone trying the demo deck counts as signed in.
+ */
 function Gate() {
   const t = useTheme();
-  const { session, ready: authReady } = useAuth();
+  const { session, demo, ready: authReady } = useAuth();
+  const signedIn = !!session || !!demo;
   const [fontsLoaded, fontError] = useFonts({ Fredoka_600SemiBold, Fredoka_700Bold, Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold, Nunito_800ExtraBold });
   // A font that fails to load falls back to the system font rather than blocking the app.
   const ready = authReady && (fontsLoaded || !!fontError);
@@ -41,9 +48,9 @@ function Gate() {
   useEffect(() => {
     if (!ready) return;
     SplashScreen.hideAsync();
-    if (!session && !inAuth) router.replace('/sign-in');
-    else if (session && inAuth) router.replace('/');
-  }, [ready, session, inAuth, router]);
+    if (!signedIn && !inAuth) router.replace('/sign-in');
+    else if (signedIn && inAuth) router.replace('/');
+  }, [ready, signedIn, inAuth, router]);
 
   return (
     <>

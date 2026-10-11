@@ -1,11 +1,24 @@
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 
+import { SUIT_INFO } from '@/engine/cards';
 import type { Level } from '@/engine/kept';
 import type { Habit } from '@/lib/types';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, radius, space } from '@/theme/tokens';
 
+import { SuitGlyph } from './Suit';
 import { Body, Display, Label } from './ui';
+
+/** "♣ MIND · I'm a reader": the part of you this card deals for, and who it says you are. */
+function Identity({ habit, ink }: { habit: Habit; ink: string }) {
+  const who = habit.identity ? ` · I'm ${habit.identity.replace(/^(i am|i'm)\s+/i, '')}` : '';
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      <SuitGlyph suit={habit.suit} size={14} color={ink} />
+      <Label color={ink} style={{ opacity: 0.8, flexShrink: 1 }}>{`${SUIT_INFO[habit.suit].part}${who}`}</Label>
+    </View>
+  );
+}
 
 function Direction({ arrow, label, value, ink, circleBg, circleFg }: { arrow: string; label: string; value: string; ink: string; circleBg: string; circleFg: string }) {
   return (
@@ -29,7 +42,7 @@ export function HabitCard({ habit, level, subtitle, style }: { habit: Habit; lev
     <View style={[{ flex: 1, backgroundColor: c.bg, borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }, style]}>
       <Direction arrow="↑" label={upgraded ? 'Swipe up · reach the Ceiling' : 'Swipe up · Ceiling'} value={habit.ceilingLabel} ink={c.ink} circleBg="#17121F" circleFg={c.bg} />
       <View style={{ gap: space.sm }}>
-        {habit.identity ? <Label color={c.ink} style={{ opacity: 0.75 }}>{`I'm ${habit.identity.replace(/^(i am|i'm)\s+/i, '')}`}</Label> : null}
+        <Identity habit={habit} ink={c.ink} />
         <Display size={habit.name.length > 12 ? 44 : 58} color={c.ink} numberOfLines={3}>{habit.name}</Display>
         {subtitle ? <Body weight="bold" size={15} color={c.ink} style={{ opacity: 0.85 }}>{subtitle}</Body> : null}
         {habit.anchor ? <Body size={14} color={c.ink} style={{ opacity: 0.8 }}>{habit.anchor}{habit.whenWhere ? ` · ${habit.whenWhere}` : ''}</Body> : null}
@@ -46,7 +59,7 @@ export function HabitCard({ habit, level, subtitle, style }: { habit: Habit; lev
 }
 
 /** The dark side of a card, shown the morning after a miss. */
-export function NeverTwiceCard({ habit, week, style }: { habit: Habit; week: ('kept' | 'ceiling' | 'missed' | 'today' | 'none')[]; style?: StyleProp<ViewStyle> }) {
+export function NeverTwiceCard({ habit, week, saving, style }: { habit: Habit; week: ('kept' | 'ceiling' | 'missed' | 'today' | 'none')[]; saving?: boolean; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
   const c = cardColors[habit.color];
   return (
@@ -73,12 +86,14 @@ export function NeverTwiceCard({ habit, week, style }: { habit: Habit; week: ('k
       </View>
       <View style={{ gap: space.sm }}>
         <Display size={48} color={c.bg === '#17614B' ? '#B5D6CB' : c.bg}>Yesterday got away.</Display>
-        <Body weight="bold" size={16} color={t.onCardBack}>Once is fine. Don’t make it two.</Body>
+        <Body weight="bold" size={16} color={t.onCardBack}>
+          {saving ? 'Once is fine. Keep this today and yesterday still gets its card.' : 'Once is fine. Don’t make it two.'}
+        </Body>
       </View>
       <View style={{ gap: space.md }}>
         {habit.twoMinuteLabel ? (
           <View style={{ borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)', borderRadius: radius.pill, paddingVertical: 12, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', gap: space.md }}>
-            <Body weight="bold" size={14} color={t.onCardBack}>Tap for 2 minutes</Body>
+            <Body weight="bold" size={14} color={t.onCardBack} style={{ flexShrink: 0 }}>Tap for 2 minutes</Body>
             <Body size={14} color={t.onCardBack} style={{ opacity: 0.7, flexShrink: 1, textAlign: 'right' }} numberOfLines={1}>{habit.twoMinuteLabel}</Body>
           </View>
         ) : null}

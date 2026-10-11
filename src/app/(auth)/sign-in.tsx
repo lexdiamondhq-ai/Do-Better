@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PlayingCard } from '@/components/PlayingCard';
 import { Body, Button, Display, Label } from '@/components/ui';
+import { useAuth } from '@/lib/auth';
 import { sendEmailCode, signInAsGuest, signInWithApple, verifyEmailCode } from '@/lib/signIn';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, fonts, radius, space, type CardColor } from '@/theme/tokens';
@@ -23,6 +25,7 @@ const APPLE = Platform.OS === 'ios' && Constants.executionEnvironment !== Execut
 export default function SignIn() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
+  const { startDemo } = useAuth();
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
@@ -73,11 +76,13 @@ export default function SignIn() {
               </View>
             );
           })}
+          <PlayingCard face={{ kind: 'card', rank: 14, suit: 'hearts' }} size="md" style={{ position: 'absolute', transform: [{ translateX: 96 }, { translateY: 92 }, { rotate: '18deg' }] }} />
+          <PlayingCard face={{ kind: 'joker' }} size="md" style={{ position: 'absolute', transform: [{ translateX: -100 }, { translateY: 100 }, { rotate: '-16deg' }] }} />
         </View>
 
         <View style={{ gap: space.sm }}>
           <Display size={44}>Keep the Floor.{'\n'}Reach for the Ceiling.</Display>
-          <Body color={t.textSecondary}>A habit deck for people who want to get better without starting over every Monday.</Body>
+          <Body color={t.textSecondary}>Every day you keep your habits deals you a card. Every week is a poker hand. No streaks to lose, ever.</Body>
         </View>
 
         {__DEV__ ? <Button label="Try it as a guest" busy={busy} onPress={() => run(signInAsGuest)} /> : null}
@@ -116,6 +121,8 @@ export default function SignIn() {
         />
 
         {error ? <Body size={14} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>{error}</Body> : null}
+
+        <Button label="Just looking? Play a demo deck" variant="quiet" onPress={startDemo} />
       </View>
     </KeyboardAvoidingView>
   );

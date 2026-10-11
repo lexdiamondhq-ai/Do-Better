@@ -1,12 +1,14 @@
-import { useMemo } from 'react';
+import { createContext, useContext, useMemo, type PropsWithChildren } from 'react';
 
-import { evaluateAchievements, nextUp, type EarnedState, type Metrics } from '@/engine/achievements';
+import { summarizeCourt, type CourtSuit } from '@/engine/court';
 import { addDays, type Day } from '@/engine/day';
-import { summarizeIdentities, type IdentitySummary } from '@/engine/identity';
+import { tallyDay, tierOf, type DayCard, type Tier } from '@/engine/deal';
+import type { Game } from '@/engine/game';
 import { indexCheckIns, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level } from '@/engine/kept';
 import { ideaOfTheDay, recommend, type Recommendation, type RecommendationContext } from '@/engine/playbook';
 
 import { useData } from './data';
+import { courtHabits, dealHabits, playGameFor } from './play';
 import type { Habit, Profile, RecoveryPrompt } from './types';
 
 export type HabitView = {
@@ -22,24 +24,27 @@ export type HabitView = {
 export type Deck = {
   today: Day;
   profile: Profile;
-  /** Active cards in deck order. */
+  /** Active habits in deck order. */
   cards: HabitView[];
   archived: Habit[];
-  identities: IdentitySummary[];
-  achievements: EarnedState[];
-  metrics: Metrics;
-  closest: EarnedState[];
+  game: Game;
+  /** Today's card so far, and the tier it was dealt from. */
+  todayCard: DayCard | null;
+  todayTier: Tier | null;
+  /** Every suit, in deck order, with its votes and face card. */
+  court: CourtSuit[];
   recommendations: Recommendation[];
   idea: Recommendation;
   keptToday: number;
   prompts: RecoveryPrompt[];
+  totals: { kept: number; ceilings: number; rescues: number; jokers: number };
 };
 
 const EMPTY: CheckIns = new Map();
 
 /** Everything the screens show, derived from the loaded rows. Null until the data has loaded. */
-export function useDeck(): Deck | null {
-  const { state, today } = useData();
+function useComputedDeck(): Deck | null {
+  const { state, today, seed } = useData();
   return useMemo(() => {
     if (state.status !== 'ready') return null;
     const byHabit = indexCheckIns(state.days);
@@ -59,19 +64,29 @@ export function useDeck(): Deck | null {
       };
     });
 
-    const forEngine = state.habits.map((h) => ({ id: h.id, identity: h.identity, startedOn: h.startedOn, archived: !!h.archivedAt }));
-    const { states, metrics } = evaluateAchievements(forEngine, byHabit, today);
+    const game = playGameFor(state, today, seed);
+    const todayCard = game.current.slots.find((s) => s.isToday)?.card ?? null;
+    const todayTier = tierOf(tallyDay(today, dealHabits(state.habits, state.profile.timezone), byHabit));
+    const allWeeks = [...game.weeks, game.current];
+    const cardsDealt = allWeeks.flatMap((w) => w.slots.flatMap((s) => (s.card ? [s.card] : [])));
+    let kept = 0;
+    let ceilings = 0;
+    for (const days of byHabit.values()) {
+      const t = totals(days, today);
+      kept += t.kept;
+      ceilings += t.ceiling;
+    }
 
     // Rates over the last 30 days, ignoring today because it isn't over yet.
     const yesterday = addDays(today, -1);
     let inWindow = 0;
-    let kept = 0;
-    let ceiling = 0;
+    let kept30 = 0;
+    let ceiling30 = 0;
     for (const c of cards) {
       const w = summarizeWindow(yesterday, 30, c.habit.startedOn, c.checkIns);
       inWindow += w.daysInWindow;
-      kept += w.keptDays;
-      ceiling += w.ceilingDays;
+      kept30 += w.keptDays;
+      ceiling30 += w.ceilingDays;
     }
     const ctx: RecommendationContext = {
       today,
@@ -81,8 +96,9 @@ export function useDeck(): Deck | null {
       habitsWithoutWhenWhere: active.filter((h) => !h.whenWhere).length,
       habitsWithoutIdentity: active.filter((h) => !h.identity).length,
       neverTwiceCount: cards.filter((c) => c.neverTwice).length,
-      keptRate30: inWindow >= 7 ? kept / inWindow : null,
-      ceilingShare30: kept > 0 ? ceiling / kept : null,
+      keptRate30: inWindow >= 7 ? kept30 / inWindow : null,
+      ceilingShare30: kept30 > 0 ? ceiling30 / kept30 : null,
+      callPending: game.callOpen && !game.current.call && active.length > 0,
     };
 
     return {
@@ -90,14 +106,32 @@ export function useDeck(): Deck | null {
       profile: state.profile,
       cards,
       archived: state.habits.filter((h) => h.archivedAt),
-      identities: summarizeIdentities(active, byHabit, today),
-      achievements: states,
-      metrics,
-      closest: nextUp(states, 3),
+      game,
+      todayCard,
+      todayTier,
+      court: summarizeCourt(courtHabits(state.habits), byHabit, today),
       recommendations: recommend(ctx),
       idea: ideaOfTheDay(ctx),
       keptToday: cards.filter((c) => c.today).length,
       prompts: state.prompts,
+      totals: {
+        kept,
+        ceilings,
+        rescues: cardsDealt.filter((c) => c.kind === 'card' && c.rescued).length,
+        jokers: cardsDealt.filter((c) => c.kind === 'joker').length,
+      },
     };
-  }, [state, today]);
+  }, [state, today, seed]);
+}
+
+const DeckContext = createContext<Deck | null>(null);
+
+/** Works the deck out once per change, for every screen under it. */
+export function DeckProvider({ children }: PropsWithChildren) {
+  const deck = useComputedDeck();
+  return <DeckContext.Provider value={deck}>{children}</DeckContext.Provider>;
+}
+
+export function useDeck(): Deck | null {
+  return useContext(DeckContext);
 }

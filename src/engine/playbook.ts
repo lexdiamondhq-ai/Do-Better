@@ -6,6 +6,7 @@
  * Sources are credited by book and author. The summaries are our own words.
  */
 
+import type { Suit } from './cards';
 import { daysBetween, type Day } from './day';
 
 export type PrincipleKey =
@@ -27,7 +28,8 @@ export type PrincipleKey =
   | 'goldilocks'
   | 'focus'
   | 'deep-work'
-  | 'sleep';
+  | 'sleep'
+  | 'commitment';
 
 export type Principle = {
   key: PrincipleKey;
@@ -173,6 +175,13 @@ export const PRINCIPLES: Record<PrincipleKey, Principle> = {
     tryThis: 'Try a lights-out card with the same time every night.',
     source: 'Why We Sleep, Matthew Walker',
   },
+  commitment: {
+    key: 'commitment',
+    title: 'Make a promise to future you',
+    idea: 'People follow through more when they commit in advance and put a little on the line. A plan you have announced is harder to drop.',
+    tryThis: 'Call your hand on Monday. Make it by Sunday and the bonus chips are yours.',
+    source: 'How to Change, Katy Milkman',
+  },
 };
 
 export type Category = 'body' | 'mind' | 'focus' | 'connection' | 'money' | 'rest' | 'growth';
@@ -196,35 +205,39 @@ export type Recipe = {
   twoMinute: string;
   anchor: string;
   category: Category;
+  /** The part of you it builds, which is the suit its days are dealt in. */
+  suit: Suit;
   why: string;
   principle: PrincipleKey;
 };
 
 export const RECIPES: readonly Recipe[] = [
-  { key: 'read', name: 'Read', identity: 'a reader', floor: '1 page', ceiling: '20 pages', twoMinute: 'Open the book to your bookmark', anchor: 'After I get into bed', category: 'growth', why: 'A page a day still adds up to whole books over a year.', principle: 'compound' },
-  { key: 'write', name: 'Write', identity: 'a writer', floor: '50 words', ceiling: '1,000 words', twoMinute: 'Write one sentence', anchor: 'After my first coffee', category: 'growth', why: 'Writers are people who write, a little, often.', principle: 'identity' },
-  { key: 'language', name: 'Language', identity: 'a language learner', floor: '1 lesson card', ceiling: '20-minute lesson', twoMinute: 'Say one new word out loud', anchor: 'After I brush my teeth', category: 'growth', why: 'Short daily practice beats long weekly sessions for memory.', principle: 'two-minute' },
-  { key: 'practice', name: 'Practise music', identity: 'a musician', floor: 'Play one song', ceiling: '30 minutes of practice', twoMinute: 'Pick up the instrument', anchor: 'After I get home', category: 'growth', why: 'Keeping the instrument out on its stand makes practice the default.', principle: 'environment' },
-  { key: 'walk', name: 'Walk', identity: 'someone who moves every day', floor: 'Walk to the corner', ceiling: '30-minute walk', twoMinute: 'Put on your shoes', anchor: 'After lunch', category: 'body', why: 'Walking is a keystone habit that lifts mood, sleep and focus.', principle: 'keystone' },
-  { key: 'strength', name: 'Strength', identity: 'strong', floor: '5 push-ups', ceiling: '30-minute workout', twoMinute: 'Get down on the floor', anchor: 'After I wake up', category: 'body', why: 'Five push-ups on a bad day keeps the door open for great days.', principle: 'two-minute' },
-  { key: 'run', name: 'Run', identity: 'a runner', floor: 'Run for 1 minute', ceiling: 'Run 5 km', twoMinute: 'Put on your running kit', anchor: 'After I drop the kids off', category: 'body', why: 'A runner is someone who runs, even for a minute.', principle: 'identity' },
-  { key: 'stretch', name: 'Stretch', identity: 'flexible', floor: 'One stretch', ceiling: '10-minute routine', twoMinute: 'Touch your toes', anchor: 'After I finish work', category: 'body', why: 'Stacked on the end of the workday, it becomes the switch into evening.', principle: 'habit-stacking' },
-  { key: 'water', name: 'Water', identity: 'someone who looks after their body', floor: 'One glass', ceiling: '2 litres', twoMinute: 'Fill a glass', anchor: 'After I wake up', category: 'body', why: 'A full bottle on the desk is a reminder you cannot miss.', principle: 'environment' },
-  { key: 'veg', name: 'Eat well', identity: 'a healthy eater', floor: 'One vegetable', ceiling: 'Home-cooked meals all day', twoMinute: 'Wash one piece of fruit', anchor: 'When I plan dinner', category: 'body', why: 'Adding one good thing is easier than banning many.', principle: 'four-laws' },
-  { key: 'meditate', name: 'Meditate', identity: 'a calm person', floor: '1 mindful breath', ceiling: '10 minutes', twoMinute: 'Sit down and close your eyes', anchor: 'After I pour my coffee', category: 'mind', why: 'One breath is a real practice. Ten minutes is a great day.', principle: 'two-minute' },
-  { key: 'journal', name: 'Journal', identity: 'someone who reflects', floor: 'One line', ceiling: 'A full page', twoMinute: 'Open the notebook', anchor: 'After dinner', category: 'mind', why: 'Writing things down turns a blur of days into lessons.', principle: 'habit-stacking' },
-  { key: 'gratitude', name: 'Gratitude', identity: 'grateful', floor: 'Name one good thing', ceiling: 'Write three good things', twoMinute: 'Think of one person you are glad of', anchor: 'After I get into bed', category: 'mind', why: 'Noticing what went well trains your attention toward it.', principle: 'celebrate' },
-  { key: 'deep-work', name: 'Deep work', identity: 'focused', floor: '10 focused minutes', ceiling: '90-minute block', twoMinute: 'Close every tab but one', anchor: 'At 9 am at my desk', category: 'focus', why: 'Focus has to be booked like a meeting, or it gets eaten.', principle: 'deep-work' },
-  { key: 'plan', name: 'Plan tomorrow', identity: 'organised', floor: 'Write one priority', ceiling: 'Plan the whole day', twoMinute: 'Open tomorrow in your calendar', anchor: 'Before I shut the laptop', category: 'focus', why: 'Knowing your one thing before the day starts protects it.', principle: 'focus' },
-  { key: 'phone-free', name: 'Phone-free morning', identity: 'in charge of my attention', floor: '10 minutes without the phone', ceiling: 'First hour phone-free', twoMinute: 'Leave the phone in another room', anchor: 'When I wake up', category: 'focus', why: 'A phone charging in the kitchen is friction that works for you.', principle: 'friction' },
-  { key: 'morning-light', name: 'Morning light', identity: 'a morning person', floor: 'Step outside for a minute', ceiling: '10 minutes outside', twoMinute: 'Open the curtains', anchor: 'After my first glass of water', category: 'rest', why: 'Daylight early in the day helps set your body clock for the night.', principle: 'sleep' },
-  { key: 'lights-out', name: 'Lights out', identity: 'well rested', floor: 'In bed by midnight', ceiling: 'In bed by 10:30, no screens', twoMinute: 'Plug the phone in outside the bedroom', anchor: 'After I brush my teeth', category: 'rest', why: 'A steady bedtime is a keystone for energy and mood.', principle: 'sleep' },
-  { key: 'tidy', name: 'Reset the space', identity: 'tidy', floor: 'Put away 5 things', ceiling: '15-minute tidy', twoMinute: 'Clear one surface', anchor: 'After dinner', category: 'rest', why: 'A clear room makes tomorrow\'s good habits easier to start.', principle: 'environment' },
-  { key: 'reach-out', name: 'Reach out', identity: 'a good friend', floor: 'Send one message', ceiling: 'Call someone you love', twoMinute: 'Open your last chat', anchor: 'On my commute home', category: 'connection', why: 'Relationships are kept up the same way as habits: a little, often.', principle: 'compound' },
-  { key: 'kindness', name: 'One kind act', identity: 'kind', floor: 'Say one thank-you', ceiling: 'Do something thoughtful for someone', twoMinute: 'Smile at the next person you see', anchor: 'When I get to work', category: 'connection', why: 'Kindness is a habit like any other, and it is contagious.', principle: 'identity' },
-  { key: 'family', name: 'Present at home', identity: 'a present parent', floor: '5 minutes, phone away', ceiling: 'An hour of real time together', twoMinute: 'Put the phone face down', anchor: 'When I walk in the door', category: 'connection', why: 'The doorway is a reliable cue to switch from work to people.', principle: 'habit-stacking' },
-  { key: 'save', name: 'Save', identity: 'good with money', floor: 'Move $1 to savings', ceiling: 'Review the week\'s spending', twoMinute: 'Open your banking app', anchor: 'After I get paid', category: 'money', why: 'The amount matters less than becoming someone who saves.', principle: 'identity' },
-  { key: 'no-spend', name: 'Spend on purpose', identity: 'intentional with money', floor: 'Wait 24 hours on one purchase', ceiling: 'A no-spend day', twoMinute: 'Remove one saved card from a shop', anchor: 'Before I check out', category: 'money', why: 'A small delay is enough friction to stop most impulse buys.', principle: 'friction' },
+  { key: 'read', name: 'Read', identity: 'a reader', floor: '1 page', ceiling: '20 pages', twoMinute: 'Open the book to your bookmark', anchor: 'After I get into bed', category: 'growth', suit: 'clubs', why: 'A page a day still adds up to whole books over a year.', principle: 'compound' },
+  { key: 'write', name: 'Write', identity: 'a writer', floor: '50 words', ceiling: '1,000 words', twoMinute: 'Write one sentence', anchor: 'After my first coffee', category: 'growth', suit: 'diamonds', why: 'Writers are people who write, a little, often.', principle: 'identity' },
+  { key: 'language', name: 'Language', identity: 'a language learner', floor: '1 lesson card', ceiling: '20-minute lesson', twoMinute: 'Say one new word out loud', anchor: 'After I brush my teeth', category: 'growth', suit: 'clubs', why: 'Short daily practice beats long weekly sessions for memory.', principle: 'two-minute' },
+  { key: 'practice', name: 'Practise music', identity: 'a musician', floor: 'Play one song', ceiling: '30 minutes of practice', twoMinute: 'Pick up the instrument', anchor: 'After I get home', category: 'growth', suit: 'diamonds', why: 'Keeping the instrument out on its stand makes practice the default.', principle: 'environment' },
+  { key: 'walk', name: 'Walk', identity: 'someone who moves every day', floor: 'Walk to the corner', ceiling: '30-minute walk', twoMinute: 'Put on your shoes', anchor: 'After lunch', category: 'body', suit: 'spades', why: 'Walking is a keystone habit that lifts mood, sleep and focus.', principle: 'keystone' },
+  { key: 'strength', name: 'Strength', identity: 'strong', floor: '5 push-ups', ceiling: '30-minute workout', twoMinute: 'Get down on the floor', anchor: 'After I wake up', category: 'body', suit: 'spades', why: 'Five push-ups on a bad day keeps the door open for great days.', principle: 'two-minute' },
+  { key: 'run', name: 'Run', identity: 'a runner', floor: 'Run for 1 minute', ceiling: 'Run 5 km', twoMinute: 'Put on your running kit', anchor: 'After I drop the kids off', category: 'body', suit: 'spades', why: 'A runner is someone who runs, even for a minute.', principle: 'identity' },
+  { key: 'stretch', name: 'Stretch', identity: 'flexible', floor: 'One stretch', ceiling: '10-minute routine', twoMinute: 'Touch your toes', anchor: 'After I finish work', category: 'body', suit: 'spades', why: 'Stacked on the end of the workday, it becomes the switch into evening.', principle: 'habit-stacking' },
+  { key: 'water', name: 'Water', identity: 'someone who looks after their body', floor: 'One glass', ceiling: '2 litres', twoMinute: 'Fill a glass', anchor: 'After I wake up', category: 'body', suit: 'spades', why: 'A full bottle on the desk is a reminder you cannot miss.', principle: 'environment' },
+  { key: 'veg', name: 'Eat well', identity: 'a healthy eater', floor: 'One vegetable', ceiling: 'Home-cooked meals all day', twoMinute: 'Wash one piece of fruit', anchor: 'When I plan dinner', category: 'body', suit: 'spades', why: 'Adding one good thing is easier than banning many.', principle: 'four-laws' },
+  { key: 'meditate', name: 'Meditate', identity: 'a calm person', floor: '1 mindful breath', ceiling: '10 minutes', twoMinute: 'Sit down and close your eyes', anchor: 'After I pour my coffee', category: 'mind', suit: 'clubs', why: 'One breath is a real practice. Ten minutes is a great day.', principle: 'two-minute' },
+  { key: 'journal', name: 'Journal', identity: 'someone who reflects', floor: 'One line', ceiling: 'A full page', twoMinute: 'Open the notebook', anchor: 'After dinner', category: 'mind', suit: 'clubs', why: 'Writing things down turns a blur of days into lessons.', principle: 'habit-stacking' },
+  { key: 'gratitude', name: 'Gratitude', identity: 'grateful', floor: 'Name one good thing', ceiling: 'Write three good things', twoMinute: 'Think of one person you are glad of', anchor: 'After I get into bed', category: 'mind', suit: 'hearts', why: 'Noticing what went well trains your attention toward it.', principle: 'celebrate' },
+  { key: 'deep-work', name: 'Deep work', identity: 'focused', floor: '10 focused minutes', ceiling: '90-minute block', twoMinute: 'Close every tab but one', anchor: 'At 9 am at my desk', category: 'focus', suit: 'diamonds', why: 'Focus has to be booked like a meeting, or it gets eaten.', principle: 'deep-work' },
+  { key: 'plan', name: 'Plan tomorrow', identity: 'organised', floor: 'Write one priority', ceiling: 'Plan the whole day', twoMinute: 'Open tomorrow in your calendar', anchor: 'Before I shut the laptop', category: 'focus', suit: 'diamonds', why: 'Knowing your one thing before the day starts protects it.', principle: 'focus' },
+  { key: 'phone-free', name: 'Phone-free morning', identity: 'in charge of my attention', floor: '10 minutes without the phone', ceiling: 'First hour phone-free', twoMinute: 'Leave the phone in another room', anchor: 'When I wake up', category: 'focus', suit: 'clubs', why: 'A phone charging in the kitchen is friction that works for you.', principle: 'friction' },
+  { key: 'morning-light', name: 'Morning light', identity: 'a morning person', floor: 'Step outside for a minute', ceiling: '10 minutes outside', twoMinute: 'Open the curtains', anchor: 'After my first glass of water', category: 'rest', suit: 'spades', why: 'Daylight early in the day helps set your body clock for the night.', principle: 'sleep' },
+  { key: 'lights-out', name: 'Lights out', identity: 'well rested', floor: 'In bed by midnight', ceiling: 'In bed by 10:30, no screens', twoMinute: 'Plug the phone in outside the bedroom', anchor: 'After I brush my teeth', category: 'rest', suit: 'spades', why: 'A steady bedtime is a keystone for energy and mood.', principle: 'sleep' },
+  { key: 'tidy', name: 'Reset the space', identity: 'tidy', floor: 'Put away 5 things', ceiling: '15-minute tidy', twoMinute: 'Clear one surface', anchor: 'After dinner', category: 'rest', suit: 'clubs', why: 'A clear room makes tomorrow\'s good habits easier to start.', principle: 'environment' },
+  { key: 'reach-out', name: 'Reach out', identity: 'a good friend', floor: 'Send one message', ceiling: 'Call someone you love', twoMinute: 'Open your last chat', anchor: 'On my commute home', category: 'connection', suit: 'hearts', why: 'Relationships are kept up the same way as habits: a little, often.', principle: 'compound' },
+  { key: 'kindness', name: 'One kind act', identity: 'kind', floor: 'Say one thank-you', ceiling: 'Do something thoughtful for someone', twoMinute: 'Smile at the next person you see', anchor: 'When I get to work', category: 'connection', suit: 'hearts', why: 'Kindness is a habit like any other, and it is contagious.', principle: 'identity' },
+  { key: 'listen', name: 'Really listen', identity: 'a good listener', floor: 'Ask one real question', ceiling: 'A long talk, phone away', twoMinute: 'Put the phone face down', anchor: 'When we sit down to eat', category: 'connection', suit: 'hearts', why: 'Attention is the simplest gift there is, and the one people remember.', principle: 'habit-stacking' },
+  { key: 'partner', name: 'Partner time', identity: 'a loving partner', floor: 'Ask about their day', ceiling: 'An evening together, phones away', twoMinute: 'Send them a kind message', anchor: 'After dinner', category: 'connection', suit: 'hearts', why: 'Small daily moments do more for a relationship than rare big gestures.', principle: 'compound' },
+  { key: 'family', name: 'Present at home', identity: 'a present parent', floor: '5 minutes, phone away', ceiling: 'An hour of real time together', twoMinute: 'Put the phone face down', anchor: 'When I walk in the door', category: 'connection', suit: 'hearts', why: 'The doorway is a reliable cue to switch from work to people.', principle: 'habit-stacking' },
+  { key: 'save', name: 'Save', identity: 'good with money', floor: 'Move $1 to savings', ceiling: 'Review the week\'s spending', twoMinute: 'Open your banking app', anchor: 'After I get paid', category: 'money', suit: 'diamonds', why: 'The amount matters less than becoming someone who saves.', principle: 'identity' },
+  { key: 'no-spend', name: 'Spend on purpose', identity: 'intentional with money', floor: 'Wait 24 hours on one purchase', ceiling: 'A no-spend day', twoMinute: 'Remove one saved card from a shop', anchor: 'Before I check out', category: 'money', suit: 'diamonds', why: 'A small delay is enough friction to stop most impulse buys.', principle: 'friction' },
 ];
 
 export type RecommendationContext = {
@@ -240,6 +253,8 @@ export type RecommendationContext = {
   keptRate30: number | null;
   /** Ceiling days ÷ kept days over the last 30 days. Null when nothing was kept. */
   ceilingShare30: number | null;
+  /** It is Monday and this week's hand hasn't been called yet. */
+  callPending?: boolean;
 };
 
 export type Recommendation = { principle: Principle; reason: string };
@@ -270,6 +285,7 @@ export function recommend(ctx: RecommendationContext): Recommendation[] {
     if (ctx.ceilingShare30 >= 0.7) add('goldilocks', 'You hit the Ceiling most days. It might be time to raise it.');
     else if (ctx.ceilingShare30 < 0.1) add('goldilocks', 'You keep the Floor well but rarely reach the Ceiling. Try bringing it closer.');
   }
+  if (ctx.callPending) add('commitment', 'Calls for this week close at midnight.');
   if (isFreshStart(ctx.today)) add('fresh-start', isFirstOfMonth(ctx.today) ? 'A new month just started.' : 'It is Monday.');
   return out;
 }
@@ -301,4 +317,17 @@ function isFirstOfMonth(day: Day): boolean {
 function isFreshStart(day: Day): boolean {
   const [y, m, d] = day.split('-').map(Number);
   return isFirstOfMonth(day) || new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 1;
+}
+
+const SUIT_WORDS: readonly [Suit, RegExp][] = [
+  ['hearts', /\b(call(s|ing)?\b|friend|family|partner|wife|husband|mom\b|mum\b|dad\b|parent|kids?\b|child|sons?\b|daughter|kind(ness)?\b|thank|gratitude|grateful|love\b|loved ones|date night|reach out|volunteer|giv(e|ing)\b|listen|communit|neighbo)/i],
+  ['clubs', /\b(read(s|ing|er)?\b|books?\b|learn|language|study|meditat|journal|reflect|mind|calm|breath|course|podcast|phone|screen|think|tidy|clean|pray)/i],
+  ['spades', /\b(walk|run(s|ner|ning)?\b|jog|gym\b|workout|work out|exercis|push-?ups?|squat|yoga|stretch|swim|bike|cycl|water\b|sleep|eat(ing)?\b|veg|fruit|cook|meal|diet|health|body|steps\b|move\b|moves\b|moving|strength|strong\b|lift|sport|hik(e|ing)|danc|fitness|lights? out|morning light|daylight|sunlight|outside|floss|teeth|skin|vitamin)/i],
+  ['diamonds', /\b(work\b|focus|code|coding|writ(e|er|ing)\b|build|money|sav(e|es|ing)\b|budget|spend|invest|plan\b|planning|email|inbox|project|practi[cs]e|music|guitar|piano|draw(ing)?\b|paint|design|creat|business|career|tasks?\b|ship\b|sell)/i],
+];
+
+/** A best guess at the suit for a habit typed by hand, from its name and identity. Mind when nothing fits. */
+export function inferSuit(name: string, identity: string | null = null): Suit {
+  const text = `${name} ${identity ?? ''}`;
+  return SUIT_WORDS.find(([, words]) => words.test(text))?.[0] ?? 'clubs';
 }

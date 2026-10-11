@@ -27,3 +27,24 @@ export function daysBetween(from: Day, to: Day): number {
   };
   return Math.round((toUtc(to) - toUtc(from)) / 86_400_000);
 }
+
+/** 0 for Monday through 6 for Sunday. */
+export function weekday(day: Day): number {
+  const [y, m, d] = day.split('-').map(Number);
+  return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+}
+
+/** The Monday that starts the week `day` falls in. Weeks run Monday to Sunday, so Sunday night is the showdown. */
+export function weekStart(day: Day): Day {
+  return addDays(day, -weekday(day));
+}
+
+/** The seven days of the week starting on `start`. */
+export function weekDays(start: Day): Day[] {
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+}
+
+/** `a` is on or before `b`. Days compare as strings because they are zero-padded ISO dates. */
+export function onOrBefore(a: Day, b: Day): boolean {
+  return a <= b;
+}

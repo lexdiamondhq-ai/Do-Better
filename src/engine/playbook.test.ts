@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { ideaOfTheDay, PRINCIPLES, RECIPES, recommend, suggestRecipes, type RecommendationContext } from './playbook';
+import { SUITS } from './cards';
+import { ideaOfTheDay, inferSuit, PRINCIPLES, RECIPES, recommend, suggestRecipes, type RecommendationContext } from './playbook';
 
 const calm: RecommendationContext = {
   today: '2026-10-08', // a Thursday
@@ -18,6 +19,10 @@ describe('recipes', () => {
   it('have unique keys and point at real principles', () => {
     expect(new Set(RECIPES.map((r) => r.key)).size).toBe(RECIPES.length);
     for (const r of RECIPES) expect(PRINCIPLES[r.principle]).toBeDefined();
+  });
+
+  it('cover every suit, so each part of you has habits to start from', () => {
+    for (const suit of SUITS) expect(RECIPES.filter((r) => r.suit === suit).length).toBeGreaterThanOrEqual(5);
   });
 
   it('every principle credits a source', () => {
@@ -66,5 +71,30 @@ describe('suggestRecipes', () => {
     expect(picks[0].key).toBe('read');
     expect(picks.map((p) => p.key)).not.toContain('run');
     expect(picks).toHaveLength(3);
+  });
+});
+
+describe('inferSuit', () => {
+  it('guesses the part of you a habit builds', () => {
+    expect(inferSuit('Morning run')).toBe('spades');
+    expect(inferSuit('Call Mum')).toBe('hearts');
+    expect(inferSuit('Read before bed')).toBe('clubs');
+    expect(inferSuit('Read', 'a reader')).toBe('clubs');
+    expect(inferSuit('Deep work')).toBe('diamonds');
+    expect(inferSuit('Ship one thing', 'a maker')).toBe('diamonds');
+    expect(inferSuit('Something new')).toBe('clubs');
+    expect(inferSuit('Write a song')).toBe('diamonds');
+    expect(inferSuit('Get ready for work')).toBe('diamonds');
+  });
+
+  it('agrees with the suit of every ready-made habit', () => {
+    const misses = RECIPES.filter((r) => inferSuit(r.name, r.identity) !== r.suit).map((r) => r.key);
+    expect(misses).toEqual([]);
+  });
+});
+
+describe('commitment', () => {
+  it('reminds you to call your hand on Monday', () => {
+    expect(recommend({ ...calm, today: '2026-10-12', callPending: true })[0].principle.key).toBe('commitment');
   });
 });

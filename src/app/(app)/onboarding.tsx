@@ -1,18 +1,23 @@
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { EXAMPLES, HandFan } from '@/components/HandFan';
+import { PlayingCard } from '@/components/PlayingCard';
+import { SuitGlyph } from '@/components/Suit';
 import { SwipeCard } from '@/components/SwipeCard';
 import { Body, Button, Chip, Display, Label } from '@/components/ui';
-import { CATEGORIES, PRINCIPLES, RECIPES, suggestRecipes, type Category, type Recipe } from '@/engine/playbook';
-import { CATEGORY_COLOR } from '@/lib/categoryColor';
+import { SUIT_INFO, SUITS, type Suit } from '@/engine/cards';
+import { PRINCIPLES, RECIPES, suggestRecipes, type Recipe } from '@/engine/playbook';
 import { useData } from '@/lib/data';
 import { useTheme } from '@/theme/ThemeProvider';
-import { CARD_COLORS, cardColors, fonts, radius, space, type CardColor } from '@/theme/tokens';
+import { cardColors, fonts, radius, space, suitColors, type CardColor } from '@/theme/tokens';
 
-type Intro = { color: CardColor | 'back'; eyebrow: string; title: string; body: string; source?: string; hint: string };
+type Art = 'deal' | 'hand' | 'suits';
+
+type Intro = { color: CardColor | 'back'; eyebrow: string; title: string; body: string; source?: string; hint: string; art?: Art };
 
 const INTRO: Intro[] = [
   {
@@ -31,33 +36,75 @@ const INTRO: Intro[] = [
   },
   {
     color: 'back',
-    eyebrow: 'Never twice',
-    title: 'Missing once is human.',
-    body: 'The morning after a miss, the card turns over and offers a two-minute version. Missing once is an accident. Missing twice is the start of a new habit, so the app helps you stop at one.',
-    source: PRINCIPLES['never-miss-twice'].source,
+    eyebrow: 'The deal',
+    title: 'Every kept day deals a playing card.',
+    body: 'Keep some habits and you draw a 2 to a Queen. Keep them all and it can be an Ace. Reach a Ceiling too and it is 9 or better. Better days, better cards.',
     hint: 'Swipe to keep going',
+    art: 'deal',
   },
   {
     color: 'sun',
+    eyebrow: 'The week',
+    title: 'Your week is a poker hand.',
+    body: 'Monday to Sunday, your best five cards make the hand. At Sunday midnight it pays chips: 10 for a high card, 500 for a Royal flush. Call your hand on Monday and win its chips twice.',
+    hint: 'Swipe to keep going',
+    art: 'hand',
+  },
+  {
+    color: 'lilac',
     eyebrow: 'Identity',
-    title: 'Every kept day is a vote.',
-    body: 'Give each card an identity, like "a reader". Votes add up to who you are becoming, and to cards for your collection. There are no streaks here, so nothing ever resets to zero.',
+    title: 'Suits are who you are.',
+    body: 'Body, Heart, Craft and Mind. Every kept day is a vote for that part of you, and enough votes earn it a face card in your Court. Each new face card deals a Joker.',
     source: PRINCIPLES.identity.source,
+    hint: 'Swipe to keep going',
+    art: 'suits',
+  },
+  {
+    color: 'back',
+    eyebrow: 'Never twice',
+    title: 'Missing once is human.',
+    body: 'Miss a day and come back the next, and the missed day still gets its card. Miss twice and it stays empty. There are no streaks here, so nothing ever resets to zero.',
+    source: PRINCIPLES['never-miss-twice'].source,
     hint: 'Swipe to build your deck',
   },
 ];
 
-/** Identities to start from, grouped like the Playbook. */
-const IDENTITIES: { category: Category; identities: string[] }[] = (Object.keys(CATEGORIES) as Category[]).map((category) => ({
-  category,
-  identities: [...new Set(RECIPES.filter((r) => r.category === category).map((r) => r.identity))],
+function IntroArt({ art }: { art: Art }) {
+  if (art === 'deal') {
+    return (
+      <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-end' }}>
+        <PlayingCard face={{ kind: 'card', rank: 6, suit: 'clubs' }} size="sm" style={{ transform: [{ rotate: '-6deg' }] }} />
+        <PlayingCard face={{ kind: 'card', rank: 11, suit: 'spades' }} size="sm" />
+        <PlayingCard face={{ kind: 'card', rank: 14, suit: 'hearts' }} size="md" style={{ transform: [{ rotate: '6deg' }] }} />
+      </View>
+    );
+  }
+  if (art === 'hand') return <HandFan faces={EXAMPLES['full-house']} size="sm" spread={0.62} style={{ alignSelf: 'flex-start' }} />;
+  return (
+    <View style={{ flexDirection: 'row', gap: space.lg }}>
+      {SUITS.map((suit) => (
+        <View key={suit} style={{ alignItems: 'center', gap: 4 }}>
+          <SuitGlyph suit={suit} size={34} color="#17121F" />
+          <Body size={11} weight="heavy" color="#17121F">{SUIT_INFO[suit].part.toUpperCase()}</Body>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Identities to start from, grouped by suit. */
+const IDENTITIES: { suit: Suit; identities: string[] }[] = SUITS.map((suit) => ({
+  suit,
+  identities: [...new Set(RECIPES.filter((r) => r.suit === suit).map((r) => r.identity))],
 }));
 
-/** First run: four cards that teach the gestures, then who you want to be, then a starter deck. */
+/** First run: six cards that teach the gestures and the game, then who you want to be, then a starter deck. */
 export default function Onboarding() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // Opened from the You tab to read the rules again: just the cards, then back to the game.
+  const replay = useLocalSearchParams<{ tour?: string }>().tour === '1';
   const { createHabit, saveProfile } = useData();
   const [step, setStep] = useState(0);
   const [identities, setIdentities] = useState<string[]>([]);
@@ -75,13 +122,9 @@ export default function Onboarding() {
   async function finish(recipes: Recipe[]) {
     setBusy(true);
     try {
-      // Colours follow the recipe's category, but neighbours never share one.
-      let previous: CardColor | null = null;
+      // Each card takes its suit's colour, so a glance at the deck shows which part of you it builds.
       for (const r of recipes) {
-        let color = CATEGORY_COLOR[r.category];
-        if (color === previous) color = CARD_COLORS[(CARD_COLORS.indexOf(color) + 1) % CARD_COLORS.length];
-        previous = color;
-        await createHabit({ name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color, anchor: r.anchor, whenWhere: '', why: r.why, recipeKey: r.key });
+        await createHabit({ name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color: suitColors[r.suit].habit, suit: r.suit, anchor: r.anchor, whenWhere: '', why: r.why, recipeKey: r.key });
       }
       await saveProfile({ northStar, onboarded: true });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -112,23 +155,25 @@ export default function Onboarding() {
             key={step}
             onSwipe={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setStep((s) => s + 1);
+              if (replay && step === INTRO.length - 1) router.back();
+              else setStep((s) => s + 1);
             }}
             labels={step === 1 ? { up: 'CEILING', down: 'FLOOR', left: 'LATER', right: 'LATER' } : { up: 'NEXT', down: 'NEXT', left: 'NEXT', right: 'NEXT' }}
           >
             <View style={{ flex: 1, backgroundColor: bg, borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }}>
               <Label color={ink} style={{ opacity: 0.7 }}>{card.eyebrow}</Label>
               <View style={{ gap: space.lg }}>
-                <Display size={46} color={ink}>{card.title}</Display>
-                <Body size={17} weight="semi" color={ink} style={{ opacity: 0.9 }}>{card.body}</Body>
+                {card.art ? <IntroArt art={card.art} /> : null}
+                <Display size={card.art ? 38 : 46} color={ink}>{card.title}</Display>
+                <Body size={card.art ? 16 : 17} weight="semi" color={ink} style={{ opacity: 0.9 }}>{card.body}</Body>
                 {card.source ? <Body size={13} weight="heavy" color={ink} style={{ opacity: 0.6 }}>{card.source}</Body> : null}
               </View>
-              <Body weight="heavy" color={ink} style={{ opacity: 0.75 }}>{`${step === 1 ? '↑ ↓' : '↔'}  ${card.hint}`}</Body>
+              <Body weight="heavy" color={ink} style={{ opacity: 0.75 }}>{`${step === 1 ? '↑ ↓' : '↔'}  ${replay && !next ? 'Swipe to get back to the game' : card.hint}`}</Body>
             </View>
           </SwipeCard>
         </View>
-        <Pressable onPress={() => setStep(INTRO.length)} hitSlop={12} style={{ alignSelf: 'center' }}>
-          <Body weight="bold" color={t.textSecondary}>Skip the tour</Body>
+        <Pressable onPress={() => (replay ? router.back() : setStep(INTRO.length))} hitSlop={12} style={{ alignSelf: 'center' }}>
+          <Body weight="bold" color={t.textSecondary}>{replay ? 'Close' : 'Skip the tour'}</Body>
         </Pressable>
       </View>
     );
@@ -145,10 +190,13 @@ export default function Onboarding() {
           </View>
 
           {IDENTITIES.map((group) => {
-            const col = cardColors[CATEGORY_COLOR[group.category]];
+            const col = { bg: suitColors[group.suit].glyph, ink: '#FFFFFF' };
             return (
-              <View key={group.category} style={{ gap: space.sm }}>
-                <Label>{CATEGORIES[group.category]}</Label>
+              <View key={group.suit} style={{ gap: space.sm }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <SuitGlyph suit={group.suit} size={14} color={t.text} />
+                  <Label color={t.text}>{`${SUIT_INFO[group.suit].part} · ${SUIT_INFO[group.suit].name}`}</Label>
+                </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
                   {group.identities.map((id) => (
                     <Chip
@@ -209,7 +257,7 @@ export default function Onboarding() {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
           {suggestions.map((r, i) => {
             const on = picked.includes(r.key);
-            const col = cardColors[CATEGORY_COLOR[r.category]];
+            const col = cardColors[suitColors[r.suit].habit];
             return (
               <Pressable
                 key={r.key}
@@ -229,8 +277,11 @@ export default function Onboarding() {
                   transform: [{ rotate: on ? `${i % 2 ? 2 : -2}deg` : '0deg' }, { scale: on ? 1.02 : 1 }],
                 }}
               >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Label color={on ? col.ink : t.textSecondary}>{CATEGORIES[r.category]}</Label>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <SuitGlyph suit={r.suit} size={13} color={on ? col.ink : t.textSecondary} />
+                    <Label color={on ? col.ink : t.textSecondary}>{SUIT_INFO[r.suit].part}</Label>
+                  </View>
                   <Display size={18} color={on ? col.ink : t.textFaint}>{on ? '✓' : '+'}</Display>
                 </View>
                 <View style={{ gap: 4 }}>

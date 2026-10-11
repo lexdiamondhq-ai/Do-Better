@@ -29,9 +29,13 @@ export function Body({ children, style, size = 16, color, numberOfLines, weight 
 }
 
 /** Small uppercase label. */
-export function Label({ children, style, color }: TextProps) {
+export function Label({ children, style, color, numberOfLines }: TextProps) {
   const t = useTheme();
-  return <Text style={[{ fontFamily: fonts.bodyHeavy, fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: color ?? t.textSecondary }, style]}>{children}</Text>;
+  return (
+    <Text numberOfLines={numberOfLines} style={[{ fontFamily: fonts.bodyHeavy, fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', color: color ?? t.textSecondary }, style]}>
+      {children}
+    </Text>
+  );
 }
 
 export function Button({

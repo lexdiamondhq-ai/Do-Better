@@ -3,8 +3,10 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Pile, PileLegend } from '@/components/Pile';
+import { faceOfCourt, PlayingCard, SuitTag } from '@/components/PlayingCard';
+import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Centered, Display, Label, Section } from '@/components/ui';
-import { votesToNextLevel } from '@/engine/identity';
+import { SUIT_INFO } from '@/engine/cards';
 import { best30, bounceBacks, recentDays } from '@/engine/kept';
 import { PRINCIPLES, RECIPES } from '@/engine/playbook';
 import { useDeck } from '@/lib/deck';
@@ -33,8 +35,8 @@ export default function HabitDetail() {
   const c = cardColors[habit.color];
   const bounced = bounceBacks(habit.startedOn, deck.today, checkIns);
   const best = best30(habit.startedOn, deck.today, checkIns);
-  const identity = deck.identities.find((i) => i.habitIds.includes(habit.id));
-  const toNext = identity ? votesToNextLevel(identity.votes) : null;
+  const court = deck.court.find((s) => s.suit === habit.suit);
+  const suit = SUIT_INFO[habit.suit];
   const recipe = RECIPES.find((r) => r.key === habit.recipeKey);
   const principle = recipe ? PRINCIPLES[recipe.principle] : null;
   const floorDays = allTime.kept - allTime.ceiling;
@@ -59,7 +61,10 @@ export default function HabitDetail() {
             <Body weight="heavy" color={c.ink}>Edit</Body>
           </Pressable>
         </View>
-        {habit.identity ? <Label color={c.ink} style={{ opacity: 0.75 }}>{`I'm ${habit.identity.replace(/^(i am|i'm)\s+/i, '')}`}</Label> : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <SuitGlyph suit={habit.suit} size={15} color={c.ink} />
+          <Label color={c.ink} style={{ opacity: 0.8 }}>{`${suit.name} · ${suit.part}${habit.identity ? ` · I'm ${habit.identity.replace(/^(i am|i'm)\s+/i, '')}` : ''}`}</Label>
+        </View>
         <Display size={habit.name.length > 12 ? 48 : 64} color={c.ink}>{habit.name}</Display>
         <View style={{ gap: space.sm }}>
           <Body weight="bold" color={c.ink}>{`↑ Ceiling · ${habit.ceilingLabel}`}</Body>
@@ -87,21 +92,29 @@ export default function HabitDetail() {
           ))}
         </View>
 
-        {identity ? (
-          <View style={{ backgroundColor: t.cardBack, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}>
-            <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{identity.level.label}</Label>
-            <Display size={28} color={t.onCardBack}>{`${identity.votes} ${identity.votes === 1 ? 'vote' : 'votes'} for ${identity.identity}`}</Display>
-            <Body color={t.onCardBack} style={{ opacity: 0.8 }}>
-              {toNext ? `${toNext.needed} more to "${toNext.next.label}".` : 'You have shown it, again and again. This is who you are.'}
-              {identity.habitIds.length > 1 ? ` ${identity.habitIds.length} cards vote for this.` : ''}
-            </Body>
+        {court ? (
+          <View style={{ flexDirection: 'row', gap: space.lg, alignItems: 'center', backgroundColor: t.cardBack, borderRadius: radius.lg, padding: space.lg }}>
+            {court.face ? <PlayingCard face={faceOfCourt(court.suit, court.face)} size="md" /> : null}
+            <View style={{ flex: 1, gap: space.xs }}>
+              <SuitTag suit={court.suit} name color={t.onCardBack} />
+              <Display size={22} color={t.onCardBack}>
+                {court.face ? `${court.face.name} of ${suit.name} · ${court.face.title}` : `${court.votes} ${court.votes === 1 ? 'vote' : 'votes'} for your ${suit.part.toLowerCase()}`}
+              </Display>
+              <Body size={14} color={t.onCardBack} style={{ opacity: 0.8 }}>
+                {`Every day you keep ${habit.name} is a vote in the Court of ${suit.name}. `}
+                {court.next ? `${court.next.needed} more to the ${court.next.face.name}, and a Joker the day you earn it.` : 'Every face card is earned. This is who you are.'}
+                {court.habitIds.length > 1 ? ` ${court.habitIds.length} cards vote in ${suit.name}.` : ''}
+              </Body>
+            </View>
           </View>
-        ) : (
+        ) : null}
+
+        {!habit.identity ? (
           <Pressable onPress={() => router.push({ pathname: '/habit/edit', params: { id: habit.id } })} style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.dashed, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}>
             <Display size={22}>Who does this make you?</Display>
             <Body color={t.textSecondary}>{`${PRINCIPLES.identity.tryThis} (${PRINCIPLES.identity.source})`}</Body>
           </Pressable>
-        )}
+        ) : null}
 
         {habit.why || habit.anchor || habit.whenWhere ? (
           <Section title="Why and when">
