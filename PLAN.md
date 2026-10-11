@@ -59,12 +59,15 @@ The words inside Playbook change: each idea is rewritten in Do Better's voice wi
    After a card prints, it is stamped with who it makes you and drops onto that identity's stack, and a bar shows how many cards are left to the next rank.
    Proven on 2026-10-11 in the simulator: a plain landing (28 to 29 cards) and a rank-up (29 to 30, "Becoming"), in light and dark.
    Still open: Alex opening it on the phone, and a real finger swiping the card down onto the stack.
+   The stamp was moved slightly after the last simulator look, so its final position has not been seen.
 3. [x] Own words everywhere, using the table above (done 2026-10-11).
    Remove every book and author name, rewrite each Playbook idea in Do Better's voice, and rename the borrowed labels on every screen.
    Also fix the wording in `README.md`, `CLAUDE.md`, and `docs/DATA_MODEL.md`.
    Internal names and database columns stay as they are.
    Proven: a search of the project finds those names only in internal code names and database names, the three checks pass, and two engine tests now fail if a borrowed label comes back.
-   Not proven: the reworded screens were not viewed while signed in, because the simulator could not be tapped.
+   Not proven: the reworded screens were not viewed while signed in.
+   `cliclick` is installed on this Mac and can tap a visible Simulator window, but it was not tried.
+   Look first at the one-line idea preview in Playbook, the "Plays ..." line on a habit card, and a long identity on the You tab.
    Left alone on purpose: comments inside the two applied migrations in `supabase/migrations`.
 4. [ ] The idea card on top of the morning deal.
    This waits for step 3, so the ideas are already in Do Better's words.
@@ -96,5 +99,6 @@ The words inside Playbook change: each idea is rewritten in Do Better's voice wi
   Without it, a screen opened straight from a link drew its first text in the system font.
 - In the simulator, use iPhone 17 Pro.
   The iPhone 17 simulator hung on installing and launching apps on 2026-10-11.
+  After several boots and shutdowns the iPhone 17 Pro one also hung on `simctl terminate`, so boot it once and leave it running.
 - The sketch opens without an account, and accepts `?auto=ceiling` or `?auto=floor`, `land=1`, `tx`, `ty`, and `card` so it can be checked without touching the screen.
 - The dev server runs with `npx expo start --tunnel --go --port 8082`.
