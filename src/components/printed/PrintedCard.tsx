@@ -1,6 +1,6 @@
 import { Canvas, Fill, Shader } from '@shopify/react-native-skia';
 import { StyleSheet, View } from 'react-native';
-import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useDerivedValue, type SharedValue } from 'react-native-reanimated';
 
 import type { Day } from '@/engine/day';
 import type { Level } from '@/engine/kept';
@@ -14,7 +14,7 @@ import { rgb, SURFACE } from './surface';
 export const PRINT_ASPECT = 0.7;
 
 /** One kept day, as it is printed. */
-export type Print = { name: string; did: string; level: Level; color: CardColor; number: number; day: Day };
+export type Print = { name: string; did: string; level: Level; color: CardColor; number: number; day: Day; identity: string | null };
 
 const WEEKDAY = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
 const MONTH = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
@@ -28,8 +28,9 @@ function Keyline({ radius, color }: { radius: number; color: string }) {
 /**
  * The face of a printed card: its number, the date as the picture, and what was kept.
  * A Floor prints matte on the habit's soft colour; a Ceiling prints foil on its full colour.
+ * `stamp` runs from 0 to 1 as the card is stamped with who it makes you; without it the stamp is simply there.
  */
-export function PrintedCard({ print, width, tiltX, tiltY }: { print: Print; width: number; tiltX: SharedValue<number>; tiltY: SharedValue<number> }) {
+export function PrintedCard({ print, width, tiltX, tiltY, stamp }: { print: Print; width: number; tiltX: SharedValue<number>; tiltY: SharedValue<number>; stamp?: SharedValue<number> }) {
   const height = width / PRINT_ASPECT;
   const radius = width * 0.085;
   const foil = print.level === 'ceiling';
@@ -38,6 +39,10 @@ export function PrintedCard({ print, width, tiltX, tiltY }: { print: Print; widt
   const ink = foil ? c.ink : palette.ink;
   const base = rgb(paper);
   const uniforms = useDerivedValue(() => ({ size: [width, height], tilt: [tiltX.get(), tiltY.get()], base, foil: foil ? 1 : 0 }));
+  const stamped = useAnimatedStyle(() => {
+    const s = stamp ? stamp.get() : 1;
+    return { opacity: s, transform: [{ rotate: '-8deg' }, { scale: 1 + (1 - s) * 0.7 }] };
+  });
 
   const [y, m, d] = print.day.split('-').map(Number);
   const date = new Date(y, m - 1, d);
@@ -48,7 +53,7 @@ export function PrintedCard({ print, width, tiltX, tiltY }: { print: Print; widt
   return (
     <View
       accessible
-      accessibilityLabel={`${print.name}, ${levelName} card number ${print.number}. ${weekday} ${d} ${month}. ${print.did}.`}
+      accessibilityLabel={`${print.name}, ${levelName} card number ${print.number}. ${weekday} ${d} ${month}. ${print.did}.${print.identity ? ` I’m ${print.identity}.` : ''}`}
       style={{ width, height, borderRadius: radius, overflow: 'hidden', backgroundColor: paper }}
     >
       {SURFACE ? (
@@ -78,6 +83,11 @@ export function PrintedCard({ print, width, tiltX, tiltY }: { print: Print; widt
           <Body weight="bold" size={14} color={ink} style={{ opacity: 0.85 }} numberOfLines={1}>{print.did}</Body>
         </View>
       </View>
+      {print.identity ? (
+        <Animated.View pointerEvents="none" style={[{ position: 'absolute', right: INSET + 12, top: height * 0.56, maxWidth: width * 0.46, borderWidth: 2, borderColor: ink, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 9 }, stamped]}>
+          <Label color={ink} style={{ textAlign: 'center' }}>{`I’m ${print.identity}`}</Label>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }

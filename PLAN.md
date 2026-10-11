@@ -7,32 +7,76 @@ Alex picked the Printed direction on 2026-10-11 and said yes to this sentence:
 
 Alex also wants Do Better to stand on its own, with no book or author names and none of their labels.
 
+## The game Alex said yes to (2026-10-11)
+
+You are building a deck that is you: every day you show up prints a card, and the cards add up to who you are.
+
+Six rules that never bend:
+
+1. A card is only earned by doing something, never bought.
+2. Nothing you earn is ever lost, so levels come from totals.
+3. A miss leaves no mark, so the pile holds only days you showed up.
+4. A Floor is a whole card.
+5. The harder the day, the rarer the card.
+6. Nothing on a card is made up: real date, real count, your own words.
+
+A day in the game:
+
+1. Open: the deck is dealt with one card face down on top, and a tap flips today's idea.
+2. Swipe: down for the Floor, up for the Ceiling.
+3. Print: each keep prints that day's card.
+4. Land: the card drops onto the stack of the identity it belongs to, and you see how close the next rank is.
+5. Close: when everything is kept, today's prints fan out together.
+6. Comeback: the morning after a miss, the card returns flipped with an easier way in, and keeping it prints the rarest finish.
+
+Identities at the front:
+
+- Every identity gets its own large card, which leads the You tab.
+- Each printed card is stamped with who it makes you.
+- Identity rank is the level you win: the four ranks that exist today, at 0, 10, 30, and 100 cards.
+- Build these with type and shapes only, and Alex supplies or approves any portrait or emblem first.
+
+Do Better's own words:
+
+| The app said | Do Better's word |
+|---|---|
+| Never twice | Comeback |
+| Votes | Cards ("34 cards say I'm a reader") |
+| Two-minute version | First move |
+| After I... | When it plays |
+| Poker suits, Full house, Royal flush | Its own marks: ↓ Floor, ↑ Ceiling, ↺ Comeback |
+
+Pile, Today, and Playbook keep their layout.
+The words inside Playbook change: each idea is rewritten in Do Better's voice with no book or author names.
+
 ## Steps
 
 1. [ ] One moving sketch of the print moment, on Alex's iPhone in Expo Go.
    It is the swipe, the print, the flip, and the tilt, with sample cards and no saved data.
-   Proof: the three checks pass, the bundle builds, the simulator shows the print and flip, and Alex opens `/sketch` from the QR code.
-   The tilt shine is not proven until Alex sees it move on the phone, because the simulator has no motion sensor.
    Proven on 2026-10-11 in the iPhone 17 Pro simulator: the feed-out and the flip, the matte Floor and the foil Ceiling, two card colours, light and dark, and two held tilts.
-   Still open: Alex opening it on the phone, a real finger swipe, and the phone's tilt moving the shine.
-2. [ ] Alex says how the sketch feels.
-   Proof: Alex's reply.
-3. [ ] Own words everywhere.
-   Remove every book and author name, rewrite the Playbook as Do Better's own short rules, and rename the borrowed labels on every screen, using words that fit how Printed landed.
-   The labels to replace are "Never twice", "vote", "two-minute version", "After I...", and the idea titles in `src/engine/playbook.ts`.
+   Alex said "I really like this game" but has not yet said whether the phone's tilt moves the shine.
+2. [ ] One moving sketch of the landing moment, added to the same `/sketch` screen.
+   After a card prints, it is stamped with who it makes you and drops onto that identity's stack, and a bar shows how many cards are left to the next rank.
+   Proof: the three checks pass, the simulator shows a plain landing and a rank-up, and Alex opens it from the QR code.
+3. [ ] Own words everywhere, using the table above.
+   Remove every book and author name, rewrite each Playbook idea in Do Better's voice, and rename the borrowed labels on every screen.
    Also fix the wording in `README.md`, `CLAUDE.md`, and `docs/DATA_MODEL.md`.
    Internal names and database columns stay as they are.
    Proof: a search of `src/app`, `src/components`, `src/engine`, and the docs finds none of those names or labels in text a person can read, and the three checks pass.
-4. [ ] Look directions for frames and finishes.
-   Show 2-3 moving options on the phone, and build none of the art until Alex approves it.
+4. [ ] The idea card on top of the morning deal.
+   This waits for step 3, so the ideas are already in Do Better's words.
+   Proof: one moving sketch first, then Alex's yes.
+5. [ ] Look options for frames, finishes, and identity cards.
+   Show 2-3 moving prototypes on the phone, and build none of the art until Alex approves it.
    Proof: Alex picks one.
-5. [ ] Build Printed for real, in this order.
+6. [ ] Build Printed for real, in this order.
    - Engine rules with tests: the finish, the number, and the rank of each card.
-   - The print moment on the Today screen.
-   - The binder, with blank slots and hints for hidden finishes.
+   - The print and landing moments on the Today screen.
+   - Identity cards leading the You tab.
+   - The pile sorted by identity, with blank slots and hints for hidden finishes.
    - The optional line or photo on a card.
-   - Rank-up frames.
    Proof: engine tests for every rule, the three checks, and Alex's pass on the phone for each piece.
+7. [ ] Later: a line from your good day, dealt back on a comeback morning, and today's prints fanning out when everything is kept.
 
 ## Notes for whoever picks this up
 
@@ -44,10 +88,10 @@ Alex also wants Do Better to stand on its own, with no book or author names and 
   Any EAS build made before it was added needs a new build.
 - The tilt uses Reanimated's own sensor hook, so there is no extra package and no permission prompt on iPhone.
 - `src/app/sketch.tsx` and the sign-in exception for it in `src/app/_layout.tsx` are throwaway.
-  Remove both when step 5 puts the print moment on the Today screen.
+  Remove both when step 6 puts the print moment on the Today screen.
 - The font wait in `src/app/_layout.tsx` (`screenLayout`) is a real fix and stays.
   Without it, a screen opened straight from a link drew its first text in the system font.
 - In the simulator, use iPhone 17 Pro.
   The iPhone 17 simulator hung on installing and launching apps on 2026-10-11.
-- The sketch opens without an account, and accepts `?auto=ceiling` or `?auto=floor` plus `tx`, `ty`, and `card` so it can be checked without touching the screen.
+- The sketch opens without an account, and accepts `?auto=ceiling` or `?auto=floor`, `land=1`, `tx`, `ty`, and `card` so it can be checked without touching the screen.
 - The dev server runs with `npx expo start --tunnel --go --port 8082`.

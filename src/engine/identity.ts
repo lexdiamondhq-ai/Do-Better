@@ -31,6 +31,14 @@ export function votesToNextLevel(votes: number): { next: IdentityLevel; needed: 
   return next ? { next, needed: next.from - votes } : null;
 }
 
+/** How far `votes` has come from the current level toward the next, from 0 to 1. Stays at 1 on the top level. */
+export function levelProgress(votes: number): number {
+  const next = votesToNextLevel(votes);
+  if (!next) return 1;
+  const from = identityLevel(votes).from;
+  return (votes - from) / (next.next.from - from);
+}
+
 export type IdentitySummary = {
   identity: string;
   habitIds: string[];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { identityKey, identityLevel, summarizeIdentities, votesToNextLevel } from './identity';
+import { identityKey, identityLevel, levelProgress, summarizeIdentities, votesToNextLevel } from './identity';
 import type { Level } from './kept';
 
 describe('identityLevel', () => {
@@ -14,6 +14,15 @@ describe('identityLevel', () => {
   it('says how far the next level is', () => {
     expect(votesToNextLevel(4)).toEqual({ next: expect.objectContaining({ key: 'showing' }), needed: 6 });
     expect(votesToNextLevel(150)).toBeNull();
+  });
+
+  it('measures progress inside a level, starting again from empty at each new level', () => {
+    expect(levelProgress(0)).toBe(0);
+    expect(levelProgress(5)).toBe(0.5);
+    expect(levelProgress(10)).toBe(0);
+    expect(levelProgress(65)).toBe(0.5);
+    expect(levelProgress(100)).toBe(1);
+    expect(levelProgress(365)).toBe(1);
   });
 });
 
