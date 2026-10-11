@@ -44,7 +44,7 @@ export const themes = {
     dashed: 'rgba(23, 18, 31, 0.32)',
     accent: palette.ink,
     onAccent: palette.white,
-    /** The dark side of a card: Never Twice, achievements you haven't earned. */
+    /** The dark side of a card: the comeback, achievements you haven't earned. */
     cardBack: palette.ink,
     onCardBack: palette.white,
   },

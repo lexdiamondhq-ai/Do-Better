@@ -1,6 +1,6 @@
 # Do Better
 
-Native iOS habit app (Expo SDK 57, Expo Router, React Native New Architecture, React Compiler). Each habit has a Floor (the emergency minimum that still counts as a kept day) and a Ceiling (the ideal). Never Twice offers a small recovery action after a missed day.
+Native iOS habit app (Expo SDK 57, Expo Router, React Native New Architecture, React Compiler). Each habit has a Floor (the emergency minimum that still counts as a kept day) and a Ceiling (the ideal). The Comeback card offers an easier way in after a missed day.
 Backend is Supabase (Postgres with RLS, Auth). Setup mirrors Dog Better.
 
 ## Layout
@@ -30,5 +30,6 @@ Cloud sessions have no iOS simulator, so device journeys cannot be run here. Say
 - A day is the user's local calendar date (`@/engine/day`). Never derive it from a UTC timestamp.
 - A miss is never written. It is a finished day with no Floor or Ceiling check-in.
 - No streaks anywhere in the UI or data. The app counts kept days, not runs.
+- Do Better uses its own words on screen: Comeback, First move, When it plays, and cards (never votes). Never name a book or an author, and never use their labels. Tests in `src/engine` guard this.
 - React Compiler rules: no synchronous `setState` in effect bodies, no reading or writing `ref.current` during render.
 - Commit subjects are one plain sentence describing what the user gets.

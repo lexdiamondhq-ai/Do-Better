@@ -1,6 +1,7 @@
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 
 import type { Level } from '@/engine/kept';
+import { playsLine } from '@/engine/playbook';
 import type { Habit } from '@/lib/types';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, radius, space } from '@/theme/tokens';
@@ -32,7 +33,7 @@ export function HabitCard({ habit, level, subtitle, style }: { habit: Habit; lev
         {habit.identity ? <Label color={c.ink} style={{ opacity: 0.75 }}>{`I'm ${habit.identity.replace(/^(i am|i'm)\s+/i, '')}`}</Label> : null}
         <Display size={habit.name.length > 12 ? 44 : 58} color={c.ink} numberOfLines={3}>{habit.name}</Display>
         {subtitle ? <Body weight="bold" size={15} color={c.ink} style={{ opacity: 0.85 }}>{subtitle}</Body> : null}
-        {habit.anchor ? <Body size={14} color={c.ink} style={{ opacity: 0.8 }}>{habit.anchor}{habit.whenWhere ? ` · ${habit.whenWhere}` : ''}</Body> : null}
+        {habit.anchor ? <Body size={14} color={c.ink} style={{ opacity: 0.8 }}>{playsLine(habit.anchor)}{habit.whenWhere ? ` · ${habit.whenWhere}` : ''}</Body> : null}
       </View>
       {upgraded ? (
         <View style={{ alignSelf: 'flex-start', backgroundColor: '#17121F', borderRadius: radius.pill, paddingVertical: 8, paddingHorizontal: 14 }}>
@@ -52,7 +53,7 @@ export function NeverTwiceCard({ habit, week, style }: { habit: Habit; week: ('k
   return (
     <View style={[{ flex: 1, backgroundColor: t.cardBack, borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }, style]}>
       <View style={{ gap: space.md }}>
-        <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{`Never twice · ${habit.name}`}</Label>
+        <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{`Comeback · ${habit.name}`}</Label>
         <View style={{ flexDirection: 'row', gap: 6 }}>
           {week.map((w, i) => (
             <View
@@ -73,12 +74,12 @@ export function NeverTwiceCard({ habit, week, style }: { habit: Habit; week: ('k
       </View>
       <View style={{ gap: space.sm }}>
         <Display size={48} color={c.bg === '#17614B' ? '#B5D6CB' : c.bg}>Yesterday got away.</Display>
-        <Body weight="bold" size={16} color={t.onCardBack}>Once is fine. Don’t make it two.</Body>
+        <Body weight="bold" size={16} color={t.onCardBack}>One day off changes nothing. Here is the easy way back in.</Body>
       </View>
       <View style={{ gap: space.md }}>
         {habit.twoMinuteLabel ? (
           <View style={{ borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)', borderRadius: radius.pill, paddingVertical: 12, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', gap: space.md }}>
-            <Body weight="bold" size={14} color={t.onCardBack}>Tap for 2 minutes</Body>
+            <Body weight="bold" size={14} color={t.onCardBack}>Tap for your first move</Body>
             <Body size={14} color={t.onCardBack} style={{ opacity: 0.7, flexShrink: 1, textAlign: 'right' }} numberOfLines={1}>{habit.twoMinuteLabel}</Body>
           </View>
         ) : null}

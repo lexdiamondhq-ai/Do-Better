@@ -80,7 +80,7 @@ export function totals(checkIns: CheckIns, upTo: Day): { kept: number; ceiling: 
 }
 
 /**
- * The missed day the Never Twice card should be shown for, or null.
+ * The missed day the Comeback card should be shown for, or null.
  * That is yesterday, when yesterday counted, had no check-in, and today isn't kept yet.
  */
 export function neverTwiceDay(startedOn: Day, today: Day, checkIns: CheckIns): Day | null {
@@ -90,7 +90,7 @@ export function neverTwiceDay(startedOn: Day, today: Day, checkIns: CheckIns): D
   return yesterday;
 }
 
-/** Misses that were followed by a kept day: the moments Never Twice worked. */
+/** Misses that were followed by a kept day: the comebacks. */
 export function bounceBacks(startedOn: Day, upTo: Day, checkIns: CheckIns): number {
   let count = 0;
   for (let day = startedOn; daysBetween(day, upTo) > 0; day = addDays(day, 1)) {

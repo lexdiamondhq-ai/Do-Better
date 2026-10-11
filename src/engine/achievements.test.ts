@@ -17,6 +17,7 @@ describe('ACHIEVEMENTS', () => {
 
   it('contains nothing that counts consecutive days', () => {
     for (const a of ACHIEVEMENTS) expect(`${a.title} ${a.description}`.toLowerCase()).not.toMatch(/streak|in a row|consecutive/);
+    for (const a of ACHIEVEMENTS) expect(`${a.title} ${a.description}`.toLowerCase()).not.toMatch(/\bvot(e|es|ing)\b|never twice|full house|royal flush/);
   });
 });
 
@@ -54,7 +55,7 @@ describe('evaluateAchievements', () => {
     expect(byId(states, 'bounce-1').unlockedOn).toBe('2026-10-02');
   });
 
-  it('counts a full house only when every habit was kept', () => {
+  it('counts a whole-deck day only when every habit was kept', () => {
     expect(metrics.fullHouse).toBe(2); // the 2nd and the 4th
   });
 

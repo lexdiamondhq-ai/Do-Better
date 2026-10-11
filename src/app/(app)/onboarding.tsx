@@ -12,7 +12,7 @@ import { useData } from '@/lib/data';
 import { useTheme } from '@/theme/ThemeProvider';
 import { CARD_COLORS, cardColors, fonts, radius, space, type CardColor } from '@/theme/tokens';
 
-type Intro = { color: CardColor | 'back'; eyebrow: string; title: string; body: string; source?: string; hint: string };
+type Intro = { color: CardColor | 'back'; eyebrow: string; title: string; body: string; hint: string };
 
 const INTRO: Intro[] = [
   {
@@ -31,18 +31,16 @@ const INTRO: Intro[] = [
   },
   {
     color: 'back',
-    eyebrow: 'Never twice',
+    eyebrow: 'The comeback',
     title: 'Missing once is human.',
-    body: 'The morning after a miss, the card turns over and offers a two-minute version. Missing once is an accident. Missing twice is the start of a new habit, so the app helps you stop at one.',
-    source: PRINCIPLES['never-miss-twice'].source,
+    body: 'The morning after a miss, the card turns over and offers a first move, something so small it is hard to say no to. One missed day changes nothing, so the app makes the next morning the easiest one.',
     hint: 'Swipe to keep going',
   },
   {
     color: 'sun',
-    eyebrow: 'Identity',
-    title: 'Every kept day is a vote.',
-    body: 'Give each card an identity, like "a reader". Votes add up to who you are becoming, and to cards for your collection. There are no streaks here, so nothing ever resets to zero.',
-    source: PRINCIPLES.identity.source,
+    eyebrow: 'Who you are',
+    title: 'Every kept day is a card.',
+    body: 'Give each card a line like "a reader". The days you keep add up to who you are becoming, and to cards for your collection. There are no streaks here, so nothing ever resets to zero.',
     hint: 'Swipe to build your deck',
   },
 ];
@@ -121,7 +119,6 @@ export default function Onboarding() {
               <View style={{ gap: space.lg }}>
                 <Display size={46} color={ink}>{card.title}</Display>
                 <Body size={17} weight="semi" color={ink} style={{ opacity: 0.9 }}>{card.body}</Body>
-                {card.source ? <Body size={13} weight="heavy" color={ink} style={{ opacity: 0.6 }}>{card.source}</Body> : null}
               </View>
               <Body weight="heavy" color={ink} style={{ opacity: 0.75 }}>{`${step === 1 ? '↑ ↓' : '↔'}  ${card.hint}`}</Body>
             </View>

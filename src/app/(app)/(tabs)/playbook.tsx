@@ -30,7 +30,6 @@ export default function Playbook() {
                 <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{r.reason}</Label>
                 <Display size={24} color={t.onCardBack}>{r.principle.title}</Display>
                 <Body size={15} color={t.onCardBack} style={{ opacity: 0.85 }}>{r.principle.tryThis}</Body>
-                <Body size={12} weight="bold" color={t.onCardBack} style={{ opacity: 0.5 }}>{r.principle.source}</Body>
               </View>
             ))}
           </ScrollView>
@@ -71,10 +70,9 @@ export default function Playbook() {
                   <>
                     <Body>{p.idea}</Body>
                     <Body weight="bold">{`Try this: ${p.tryThis}`}</Body>
-                    <Body size={12} weight="bold" color={t.textSecondary}>{p.source}</Body>
                   </>
                 ) : (
-                  <Body size={13} color={t.textSecondary} numberOfLines={1}>{p.source}</Body>
+                  <Body size={13} color={t.textSecondary} numberOfLines={1}>{p.idea}</Body>
                 )}
               </Pressable>
             );

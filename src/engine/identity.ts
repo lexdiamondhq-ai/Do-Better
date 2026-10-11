@@ -1,6 +1,7 @@
 /**
- * Identity votes. Every kept day is a vote for the person the habit says you are becoming
- * ("a reader", "someone who moves every day"). A Floor counts as a full vote: showing up is the point.
+ * Identity cards. Every kept day adds a card for the person the habit says you are becoming
+ * ("a reader", "someone who moves every day"). A Floor counts in full: showing up is the point.
+ * The code counts them as `votes`; on screen they are always cards.
  * Habits without an identity still count toward kept days, just not here.
  */
 

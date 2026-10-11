@@ -3,7 +3,7 @@
 Most habit apps reward streaks, and streaks break. Do Better tracks a non-negotiable minimum so one bad day doesn't end the habit.
 
 - **Floor and Ceiling.** Every habit has an ideal daily target (the Ceiling) and an emergency minimum (the Floor). Hitting the Floor counts as a kept day.
-- **Never Twice.** After a missed day the app offers a small recovery action, such as doing only the Floor or a 2-minute version, and tracks whether the next day was kept.
+- **The comeback.** After a missed day the card comes back with an easier way in, the Floor or a first move, and the app tracks whether the next day was kept.
 - **30 days.** A simple view of how many of the last 30 days hit at least the Floor.
 
 ## Running it

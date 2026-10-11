@@ -9,9 +9,9 @@ Written for its own Supabase project, using Dog Better's conventions: `owner_id`
 | Table | One row per | Serves |
 |---|---|---|
 | `profiles` | user | Stores the user's timezone so "today" means their local day. Created by a signup trigger, same as Dog Better. |
-| `habits` | habit | Floor and Ceiling setup. Labels are required ("1 page" / "20 pages"); numeric targets and a unit are optional. `two_minute_label` holds the tiny version the recovery prompt offers. `identity` holds the optional onboarding line. |
+| `habits` | habit | Floor and Ceiling setup. Labels are required ("1 page" / "20 pages"); numeric targets and a unit are optional. `two_minute_label` holds the first move the Comeback card offers. `identity` holds the optional onboarding line. |
 | `habit_days` | habit per day | Daily check-in. `level` is `floor` or `ceiling`. Going from Floor to Ceiling later that day is an upsert on `(habit_id, day)`. |
-| `recovery_prompts` | missed day | Never Twice. Records which day was missed, which day the user is asked to keep, when the prompt was shown, and what they tapped (`floor_only`, `two_minute`, `dismissed`, or nothing). |
+| `recovery_prompts` | missed day | The comeback. Records which day was missed, which day the user is asked to keep, when the prompt was shown, and what they tapped (`floor_only`, `two_minute`, `dismissed`, or nothing). |
 
 ## Choices worth knowing
 
@@ -23,7 +23,7 @@ Written for its own Supabase project, using Dog Better's conventions: `owner_id`
 
 ## Answering the validation question
 
-Do users act on the Never Twice prompt, and does acting help?
+Do users act on the comeback prompt, and does acting help?
 
 ```sql
 select
@@ -38,5 +38,5 @@ where recovery_day_kept is not null;
 ## Left out on purpose
 
 - No streak columns. Streaks are what the app is positioned against, and anything streak-like can be derived from `habit_days`.
-- No reminder or notification tables yet. Those come with the Never Twice trigger in step 3.
-- No Identity Scorecard tables, since it was dropped from the MVP.
+- No reminder or notification tables yet. Those come with the comeback trigger in step 3.
+- No tables for a separate identity checklist, since it was dropped from the MVP.

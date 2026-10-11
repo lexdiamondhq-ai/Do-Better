@@ -21,7 +21,7 @@ function Tip({ principle }: { principle: keyof typeof PRINCIPLES }) {
   return (
     <Body size={13} color={t.textSecondary}>
       <Body size={13} weight="heavy" color={t.text}>{`${p.title}. `}</Body>
-      {`${p.idea} (${p.source})`}
+      {p.idea}
     </Body>
   );
 }
@@ -132,25 +132,25 @@ export default function EditHabit() {
         <Field label="Ceiling · a great day" value={draft.ceilingLabel} onChangeText={(ceilingLabel) => set({ ceilingLabel })} placeholder="20 pages" />
         <View style={{ gap: space.sm }}>
           <Field label="Floor · still counts" value={draft.floorLabel} onChangeText={(floorLabel) => set({ floorLabel })} placeholder="1 page" hint="Small enough to do on your worst day. Hitting it keeps the day." />
-          <Tip principle="two-minute" />
+          <Tip principle="first-move" />
         </View>
 
         <Label style={{ marginTop: space.md }}>Make it stick</Label>
         <View style={{ gap: space.sm }}>
-          <Field label="Who this makes you" value={draft.identity} onChangeText={(identity) => set({ identity })} placeholder="a reader" hint="Every kept day is a vote for this person." />
+          <Field label="Who this makes you" value={draft.identity} onChangeText={(identity) => set({ identity })} placeholder="a reader" hint="Every kept day adds a card for this person." />
           <Tip principle="identity" />
         </View>
         <View style={{ gap: space.sm }}>
-          <Field label="After I…" value={draft.anchor} onChangeText={(anchor) => set({ anchor })} placeholder="After I get into bed" />
-          <Tip principle="habit-stacking" />
+          <Field label="When it plays" value={draft.anchor} onChangeText={(anchor) => set({ anchor })} placeholder="after getting into bed" />
+          <Tip principle="when-it-plays" />
         </View>
         <View style={{ gap: space.sm }}>
           <Field label="When and where" value={draft.whenWhere} onChangeText={(whenWhere) => set({ whenWhere })} placeholder="10 pm, in bed" />
           <Tip principle="when-where" />
         </View>
         <View style={{ gap: space.sm }}>
-          <Field label="Two-minute version" value={draft.twoMinuteLabel} onChangeText={(twoMinuteLabel) => set({ twoMinuteLabel })} placeholder="Open the book to your bookmark" hint="Offered the morning after a miss." />
-          <Tip principle="never-miss-twice" />
+          <Field label="First move" value={draft.twoMinuteLabel} onChangeText={(twoMinuteLabel) => set({ twoMinuteLabel })} placeholder="Open the book to your bookmark" hint="Offered the morning after a miss." />
+          <Tip principle="comeback" />
         </View>
         <Field label="Why it matters to you" value={draft.why} onChangeText={(why) => set({ why })} placeholder="I want to finish a book a month again." multiline />
 

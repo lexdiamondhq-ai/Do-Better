@@ -75,7 +75,7 @@ export default function You() {
 
       <Section title="Your identities">
         {deck.identities.length === 0 ? (
-          <Body color={t.textSecondary}>Give a card an identity, like “a reader” or “someone who moves every day”. Every kept day becomes a vote for that person.</Body>
+          <Body color={t.textSecondary}>Give a card an identity, like “a reader” or “someone who moves every day”. Every kept day adds a card for that person.</Body>
         ) : (
           <View style={{ gap: space.md }}>
             {deck.identities.map((id) => {
@@ -88,13 +88,13 @@ export default function You() {
                   <Display size={30} color={col.ink}>{`I’m ${id.identity}`}</Display>
                   <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.sm }}>
                     <Display size={44} color={col.ink}>{id.votes}</Display>
-                    <Body weight="heavy" size={14} color={col.ink} style={{ paddingBottom: 6 }}>{id.votes === 1 ? 'vote' : 'votes'} · {id.last30} this month</Body>
+                    <Body weight="heavy" size={14} color={col.ink} style={{ paddingBottom: 6 }}>{id.votes === 1 ? 'card' : 'cards'} · {id.last30} this month</Body>
                   </View>
                   <View style={{ height: 8, borderRadius: 4, backgroundColor: 'rgba(23,18,31,0.18)', overflow: 'hidden' }}>
                     <View style={{ width: `${Math.min(1, into) * 100}%`, height: '100%', backgroundColor: col.ink }} />
                   </View>
                   <Body size={13} weight="bold" color={col.ink} style={{ opacity: 0.8 }}>
-                    {next ? `${next.needed} more to “${next.next.label}”` : 'You are this person now. Keep voting.'}
+                    {next ? `${next.needed} more to “${next.next.label}”` : 'You are this person now. Keep going.'}
                   </Body>
                 </View>
               );
@@ -130,7 +130,7 @@ export default function You() {
             { n: deck.metrics.ceiling, label: 'Ceilings' },
             { n: deck.metrics.floorSaves, label: 'days the Floor saved' },
             { n: deck.metrics.bounceBacks, label: 'bounce-backs' },
-            { n: deck.metrics.fullHouse, label: 'full houses' },
+            { n: deck.metrics.fullHouse, label: 'whole-deck days' },
             { n: deck.metrics.best30, label: 'best 30 days' },
           ].map((s) => (
             <View key={s.label} style={{ width: '48.5%', backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg }}>

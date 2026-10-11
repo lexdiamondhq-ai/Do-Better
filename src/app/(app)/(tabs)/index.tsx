@@ -43,7 +43,7 @@ export default function Today() {
   }
   const front = queue[0];
 
-  // Record that the Never Twice card was shown, once per missed day.
+  // Record that the Comeback card was shown, once per missed day.
   useEffect(() => {
     if (front?.kind !== 'never-twice' || !front.view.neverTwice) return;
     const key = `${front.view.habit.id}:${front.view.neverTwice}`;
@@ -75,7 +75,7 @@ export default function Today() {
     const missed = item.view.neverTwice;
     if (!missed) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    // The two-minute version keeps the day: Never Twice is about showing up, not the amount.
+    // The first move keeps the day: the comeback is about showing up, not the amount.
     checkIn(item.view.habit.id, 'floor').catch(fail);
     recordPrompt(item.view.habit.id, missed, 'two_minute').catch(fail);
   }
@@ -231,7 +231,6 @@ function AllKept() {
         <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{`Today's idea · ${deck.idea.reason}`}</Label>
         <Display size={26} color={t.onCardBack}>{deck.idea.principle.title}</Display>
         <Body color={t.onCardBack} style={{ opacity: 0.85 }}>{deck.idea.principle.tryThis}</Body>
-        <Body size={12} weight="bold" color={t.onCardBack} style={{ opacity: 0.55 }}>{deck.idea.principle.source}</Body>
       </Pressable>
 
       {next ? (

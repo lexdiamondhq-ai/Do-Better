@@ -1,7 +1,7 @@
 /**
  * Achievements are collectible cards. Each one belongs to a suit and has a rank, so the collection
  * reads like a deck you fill in over months. They are earned from totals only: kept days, Ceilings,
- * Floors that saved a day, bounce-backs after a miss, identity votes. Nothing here is a streak, so
+ * Floors that saved a day, bounce-backs after a miss, cards for an identity. Nothing here is a streak, so
  * no achievement can ever be lost, and a bad week never undoes one.
  *
  * Unlock dates are worked out by replaying history day by day, so they need no table of their own.
@@ -14,10 +14,10 @@ import type { CheckIns } from './kept';
 export type Suit = 'spades' | 'diamonds' | 'clubs' | 'hearts' | 'joker';
 
 export const SUITS: Record<Suit, { glyph: string; name: string; about: string }> = {
-  spades: { glyph: '♠', name: 'Showing up', about: 'Kept days, Floor or Ceiling.' },
-  diamonds: { glyph: '♦', name: 'Reaching up', about: 'Days you hit the Ceiling.' },
-  clubs: { glyph: '♣', name: 'Bouncing back', about: 'Coming back after a miss, and steady months.' },
-  hearts: { glyph: '♥', name: 'Becoming', about: 'Votes for who you are becoming.' },
+  spades: { glyph: '↓', name: 'Showing up', about: 'Kept days, Floor or Ceiling.' },
+  diamonds: { glyph: '↑', name: 'Reaching up', about: 'Days you hit the Ceiling.' },
+  clubs: { glyph: '↺', name: 'Bouncing back', about: 'Coming back after a miss, and steady months.' },
+  hearts: { glyph: '●', name: 'Becoming', about: 'Cards for who you are becoming.' },
   joker: { glyph: '★', name: 'Wild cards', about: 'Whole days and a full deck.' },
 };
 
@@ -27,8 +27,8 @@ export type Metric =
   | 'floorSaves' // days kept with the Floor only
   | 'bounceBacks' // misses followed by a kept day
   | 'fullHouse' // days every habit in the deck was kept (2+ habits)
-  | 'topIdentity' // votes for the most-voted identity
-  | 'identities10' // identities with 10+ votes
+  | 'topIdentity' // cards for the identity with the most
+  | 'identities10' // identities with 10+ cards
   | 'best30' // most kept days in any 30-day stretch of one habit
   | 'deck'; // habits in the deck
 
@@ -60,24 +60,24 @@ export const ACHIEVEMENTS: readonly Achievement[] = [
   { id: 'ceiling-150', suit: 'diamonds', rank: 'K', title: 'Living up there', description: 'Hit the Ceiling 150 times.', metric: 'ceiling', target: 150 },
   { id: 'ceiling-365', suit: 'diamonds', rank: 'A', title: 'A year of great days', description: 'Hit the Ceiling 365 times.', metric: 'ceiling', target: 365 },
 
-  { id: 'bounce-1', suit: 'clubs', rank: '3', title: 'Never twice', description: 'Keep the day after a miss.', metric: 'bounceBacks', target: 1 },
+  { id: 'bounce-1', suit: 'clubs', rank: '3', title: 'First comeback', description: 'Keep the day after a miss.', metric: 'bounceBacks', target: 1 },
   { id: 'bounce-5', suit: 'clubs', rank: '6', title: 'Comeback habit', description: 'Bounce back after a miss 5 times.', metric: 'bounceBacks', target: 5 },
   { id: 'bounce-25', suit: 'clubs', rank: 'J', title: 'Unshakeable', description: 'Bounce back after a miss 25 times.', metric: 'bounceBacks', target: 25 },
   { id: 'steady-20', suit: 'clubs', rank: '7', title: 'Steady month', description: 'Keep 20 of 30 days on one habit.', metric: 'best30', target: 20 },
   { id: 'steady-25', suit: 'clubs', rank: '9', title: 'Solid month', description: 'Keep 25 of 30 days on one habit.', metric: 'best30', target: 25 },
   { id: 'steady-30', suit: 'clubs', rank: 'Q', title: 'Perfect month', description: 'Keep all 30 of 30 days on one habit.', metric: 'best30', target: 30 },
 
-  { id: 'vote-1', suit: 'hearts', rank: '2', title: 'First vote', description: 'Keep a day for a habit with an identity.', metric: 'topIdentity', target: 1 },
-  { id: 'vote-10', suit: 'hearts', rank: '5', title: 'Showing up', description: 'Cast 10 votes for one identity.', metric: 'topIdentity', target: 10 },
-  { id: 'vote-30', suit: 'hearts', rank: '9', title: 'Becoming', description: 'Cast 30 votes for one identity.', metric: 'topIdentity', target: 30 },
-  { id: 'vote-100', suit: 'hearts', rank: 'K', title: 'This is who I am', description: 'Cast 100 votes for one identity.', metric: 'topIdentity', target: 100 },
-  { id: 'vote-365', suit: 'hearts', rank: 'A', title: 'A year of being you', description: 'Cast 365 votes for one identity.', metric: 'topIdentity', target: 365 },
-  { id: 'many-sides', suit: 'hearts', rank: 'Q', title: 'Many sides', description: 'Reach 10 votes for 3 different identities.', metric: 'identities10', target: 3 },
+  { id: 'vote-1', suit: 'hearts', rank: '2', title: 'First of many', description: 'Keep a day on a card that says who it makes you.', metric: 'topIdentity', target: 1 },
+  { id: 'vote-10', suit: 'hearts', rank: '5', title: 'Showing up', description: 'Earn 10 cards for one identity.', metric: 'topIdentity', target: 10 },
+  { id: 'vote-30', suit: 'hearts', rank: '9', title: 'Becoming', description: 'Earn 30 cards for one identity.', metric: 'topIdentity', target: 30 },
+  { id: 'vote-100', suit: 'hearts', rank: 'K', title: 'This is who I am', description: 'Earn 100 cards for one identity.', metric: 'topIdentity', target: 100 },
+  { id: 'vote-365', suit: 'hearts', rank: 'A', title: 'A year of being you', description: 'Earn 365 cards for one identity.', metric: 'topIdentity', target: 365 },
+  { id: 'many-sides', suit: 'hearts', rank: 'Q', title: 'Many sides', description: 'Reach 10 cards for 3 different identities.', metric: 'identities10', target: 3 },
 
   { id: 'deck-3', suit: 'joker', rank: '★', title: 'Deck builder', description: 'Have 3 habits in your deck.', metric: 'deck', target: 3 },
-  { id: 'full-house-1', suit: 'joker', rank: '★', title: 'Full house', description: 'Keep every habit in one day (2 or more habits).', metric: 'fullHouse', target: 1 },
-  { id: 'full-house-10', suit: 'joker', rank: '★★', title: 'Ten full houses', description: 'Keep every habit on 10 days.', metric: 'fullHouse', target: 10 },
-  { id: 'full-house-50', suit: 'joker', rank: '★★★', title: 'Royal flush', description: 'Keep every habit on 50 days.', metric: 'fullHouse', target: 50 },
+  { id: 'full-house-1', suit: 'joker', rank: '★', title: 'Whole deck', description: 'Keep every habit in one day (2 or more habits).', metric: 'fullHouse', target: 1 },
+  { id: 'full-house-10', suit: 'joker', rank: '★★', title: 'Ten whole decks', description: 'Keep every habit on 10 days.', metric: 'fullHouse', target: 10 },
+  { id: 'full-house-50', suit: 'joker', rank: '★★★', title: 'Fifty whole decks', description: 'Keep every habit on 50 days.', metric: 'fullHouse', target: 50 },
 ];
 
 export type AchievementHabit = { id: string; identity: string | null; startedOn: Day; archived?: boolean };

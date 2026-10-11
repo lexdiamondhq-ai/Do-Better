@@ -6,7 +6,7 @@ import { Pile, PileLegend } from '@/components/Pile';
 import { Body, Button, Centered, Display, Label, Section } from '@/components/ui';
 import { votesToNextLevel } from '@/engine/identity';
 import { best30, bounceBacks, recentDays } from '@/engine/kept';
-import { PRINCIPLES, RECIPES } from '@/engine/playbook';
+import { playsLine, PRINCIPLES, RECIPES } from '@/engine/playbook';
 import { useDeck } from '@/lib/deck';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, radius, space } from '@/theme/tokens';
@@ -64,7 +64,7 @@ export default function HabitDetail() {
         <View style={{ gap: space.sm }}>
           <Body weight="bold" color={c.ink}>{`↑ Ceiling · ${habit.ceilingLabel}`}</Body>
           <Body weight="bold" color={c.ink}>{`↓ Floor · ${habit.floorLabel}`}</Body>
-          {habit.twoMinuteLabel ? <Body weight="bold" color={c.ink} style={{ opacity: 0.8 }}>{`⏱ Two minutes · ${habit.twoMinuteLabel}`}</Body> : null}
+          {habit.twoMinuteLabel ? <Body weight="bold" color={c.ink} style={{ opacity: 0.8 }}>{`→ First move · ${habit.twoMinuteLabel}`}</Body> : null}
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.sm }}>
           <Display size={84} color={c.ink} style={{ lineHeight: 80 }}>{window30.keptDays}</Display>
@@ -90,16 +90,16 @@ export default function HabitDetail() {
         {identity ? (
           <View style={{ backgroundColor: t.cardBack, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}>
             <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{identity.level.label}</Label>
-            <Display size={28} color={t.onCardBack}>{`${identity.votes} ${identity.votes === 1 ? 'vote' : 'votes'} for ${identity.identity}`}</Display>
+            <Display size={28} color={t.onCardBack}>{`${identity.votes} ${identity.votes === 1 ? 'card says' : 'cards say'} I’m ${identity.identity}`}</Display>
             <Body color={t.onCardBack} style={{ opacity: 0.8 }}>
               {toNext ? `${toNext.needed} more to "${toNext.next.label}".` : 'You have shown it, again and again. This is who you are.'}
-              {identity.habitIds.length > 1 ? ` ${identity.habitIds.length} cards vote for this.` : ''}
+              {identity.habitIds.length > 1 ? ` ${identity.habitIds.length} habits add to this.` : ''}
             </Body>
           </View>
         ) : (
           <Pressable onPress={() => router.push({ pathname: '/habit/edit', params: { id: habit.id } })} style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.dashed, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}>
             <Display size={22}>Who does this make you?</Display>
-            <Body color={t.textSecondary}>{`${PRINCIPLES.identity.tryThis} (${PRINCIPLES.identity.source})`}</Body>
+            <Body color={t.textSecondary}>{PRINCIPLES.identity.tryThis}</Body>
           </Pressable>
         )}
 
@@ -107,7 +107,7 @@ export default function HabitDetail() {
           <Section title="Why and when">
             <View style={{ gap: space.md }}>
               {habit.why ? <Display size={24} style={{ lineHeight: 30 }}>{`“${habit.why}”`}</Display> : null}
-              {habit.anchor ? <Body weight="bold">{`Cue · ${habit.anchor}`}</Body> : null}
+              {habit.anchor ? <Body weight="bold">{playsLine(habit.anchor)}</Body> : null}
               {habit.whenWhere ? <Body weight="bold">{`Plan · ${habit.whenWhere}`}</Body> : null}
             </View>
           </Section>
@@ -118,7 +118,6 @@ export default function HabitDetail() {
             <Label color={c.ink}>The idea behind this card</Label>
             <Display size={22} color={c.ink}>{principle.title}</Display>
             <Body color={c.ink}>{principle.idea}</Body>
-            <Body size={13} weight="bold" color={c.ink} style={{ opacity: 0.7 }}>{principle.source}</Body>
           </View>
         ) : null}
 

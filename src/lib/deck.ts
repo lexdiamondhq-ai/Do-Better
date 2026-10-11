@@ -13,7 +13,7 @@ export type HabitView = {
   habit: Habit;
   checkIns: CheckIns;
   today: Level | null;
-  /** The missed day to show the Never Twice card for, unless the user already answered it. */
+  /** The missed day to show the Comeback card for, unless the user already answered it. */
   neverTwice: Day | null;
   window30: ReturnType<typeof summarizeWindow>;
   allTime: { kept: number; ceiling: number };

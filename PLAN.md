@@ -57,12 +57,15 @@ The words inside Playbook change: each idea is rewritten in Do Better's voice wi
    Alex said "I really like this game" but has not yet said whether the phone's tilt moves the shine.
 2. [ ] One moving sketch of the landing moment, added to the same `/sketch` screen.
    After a card prints, it is stamped with who it makes you and drops onto that identity's stack, and a bar shows how many cards are left to the next rank.
-   Proof: the three checks pass, the simulator shows a plain landing and a rank-up, and Alex opens it from the QR code.
-3. [ ] Own words everywhere, using the table above.
+   Proven on 2026-10-11 in the simulator: a plain landing (28 to 29 cards) and a rank-up (29 to 30, "Becoming"), in light and dark.
+   Still open: Alex opening it on the phone, and a real finger swiping the card down onto the stack.
+3. [x] Own words everywhere, using the table above (done 2026-10-11).
    Remove every book and author name, rewrite each Playbook idea in Do Better's voice, and rename the borrowed labels on every screen.
    Also fix the wording in `README.md`, `CLAUDE.md`, and `docs/DATA_MODEL.md`.
    Internal names and database columns stay as they are.
-   Proof: a search of `src/app`, `src/components`, `src/engine`, and the docs finds none of those names or labels in text a person can read, and the three checks pass.
+   Proven: a search of the project finds those names only in internal code names and database names, the three checks pass, and two engine tests now fail if a borrowed label comes back.
+   Not proven: the reworded screens were not viewed while signed in, because the simulator could not be tapped.
+   Left alone on purpose: comments inside the two applied migrations in `supabase/migrations`.
 4. [ ] The idea card on top of the morning deal.
    This waits for step 3, so the ideas are already in Do Better's words.
    Proof: one moving sketch first, then Alex's yes.
