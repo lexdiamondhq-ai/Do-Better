@@ -60,7 +60,7 @@ export const HANDS: Record<HandKind, HandInfo> = {
   'four-of-a-kind': { name: 'Four of a kind', chips: 200, how: 'Four days dealt the same rank.', secret: false },
   'straight-flush': { name: 'Straight flush', chips: 300, how: 'Five ranks in a row, all in one suit.', secret: false },
   'royal-flush': { name: 'Royal flush', chips: 500, how: '10, J, Q, K and A in one suit. Only great days deal that high.', secret: false },
-  'five-of-a-kind': { name: 'Five of a kind', chips: 800, how: 'Four of a kind and a Joker, which you earn with a new face card in the Court. The rarest hand there is.', secret: true },
+  'five-of-a-kind': { name: 'Five of a kind', chips: 800, how: 'Five days dealt the same rank, or four of a kind and a Joker from a new face card in the Court. The rarest hand there is.', secret: true },
 };
 
 export function handIndex(kind: HandKind): number {

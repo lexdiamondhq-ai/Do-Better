@@ -118,7 +118,7 @@ function FaceEarned({ event, onDone }: { event: Extract<GameEvent, { kind: 'face
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onDone}>
-      <Pressable onPress={onDone} style={{ flex: 1, backgroundColor: 'rgba(10,8,14,0.88)', alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.xl }}>
+      <Pressable onPress={onDone} style={{ flex: 1, backgroundColor: 'rgba(10,8,14,0.96)', alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.xl }}>
         <Label color={chip.bg}>{`The Court · ${info.name} · ${info.part}`}</Label>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Animated.View style={cardStyle}>

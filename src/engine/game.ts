@@ -2,7 +2,8 @@
  * The game around the hands. Each week, Monday to Sunday, is one hand. At the Showdown on Sunday night
  * it pays chips into your stack, plus a bonus when you called the hand on Monday and made it. Chips never
  * leave the stack, so a bad week can't cost you anything you've won. The first time you make each kind
- * of hand it goes into the Hall of Hands and unlocks a card back; a big enough stack opens a new table.
+ * of hand it goes into the Hall of Hands, card backs unlock up to your best hand, and a big enough stack
+ * opens a new table.
  *
  * All of it is worked out from check-ins and calls, so none of it is stored.
  */

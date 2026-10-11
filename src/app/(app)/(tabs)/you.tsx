@@ -135,7 +135,7 @@ export default function You() {
       </Section>
 
       <Section title="Card backs" action={<Label>{`${game.backs.size} of ${BACKS.length}`}</Label>}>
-        <Body size={14} color={t.textSecondary}>Finish a week with a new kind of hand to win its back. Days still to come wear the one you pick.</Body>
+        <Body size={14} color={t.textSecondary}>Each back unlocks the first time you finish a week with its hand or better. Days still to come wear the one you pick.</Body>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space.xl }} contentContainerStyle={{ paddingHorizontal: space.xl, gap: space.md }}>
           {BACKS.map((b) => {
             const open = game.backs.has(b.key);

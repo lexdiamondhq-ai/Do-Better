@@ -66,7 +66,7 @@ export default function Hands() {
       <CallPanel game={game} onCall={() => router.push('/call')} />
 
       <Section title="Hall of Hands" action={<Label>{`${made} of ${HAND_KINDS.length} made`}</Label>}>
-        <Body size={14} color={t.textSecondary}>Every kind of hand you have finished a week with. Each new one unlocks a card back.</Body>
+        <Body size={14} color={t.textSecondary}>Every kind of hand you have finished a week with. Card backs unlock as your best hand climbs.</Body>
         <View style={{ gap: space.sm }}>
           {[...game.hall].reverse().map((entry) => (
             <HallRow key={entry.kind} entry={entry} back={prefs.back} />
@@ -163,7 +163,7 @@ function WeekRow({ week, onPress }: { week: Week; onPress: () => void }) {
       {week.hand ? <HandRow faces={playedFaces(week.hand.cards)} size="xs" overlap={0.35} highlight={week.madeCall} /> : <View style={{ width: 120 }} />}
       <View style={{ flex: 1, gap: 1 }}>
         <Label>{weekRange(week.start)}</Label>
-        <Body size={14} weight="heavy" numberOfLines={2}>{week.hand?.title ?? 'No hand'}</Body>
+        <Body size={14} weight="heavy" numberOfLines={3}>{week.hand?.title ?? 'No hand'}</Body>
         {week.call ? <Body size={12} weight="bold" color={t.textSecondary}>{week.madeCall ? `Called ${HANDS[week.call].name} ✓` : `Called ${HANDS[week.call].name}`}</Body> : null}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
