@@ -1,10 +1,11 @@
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EXAMPLES, HandFan } from '@/components/HandFan';
+import { ask } from '@/components/Ask';
 import { PlayingCard } from '@/components/PlayingCard';
 import { SuitGlyph } from '@/components/Suit';
 import { SwipeCard } from '@/components/SwipeCard';
@@ -129,7 +130,7 @@ export default function Onboarding() {
       router.replace('/');
       if (recipes.length === 0) router.push('/habit/edit');
     } catch (e) {
-      Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Try again.');
+      ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
       setBusy(false);
     }
   }

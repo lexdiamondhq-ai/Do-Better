@@ -1,10 +1,11 @@
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HabitCard } from '@/components/HabitCard';
+import { ask } from '@/components/Ask';
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Field, Label } from '@/components/ui';
 import { SUIT_INFO, SUITS } from '@/engine/cards';
@@ -89,7 +90,7 @@ export default function EditHabit() {
 
   async function save() {
     if (problem) {
-      Alert.alert('Almost there', problem);
+      ask('Almost there', problem);
       return;
     }
     setBusy(true);
@@ -99,7 +100,7 @@ export default function EditHabit() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (e) {
-      Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Try again.');
+      ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
     } finally {
       setBusy(false);
     }
@@ -107,7 +108,7 @@ export default function EditHabit() {
 
   function archive() {
     if (!existing) return;
-    Alert.alert(`Archive ${existing.name}?`, 'It leaves your deck. Every day you kept still counts: its cards stay in old hands and its kept days stay in the Court.', [
+    ask(`Archive ${existing.name}?`, 'It leaves your deck. Every day you kept still counts: its cards stay in old hands and its kept days stay in the Court.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Archive',
@@ -115,7 +116,7 @@ export default function EditHabit() {
         onPress: () =>
           archiveHabit(existing.id)
             .then(() => router.dismissAll())
-            .catch((e: unknown) => Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Try again.')),
+            .catch((e: unknown) => ask('That didn’t save', e instanceof Error ? e.message : 'Try again.')),
       },
     ]);
   }

@@ -1,10 +1,11 @@
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Chips } from '@/components/Chips';
+import { ask } from '@/components/Ask';
 import { EXAMPLES, HandRow } from '@/components/HandFan';
 import { Body, Button, Display, Label } from '@/components/ui';
 import { CALLABLE } from '@/engine/game';
@@ -40,7 +41,7 @@ export default function Call() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (e) {
-      Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Try again.');
+      ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
       setBusy(false);
     }
   }

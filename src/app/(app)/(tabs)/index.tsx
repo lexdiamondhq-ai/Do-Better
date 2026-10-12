@@ -1,10 +1,11 @@
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Chips } from '@/components/Chips';
+import { ask } from '@/components/Ask';
 import { HabitCard, NeverTwiceCard } from '@/components/HabitCard';
 import { faceOfDay, PlayingCard } from '@/components/PlayingCard';
 import { SwipeCard, type SwipeDirection } from '@/components/SwipeCard';
@@ -60,7 +61,7 @@ export default function Today() {
   if (!deck) return null;
   const { game } = deck;
 
-  const fail = (e: unknown) => Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Check your connection and try again.');
+  const fail = (e: unknown) => ask('That didn’t save', e instanceof Error ? e.message : 'Check your connection and try again.');
 
   function onSwipe(item: Item, dir: SwipeDirection) {
     const id = item.view.habit.id;
@@ -94,7 +95,7 @@ export default function Today() {
     buttons.push({ text: 'Undo today', style: 'destructive', onPress: () => undoCheckIn(view.habit.id).catch(fail) });
     buttons.push({ text: 'Open card', onPress: () => router.push(`/habit/${view.habit.id}`) });
     buttons.push({ text: 'Cancel', style: 'cancel' });
-    Alert.alert(view.habit.name, view.today === 'floor' ? 'Floor kept today.' : 'Ceiling reached today.', buttons);
+    ask(view.habit.name, view.today === 'floor' ? 'Floor kept today.' : 'Ceiling reached today.', buttons);
   }
 
   const total = deck.cards.length;

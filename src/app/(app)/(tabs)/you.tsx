@@ -1,9 +1,10 @@
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, TextInput, View } from 'react-native';
 
 import { CardBack } from '@/components/CardBack';
+import { ask } from '@/components/Ask';
 import { Chips, formatChips } from '@/components/Chips';
 import { CardSlot, faceOfCourt, PlayingCard, SuitTag } from '@/components/PlayingCard';
 import { SuitGlyph } from '@/components/Suit';
@@ -41,7 +42,7 @@ export default function You() {
       await saveProfile({ northStar: draft });
       setEditing(false);
     } catch (e) {
-      Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Try again.');
+      ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
     } finally {
       setBusy(false);
     }

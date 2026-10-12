@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AskHost } from '@/components/Ask';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { PrefsProvider } from '@/lib/prefs';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
@@ -56,6 +57,7 @@ function Gate() {
     <>
       <StatusBar style={t.scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }} />
+      <AskHost />
     </>
   );
 }
