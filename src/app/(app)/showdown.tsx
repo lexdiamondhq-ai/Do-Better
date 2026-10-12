@@ -75,6 +75,7 @@ export default function Showdown() {
   const { prefs, setPrefs } = usePrefs();
   const look = useLook();
   const [phase, setPhase] = useState(0);
+  const [skipped, setSkipped] = useState(false);
   const settle = useSharedValue(0);
   const reveal = useSharedValue(0);
 
@@ -83,7 +84,7 @@ export default function Showdown() {
 
   useEffect(() => {
     const first = 300 + dealt * FLIP_GAP + 450;
-    const timers = [first, first + 700, first + 1500, first + 2100].map((ms, i) => setTimeout(() => setPhase(i + 1), ms));
+    const timers = [first, first + 700, first + 1500, first + 2100].map((ms, i) => setTimeout(() => setPhase((p) => Math.max(p, i + 1)), ms));
     return () => timers.forEach(clearTimeout);
   }, [dealt]);
 
@@ -119,12 +120,20 @@ export default function Showdown() {
     router.back();
   };
 
+  // Skip jumps to the result rather than leaving, so the chips and unlocks are still seen.
+  const skip = () => {
+    setSkipped(true);
+    settle.set(withTiming(1, { duration: 300 }));
+    reveal.set(withTiming(1, { duration: 300 }));
+    setPhase(4);
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
       <ScrollView contentContainerStyle={{ paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.xxxl, paddingHorizontal: space.lg, gap: space.xl, alignItems: 'center' }}>
         <View style={{ alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Label color={t.accent}>Showdown</Label>
-          <Pressable onPress={close} hitSlop={12} accessibilityRole="button">
+          <Pressable onPress={phase >= 4 ? close : skip} hitSlop={12} accessibilityRole="button">
             <Body weight="heavy" color={t.textSecondary}>{phase >= 4 ? 'Done' : 'Skip'}</Body>
           </Pressable>
         </View>
@@ -134,7 +143,7 @@ export default function Showdown() {
           {week.slots.map((slot, i) => (
             <View key={slot.day} style={{ marginLeft: i ? -4 : 0 }}>
               {slot.card ? (
-                <FlipCard face={faceOfDay(slot.card, played.get(slot.day))} back={look.back} delay={300 + dealtDays.indexOf(slot.day) * FLIP_GAP} held={played.has(slot.day)} settle={settle} />
+                <FlipCard face={faceOfDay(slot.card, played.get(slot.day))} back={look.back} delay={skipped ? 0 : 300 + dealtDays.indexOf(slot.day) * FLIP_GAP} held={played.has(slot.day)} settle={settle} />
               ) : (
                 <CardSlot size="sm" color={t.dashed} />
               )}
