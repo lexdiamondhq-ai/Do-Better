@@ -32,6 +32,8 @@ export default function Playbook() {
               <Pressable
                 key={r.principle.key}
                 onPress={r.principle.key === 'commitment' ? () => router.push('/call') : undefined}
+                disabled={r.principle.key !== 'commitment'}
+                accessibilityRole={r.principle.key === 'commitment' ? 'button' : undefined}
                 style={{ width: 280, backgroundColor: t.cardBack, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}
               >
                 <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{r.reason}</Label>
