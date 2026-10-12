@@ -5,7 +5,8 @@
  * all of them and it comes from the full deck; add a Ceiling and it is 9 or better; reach the Ceiling on
  * every habit and it is 10 or better. Where in that range it lands is the luck of the deal, fixed per
  * person and day by a seeded hash, so the same history always deals the same cards on every device. Each
- * habit you keep can only raise the day's card, never lower it.
+ * habit you keep can only raise the day's card, never lower it, and a better day keeps the card it already
+ * had whenever that card fits the better range, so doing more rarely breaks a pair you were holding.
  *
  * The suits are the suits of the habits you kept, so a day you read and walked counts as Clubs and Spades.
  *
@@ -60,9 +61,15 @@ export function unit(seed: string): number {
   return (h >>> 0) / 0x1_0000_0000;
 }
 
-export function rankFor(tier: Tier, u: number): Rank {
+/**
+ * The day's rank in a band. Every day has one card from the full deck; a band keeps it when it fits and
+ * otherwise deals again inside the band with a second hash (`again`). Each band stays evenly spread.
+ */
+export function rankFor(tier: Tier, u: number, again = u): Rank {
   const { lo, hi } = TIERS[tier];
-  return Math.min(hi, lo + Math.floor(u * (hi - lo + 1))) as Rank;
+  const base = Math.min(14, 2 + Math.floor(u * 13));
+  if (base >= lo && base <= hi) return base as Rank;
+  return Math.min(hi, lo + Math.floor(again * (hi - lo + 1))) as Rank;
 }
 
 export type DayCard =
@@ -154,12 +161,12 @@ export function dealDay(day: Day, habits: readonly DealHabit[], checkIns: Readon
   const t = tallyDay(day, habits, checkIns, extra);
   const tier = tierOf(t);
   if (!tier) return null;
-  return { kind: 'card', day, rank: rankFor(tier, unit(`${seed}:${day}`)), suits: t.suits, tier, rescued: false };
+  return { kind: 'card', day, rank: rankFor(tier, unit(`${seed}:${day}`), unit(`${seed}:${day}:again`)), suits: t.suits, tier, rescued: false };
 }
 
 /** The low card a blank day gets when you come back the next day, in the leading suit you came back with. */
 export function rescueCard(day: Day, seed: string, suit: Suit): DayCard {
-  return { kind: 'card', day, rank: rankFor('showed-up', unit(`${seed}:${day}`)), suits: [suit], tier: 'showed-up', rescued: true };
+  return { kind: 'card', day, rank: rankFor('showed-up', unit(`${seed}:${day}`), unit(`${seed}:${day}:again`)), suits: [suit], tier: 'showed-up', rescued: true };
 }
 
 export type SlotState = 'before' | 'blank' | 'open' | 'future' | 'dealt';

@@ -42,6 +42,34 @@ describe('rankFor', () => {
       const ranks = TIER_ORDER.map((t) => rankFor(t, u));
       for (let k = 1; k < ranks.length; k++) expect(ranks[k]).toBeGreaterThanOrEqual(ranks[k - 1]);
     }
+    for (let i = 0; i < 2000; i++) {
+      const ranks = TIER_ORDER.map((t) => rankFor(t, unit(`a:${i}`), unit(`b:${i}`)));
+      for (let k = 1; k < ranks.length; k++) expect(ranks[k]).toBeGreaterThanOrEqual(ranks[k - 1]);
+    }
+  });
+
+  it('keeps the same card on a better day when it fits the better band', () => {
+    // A 10 from the full deck is a 10 whether you kept some, all, all with a Ceiling, or every Ceiling.
+    const u = (10 - 2 + 0.5) / 13;
+    expect(TIER_ORDER.map((t) => rankFor(t, u, 0.99))).toEqual([10, 10, 10, 10]);
+    // A 4 doesn't fit "reached up", so that band deals again from 9 to Ace.
+    const low = (4 - 2 + 0.5) / 13;
+    expect(rankFor('kept-all', low, 0)).toBe(4);
+    expect(rankFor('reached-up', low, 0)).toBe(9);
+  });
+
+  it('deals every rank in a band about equally often', () => {
+    for (const tier of TIER_ORDER) {
+      const { lo, hi } = TIERS[tier];
+      const counts = new Map<number, number>();
+      const n = 26000;
+      for (let i = 0; i < n; i++) {
+        const r = rankFor(tier, unit(`p:${i}`), unit(`p:${i}:again`));
+        counts.set(r, (counts.get(r) ?? 0) + 1);
+      }
+      const even = n / (hi - lo + 1);
+      for (let r = lo; r <= hi; r++) expect(Math.abs((counts.get(r) ?? 0) - even) / even).toBeLessThan(0.08);
+    }
   });
 });
 
