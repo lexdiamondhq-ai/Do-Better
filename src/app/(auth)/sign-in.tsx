@@ -111,6 +111,8 @@ export default function SignIn() {
           busy={busy}
           onPress={() =>
             run(async () => {
+              if (!codeSent && !/^\S+@\S+\.\S+$/.test(email.trim())) throw new Error('Type your email address first.');
+              if (codeSent && !/^\d{6}$/.test(code.trim())) throw new Error('Type the 6-digit code from the email.');
               if (codeSent) await verifyEmailCode(email.trim(), code.trim());
               else {
                 await sendEmailCode(email.trim());
