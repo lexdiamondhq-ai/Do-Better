@@ -5,12 +5,14 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AskHost } from '@/components/Ask';
 import { AuthProvider, useAuth } from '@/lib/auth';
-import { PrefsProvider } from '@/lib/prefs';
+import { PrefsProvider, usePrefs } from '@/lib/prefs';
+import { resumeMusicAfterTap, setSoundSettings } from '@/lib/sound';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 
 SplashScreen.preventAutoHideAsync();
@@ -55,9 +57,26 @@ function Gate() {
 
   return (
     <>
+      <Sound on={ready && signedIn} />
       <StatusBar style={t.scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }} />
       <AskHost />
     </>
   );
+}
+
+/** Keeps the music and effects in step with the settings. Music plays only inside the app, never on sign-in. */
+function Sound({ on }: { on: boolean }) {
+  const { prefs, ready } = usePrefs();
+  const music = on && ready && prefs.music;
+  const sounds = prefs.sounds;
+  useEffect(() => {
+    setSoundSettings({ sounds, music });
+  }, [sounds, music]);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    document.addEventListener('pointerdown', resumeMusicAfterTap);
+    return () => document.removeEventListener('pointerdown', resumeMusicAfterTap);
+  }, []);
+  return null;
 }

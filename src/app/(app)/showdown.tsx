@@ -19,6 +19,7 @@ import { useData } from '@/lib/data';
 import { useDeck, useLook } from '@/lib/deck';
 import { weekOf } from '@/lib/format';
 import { usePrefs } from '@/lib/prefs';
+import { playSound } from '@/lib/sound';
 import { useTheme } from '@/theme/ThemeProvider';
 import { chip, radius, space, tables } from '@/theme/tokens';
 
@@ -85,17 +86,26 @@ export default function Showdown() {
   useEffect(() => {
     const first = 300 + dealt * FLIP_GAP + 450;
     const timers = [first, first + 700, first + 1500, first + 2100].map((ms, i) => setTimeout(() => setPhase((p) => Math.max(p, i + 1)), ms));
-    return () => timers.forEach(clearTimeout);
+    // Each card snaps as it turns over.
+    const flips = Array.from({ length: dealt }, (_, i) => setTimeout(() => playSound('flip'), 300 + i * FLIP_GAP + 150));
+    return () => [...timers, ...flips].forEach(clearTimeout);
   }, [dealt]);
+
+  const bonusPaid = (week?.bonus ?? 0) > 0;
 
   useEffect(() => {
     if (phase === 1) {
       settle.set(withTiming(1, { duration: 500 }));
       reveal.set(withSpring(1, { damping: 12 }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      playSound('ceiling');
     }
-    if (phase === 2) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-  }, [phase, settle, reveal]);
+    if (phase === 2) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      playSound('chips');
+    }
+    if (phase === 3 && bonusPaid) playSound('call');
+  }, [phase, settle, reveal, bonusPaid]);
 
   const chips = useCountUp(week?.chips ?? 0, phase >= 2);
   const bonus = useCountUp(week?.bonus ?? 0, phase >= 3);
@@ -123,6 +133,8 @@ export default function Showdown() {
   // Skip jumps to the result rather than leaving, so the chips and unlocks are still seen.
   const skip = () => {
     setSkipped(true);
+    playSound('chips');
+    if (bonusPaid) playSound('call', 350);
     settle.set(withTiming(1, { duration: 300 }));
     reveal.set(withTiming(1, { duration: 300 }));
     setPhase(4);

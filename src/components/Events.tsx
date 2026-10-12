@@ -8,8 +8,10 @@ import { SUIT_INFO } from '@/engine/cards';
 import { improves } from '@/engine/game';
 import { HANDS } from '@/engine/poker';
 import { useData, type GameEvent } from '@/lib/data';
+import { playSound } from '@/lib/sound';
 import { cardFace, chip, space } from '@/theme/tokens';
 
+import { Burst } from './Burst';
 import { CardBack } from './CardBack';
 import { faceLabel, faceOfCourt, faceOfDay, PlayingCard, type CardFace } from './PlayingCard';
 import { Body, Button, Display, Label } from './ui';
@@ -47,8 +49,11 @@ function DealToast({ event, back, onDone }: { event: DealShown; back: Parameters
   const flip = useSharedValue(0);
 
   const finish = useEffectEvent(onDone);
+  const wentUp = was?.kind === 'card' && card.kind === 'card' && card.rank > was.rank;
+  const sound = card.kind === 'joker' ? 'joker' : wentUp ? 'cardUp' : 'flip';
 
   useEffect(() => {
+    playSound(sound, 220);
     y.set(withSpring(0, { damping: 16, stiffness: 180 }));
     flip.set(withDelay(220, withTiming(1, { duration: 460 })));
     const leave = setTimeout(() => y.set(withTiming(-200, { duration: 240 })), 3000);
@@ -57,13 +62,12 @@ function DealToast({ event, back, onDone }: { event: DealShown; back: Parameters
       clearTimeout(leave);
       clearTimeout(done);
     };
-  }, [y, flip]);
+  }, [y, flip, sound]);
 
   const panel = useAnimatedStyle(() => ({ transform: [{ translateY: y.get() }] }));
   const front = useAnimatedStyle(() => ({ transform: [{ perspective: 600 }, { rotateY: `${180 - flip.get() * 180}deg` }] }));
   const behind = useAnimatedStyle(() => ({ transform: [{ perspective: 600 }, { rotateY: `${-flip.get() * 180}deg` }] }));
 
-  const wentUp = was?.kind === 'card' && card.kind === 'card' && card.rank > was.rank;
   const title = card.kind === 'joker' ? 'A Joker!' : wentUp ? 'Today’s card went up' : 'Today’s card';
   const better = !!hand && !!handWas && hand.score > handWas.score;
   const handLine = !hand ? '' : !better ? `Your hand: ${hand.title}.` : hand.title === handWas?.title ? `Your ${hand.title} just got stronger.` : `Your hand is now ${hand.title}.`;
@@ -71,6 +75,11 @@ function DealToast({ event, back, onDone }: { event: DealShown; back: Parameters
 
   return (
     <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + space.sm, paddingHorizontal: space.lg }}>
+      {card.kind === 'joker' ? (
+        <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 420 }}>
+          <Burst kind="joker" color="#FFFFFF" />
+        </View>
+      ) : null}
       <Animated.View style={panel}>
         <Pressable
           accessibilityRole="button"
@@ -109,6 +118,8 @@ function FaceEarned({ event, onDone }: { event: Extract<GameEvent, { kind: 'face
 
   useEffect(() => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    playSound('face');
+    playSound('joker', 700);
     scale.set(withSpring(1, { damping: 10 }));
     rotate.set(withDelay(80, withSpring(-4, { damping: 8 })));
     joker.set(withDelay(700, withSequence(withSpring(1.12, { damping: 6 }), withSpring(1))));

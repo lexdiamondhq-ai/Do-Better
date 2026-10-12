@@ -11,6 +11,7 @@ import { Body, Button, Display, Label } from '@/components/ui';
 import { CALLABLE } from '@/engine/game';
 import { atLeast, HANDS, type HandKind } from '@/engine/poker';
 import { useData } from '@/lib/data';
+import { playSound } from '@/lib/sound';
 import { useDeck } from '@/lib/deck';
 import { useTheme } from '@/theme/ThemeProvider';
 import { chip, radius, space } from '@/theme/tokens';
@@ -39,6 +40,7 @@ export default function Call() {
     try {
       await callHand(choice);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      playSound('call');
       router.back();
     } catch (e) {
       ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');

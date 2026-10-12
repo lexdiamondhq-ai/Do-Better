@@ -12,15 +12,19 @@ export type Prefs = {
   looks: Record<string, Partial<Look>>;
   /** The Monday of the last Showdown each player has watched. */
   showdownSeen: Record<string, Day>;
+  /** The table music. Phone-wide, not per player. */
+  music: boolean;
+  /** A sound for each action. */
+  sounds: boolean;
 };
 
-const DEFAULTS: Prefs = { looks: {}, showdownSeen: {} };
+const DEFAULTS: Prefs = { looks: {}, showdownSeen: {}, music: true, sounds: true };
 const KEY = 'do-better:prefs:v1';
 
 /** Older saves kept one back and table for everyone on the phone. Nobody can say whose they were, so they go. */
 function parse(raw: string): Prefs {
   const saved = JSON.parse(raw) as Partial<Prefs>;
-  return { looks: saved.looks ?? {}, showdownSeen: saved.showdownSeen ?? {} };
+  return { looks: saved.looks ?? {}, showdownSeen: saved.showdownSeen ?? {}, music: saved.music ?? true, sounds: saved.sounds ?? true };
 }
 
 type Patch = Partial<Prefs> | ((prefs: Prefs) => Partial<Prefs>);

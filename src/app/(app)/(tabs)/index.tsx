@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Burst, type BurstKind } from '@/components/Burst';
 import { Chips } from '@/components/Chips';
 import { ask } from '@/components/Ask';
 import { HabitCard, NeverTwiceCard } from '@/components/HabitCard';
@@ -19,6 +20,7 @@ import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
 import { useDeck, useLook, type Deck, type HabitView } from '@/lib/deck';
 import { longDate } from '@/lib/format';
+import { playSound } from '@/lib/sound';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, chip, radius, space } from '@/theme/tokens';
 
@@ -37,6 +39,7 @@ export default function Today() {
   // Cards swiped sideways go to the back of the deck for the rest of the session.
   const [deferred, setDeferred] = useState<string[]>([]);
   const [tipTurn, setTipTurn] = useState(0);
+  const [burst, setBurst] = useState<{ id: number; kind: BurstKind; color: string } | null>(null);
   const shown = useRef(new Set<string>());
 
   const queue: Item[] = [];
@@ -68,11 +71,14 @@ export default function Today() {
     const missed = item.view.neverTwice;
     if (dir === 'left' || dir === 'right') {
       Haptics.selectionAsync();
+      playSound('later');
       setDeferred((d) => [...d.filter((x) => x !== id), id]);
       if (item.kind === 'never-twice' && missed) recordPrompt(id, missed, 'dismissed').catch(fail);
       return;
     }
     const level = dir === 'up' ? 'ceiling' : 'floor';
+    playSound(level);
+    setBurst((b) => ({ id: (b?.id ?? 0) + 1, kind: level, color: cardColors[item.view.habit.color].bg }));
     Haptics.notificationAsync(level === 'ceiling' ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning);
     checkIn(id, level).catch(fail);
     if (item.kind === 'never-twice' && missed) recordPrompt(id, missed, 'floor_only').catch(fail);
@@ -82,6 +88,8 @@ export default function Today() {
     const missed = item.view.neverTwice;
     if (!missed) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    playSound('floor');
+    setBurst((b) => ({ id: (b?.id ?? 0) + 1, kind: 'floor', color: cardColors[item.view.habit.color].bg }));
     // The first move keeps the day: the comeback is about showing up, not the amount.
     checkIn(item.view.habit.id, 'floor').catch(fail);
     recordPrompt(item.view.habit.id, missed, 'two_minute').catch(fail);
@@ -222,6 +230,7 @@ export default function Today() {
         ) : (
           <AllKept deck={deck} />
         )}
+        {burst ? <Burst key={burst.id} kind={burst.kind} color={burst.color} onDone={() => setBurst(null)} /> : null}
       </View>
 
       <Body size={12} weight="bold" color={t.textSecondary} style={{ textAlign: 'center', paddingHorizontal: space.xl }}>

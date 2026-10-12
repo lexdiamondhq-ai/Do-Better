@@ -16,6 +16,8 @@ import { HANDS } from '@/engine/poker';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
 import { useDeck, useLook } from '@/lib/deck';
+import { usePrefs } from '@/lib/prefs';
+import { playSound } from '@/lib/sound';
 import { supabase } from '@/lib/supabase';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fonts, radius, space, suitColors, themes, tables } from '@/theme/tokens';
@@ -27,6 +29,7 @@ export default function You() {
   const deck = useDeck();
   const { demo, endDemo } = useAuth();
   const { back: myBack, table: myTable, setLook } = useLook();
+  const { prefs, setPrefs } = usePrefs();
   const { saveProfile } = useData();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -191,6 +194,20 @@ export default function You() {
         </View>
       </Section>
 
+      <Section title="Sound">
+        <Toggle label="Music" about="A slow tune for the card room while you play." on={prefs.music} onChange={(music) => setPrefs({ music })} />
+        <Toggle
+          label="Sounds"
+          about="A sound for each swipe, card and Showdown."
+          on={prefs.sounds}
+          onChange={(sounds) => {
+            setPrefs({ sounds });
+            if (sounds) playSound('tap');
+          }}
+        />
+        <Body size={13} color={t.textSecondary}>Your phone’s silent switch turns both off.</Body>
+      </Section>
+
       <View style={{ gap: space.sm }}>
         {deck.archived.length ? <Body size={13} color={t.textSecondary}>{`${deck.archived.length} archived ${deck.archived.length === 1 ? 'card' : 'cards'}. Their kept days still count.`}</Body> : null}
         <Button label="How the game works" variant="ghost" onPress={() => router.push({ pathname: '/onboarding', params: { tour: '1' } })} />
@@ -242,3 +259,25 @@ function CourtRow({ suit, onFind }: { suit: CourtSuit; onFind: () => void }) {
   );
 }
 
+
+function Toggle({ label, about, on, onChange }: { label: string; about: string; on: boolean; onChange: (on: boolean) => void }) {
+  const t = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: on }}
+      aria-checked={on}
+      accessibilityLabel={label}
+      onPress={() => onChange(!on)}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg }}
+    >
+      <View style={{ flex: 1, gap: 2 }}>
+        <Body weight="heavy">{label}</Body>
+        <Body size={13} color={t.textSecondary}>{about}</Body>
+      </View>
+      <View style={{ width: 52, height: 32, borderRadius: 16, padding: 3, backgroundColor: on ? t.text : t.border, alignItems: on ? 'flex-end' : 'flex-start' }}>
+        <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: on ? t.bg : t.bgRaised }} />
+      </View>
+    </Pressable>
+  );
+}

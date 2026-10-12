@@ -3,6 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { playSound } from '@/lib/sound';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, space } from '@/theme/tokens';
 
@@ -28,6 +29,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
                 const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
                 if (!focused && !event.defaultPrevented) {
                   Haptics.selectionAsync();
+                  playSound('tap');
                   navigation.navigate(route.name);
                 }
               }}
