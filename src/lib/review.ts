@@ -2,7 +2,7 @@ import * as StoreReview from 'expo-store-review';
 import { useRef } from 'react';
 
 import { addDays, type Day } from '@/engine/day';
-import { lastShowdown, unlocksFor, type FaceEarned, type Game } from '@/engine/game';
+import { lastShowdown, unlocksFor, type FaceEarned, type Game, type Week } from '@/engine/game';
 
 import { useAuth } from './auth';
 import { useData } from './data';
@@ -70,6 +70,11 @@ function qualifies(m: ReviewMoment): boolean {
   }
 }
 
+/** Weeks that have been played to their Showdown: finished, with a hand, and not the warm-up. The live week doesn't count yet. */
+export function playedWeeks(weeks: readonly Pick<Week, 'warmup' | 'live' | 'hand'>[]): number {
+  return weeks.filter((w) => !w.warmup && !w.live && w.hand).length;
+}
+
 /** What the latest Showdown brought, from the game. */
 export function showdownMoment(game: Game): ReviewMoment['showdown'] {
   const week = lastShowdown(game);
@@ -85,7 +90,7 @@ function momentOf(trigger: ReviewTrigger, deck: Deck, demo: boolean, lastAsked: 
   return {
     trigger,
     demo,
-    playedWeeks: game.weeks.filter((w) => !w.warmup && w.hand).length,
+    playedWeeks: playedWeeks(game.weeks),
     newestFace: face ? { face: face.face.face, day: face.day } : null,
     showdown: showdownMoment(game),
     comeback: game.rescue !== null || deck.cards.some((c) => c.neverTwice),

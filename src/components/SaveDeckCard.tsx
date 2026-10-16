@@ -11,7 +11,7 @@ import * as feel from '@/lib/feel';
 import { hasSeen, usePrefs } from '@/lib/prefs';
 import { confirmSavedEmail, confirmSwitchEmail, saveDeckWithApple, saveDeckWithEmail, SignInError, switchToApple, switchToEmail } from '@/lib/signIn';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cardFace, fontScale, fonts, INK, radius, space, suitColors, TAP, typeScale } from '@/theme/tokens';
+import { cardColors, cardFace, fontScale, fonts, INK, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
 import { ask } from './Ask';
 import { SuitGlyph } from './Suit';
@@ -332,11 +332,17 @@ function SaveBody({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** A problem, marked with a red "!" so it never looks like one more field to fill in or a button to press. */
 function Notice({ text }: { text: string }) {
   const t = useTheme();
   return (
-    <View accessibilityLiveRegion="polite" role="alert" style={{ backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg }}>
-      <Body size={typeScale.text.md} weight="bold">
+    <View accessibilityLiveRegion="polite" role="alert" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.md, backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg, borderWidth: 1.5, borderColor: t.scheme === 'dark' ? cardColors.tomato.onDark : cardColors.tomato.bg }}>
+      <View aria-hidden style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: cardColors.tomato.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <Body size={14} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic}>
+          !
+        </Body>
+      </View>
+      <Body size={typeScale.text.md} weight="bold" style={{ flex: 1 }}>
         {text}
       </Body>
     </View>

@@ -229,40 +229,43 @@ function Tour({ index, replay, onMove, onFinish, onSkip }: { index: number; repl
             {art}
           </FitStage>
         </Pressable>
-        <Pressable
-          accessible
-          accessibilityRole="adjustable"
-          accessibilityLabel={[card.title, card.sub, card.body, index === 0 ? PRACTICE[practice] : null].filter(Boolean).join(' ')}
-          accessibilityHint="Swipe up or down to move between the cards."
-          accessibilityValue={{ min: 1, max: TOUR.length, now: index + 1, text: `Card ${index + 1} of ${TOUR.length}` }}
-          accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }, { name: 'activate' }]}
-          onAccessibilityAction={(e) => {
-            if (e.nativeEvent.actionName === 'decrement') go(index - 1);
-            else go(index + 1);
-          }}
-          onPress={() => go(index + 1)}
-          style={{ paddingHorizontal: compact ? space.lg : space.xl, paddingTop: compact ? space.lg : space.xl, paddingBottom: compact ? space.lg : space.xl, gap: compact ? space.xs : space.sm }}
-        >
-          <Display size={compact ? 26 : 30}>{card.title}</Display>
-          {card.sub ? (
-            <Display size={compact ? 20 : 24} color={t.textSecondary}>
-              {card.sub}
-            </Display>
-          ) : null}
-          <Body size={compact ? typeScale.text.md : 16} weight="semi" style={{ marginTop: space.xs }}>
-            {card.body}
-          </Body>
-          {index === 0 ? (
-            <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-start', marginTop: space.xs }}>
-              <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done ? t.text : t.textSecondary}>
-                {done ? '✓' : practice === 'sideways' ? '↔' : '↕'}
-              </Body>
-              <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done ? t.text : t.textSecondary} style={{ flex: 1 }}>
-                {PRACTICE[practice]}
-              </Body>
-            </View>
-          ) : null}
-        </Pressable>
+        {/* The words take the room they need; only very large text scrolls, under the art. */}
+        <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} alwaysBounceVertical={false}>
+          <Pressable
+            accessible
+            accessibilityRole="adjustable"
+            accessibilityLabel={[card.title, card.sub, card.body, index === 0 ? PRACTICE[practice] : null].filter(Boolean).join(' ')}
+            accessibilityHint="Swipe up or down to move between the cards."
+            accessibilityValue={{ min: 1, max: TOUR.length, now: index + 1, text: `Card ${index + 1} of ${TOUR.length}` }}
+            accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }, { name: 'activate' }]}
+            onAccessibilityAction={(e) => {
+              if (e.nativeEvent.actionName === 'decrement') go(index - 1);
+              else go(index + 1);
+            }}
+            onPress={() => go(index + 1)}
+            style={{ paddingHorizontal: compact ? space.lg : space.xl, paddingTop: compact ? space.lg : space.xl, paddingBottom: compact ? space.lg : space.xl, gap: compact ? space.xs : space.sm }}
+          >
+            <Display size={compact ? 26 : 30}>{card.title}</Display>
+            {card.sub ? (
+              <Display size={compact ? 20 : 24} color={t.textSecondary}>
+                {card.sub}
+              </Display>
+            ) : null}
+            <Body size={compact ? typeScale.text.md : 16} weight="semi" style={{ marginTop: space.xs }}>
+              {card.body}
+            </Body>
+            {index === 0 ? (
+              <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-start', marginTop: space.xs }}>
+                <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done ? t.text : t.textSecondary}>
+                  {done ? '✓' : practice === 'sideways' ? '↔' : '↕'}
+                </Body>
+                <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done ? t.text : t.textSecondary} style={{ flex: 1 }}>
+                  {PRACTICE[practice]}
+                </Body>
+              </View>
+            ) : null}
+          </Pressable>
+        </ScrollView>
       </View>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
@@ -792,6 +795,9 @@ function DeckStep({
 }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  // At least as tall as a playing card, and taller when large text needs the room.
+  const tileHeight = Math.round(((width - space.xl * 2) * 0.475) / 0.74);
   const chosen = suggestions.filter((r) => picked.includes(r.key));
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
@@ -807,7 +813,7 @@ function DeckStep({
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
           {suggestions.map((r, i) => (
-            <RecipeTile key={r.key} recipe={r} on={picked.includes(r.key)} tilt={i % 2 ? 2 : -2} onPress={() => onToggle(r.key)} />
+            <RecipeTile key={r.key} recipe={r} on={picked.includes(r.key)} tilt={i % 2 ? 2 : -2} minHeight={tileHeight} onPress={() => onToggle(r.key)} />
           ))}
         </View>
       </ScrollView>
@@ -824,7 +830,7 @@ function DeckStep({
   );
 }
 
-function RecipeTile({ recipe: r, on, tilt, onPress }: { recipe: Recipe; on: boolean; tilt: number; onPress: () => void }) {
+function RecipeTile({ recipe: r, on, tilt, minHeight, onPress }: { recipe: Recipe; on: boolean; tilt: number; minHeight: number; onPress: () => void }) {
   const t = useTheme();
   const col = cardColors[suitColors[r.suit].habit];
   const ink = on ? col.ink : t.text;
@@ -840,7 +846,7 @@ function RecipeTile({ recipe: r, on, tilt, onPress }: { recipe: Recipe; on: bool
       }}
       style={({ pressed }) => ({
         width: '47.5%',
-        aspectRatio: 0.74,
+        minHeight,
         backgroundColor: on ? col.bg : t.bgRaised,
         borderRadius: radius.lg,
         borderWidth: on ? 0 : 1.5,

@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { Linking, Pressable, ScrollView, Share, TextInput, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { Linking, Platform, Pressable, ScrollView, Share, TextInput, View, useColorScheme, useWindowDimensions } from 'react-native';
 
 import { ArrangeDeck } from '@/components/ArrangeDeck';
 import { ask, menu } from '@/components/Ask';
@@ -38,6 +38,7 @@ export default function You() {
   const t = useTheme();
   const router = useRouter();
   const deck = useDeck();
+  const { refresh } = useData();
   const { sheet } = useLocalSearchParams<{ sheet?: string }>();
   const [arranging, setArranging] = useState(false);
   const [rules, setRules] = useState(false);
@@ -46,16 +47,19 @@ export default function You() {
   const { game } = deck;
   const faces = deck.court.filter((c) => c.face).length;
   const arrangeOpen = arranging || sheet === 'arrange';
+  // The week being played counts as played; the warm-up week doesn't.
+  const played = game.weeks.filter((w) => !w.warmup).length;
+  const playedLabel = played ? `${played} ${played === 1 ? 'week' : 'weeks'} played` : game.weeks.length ? 'Warm-up week' : null;
 
   return (
-    <Page header={<PageTitle eyebrow="You" title="Who you’re becoming" />}>
+    <Page header={<PageTitle eyebrow="You" title="Who you’re becoming" />} onRefresh={refresh}>
       <NorthStar northStar={deck.profile.northStar} />
 
       <Section title="The Court" action={<Label>{`Face cards in ${faces} of 4 suits`}</Label>}>
         <Court court={deck.court} onFind={() => router.push('/playbook')} />
       </Section>
 
-      <Section title="Your stack" action={<Label>{`${game.weeks.filter((w) => !w.warmup).length} weeks played`}</Label>}>
+      <Section title="Your stack" action={playedLabel ? <Label>{playedLabel}</Label> : undefined}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
           <Chips value={game.stack} size={40} color={t.text} />
         </View>
@@ -135,7 +139,9 @@ export default function You() {
 function dealAFriendIn() {
   feel.tick();
   const pitch = 'I’m keeping my habits with Do Better. Every day you keep one deals a playing card, and every week plays as a poker hand. No streaks to break.';
-  Share.share(TESTFLIGHT_URL ? { message: `${pitch}\n${TESTFLIGHT_URL}`, url: TESTFLIGHT_URL } : { message: pitch }).catch(() => {});
+  // iOS shares the link as its own item next to the words; Android only shares the message, so the link goes in it.
+  const content = !TESTFLIGHT_URL ? { message: pitch } : Platform.OS === 'ios' ? { message: pitch, url: TESTFLIGHT_URL } : { message: `${pitch}\n${TESTFLIGHT_URL}` };
+  Share.share(content).catch(() => {});
 }
 
 /* ---------------------------------------------------------------- north star */
@@ -204,7 +210,7 @@ function NorthStar({ northStar }: { northStar: string | null }) {
 
 /* ---------------------------------------------------------------- the Court */
 
-/** Four suits side by side, each a pile of the face cards it has earned with the next one filling up on top. */
+/** Four suits side by side, each a pile of the face cards it has earned, the newest on top, with the next one filling up beneath. */
 function Court({ court, onFind }: { court: CourtSuit[]; onFind: () => void }) {
   const { width } = useWindowDimensions();
   const cardW = Math.max(56, Math.min(84, Math.floor((Math.min(width, 520) - space.xl * 2 - space.sm * 3) / 4)));
@@ -269,12 +275,13 @@ function CourtColumn({ suit, cardW, piles, onFind }: { suit: CourtSuit; cardW: n
         </Body>
       </View>
       <View style={{ width: cardW, height }} aria-hidden>
+        {/* The next face waits under the pile, so the faces already earned are what the Court shows. */}
+        {next ? (
+          <NextSlot top={earned.length * step} w={cardW} h={cardH} strip={earned.length ? step : 0} letter={next.face.letter} at={next.face.votes} progress={progress} color={color} empty={empty} />
+        ) : null}
         {earned.map((f, i) => (
           <PlayingCard key={f.face} face={faceOfCourt(suit.suit, f)} size="md" width={cardW} style={{ position: 'absolute', top: i * step, left: 0 }} />
         ))}
-        {next ? (
-          <NextSlot top={earned.length * step} w={cardW} h={cardH} letter={next.face.letter} at={next.face.votes} progress={progress} color={color} empty={empty} />
-        ) : null}
       </View>
       <View style={{ alignItems: 'center', gap: 2 }}>
         {empty ? (
@@ -305,9 +312,28 @@ function CourtColumn({ suit, cardW, piles, onFind }: { suit: CourtSuit; cardW: n
   );
 }
 
-/** The next face card: a dashed place that fills from the bottom as the days come in, marked with the day count it comes at. */
-function NextSlot({ top, w, h, letter, at, progress, color, empty }: { top: number; w: number; h: number; letter: string; at: number; progress: number; color: string; empty: boolean }) {
+/**
+ * The next face card: a dashed place marked with the day count it comes at, filling as the days come in.
+ * Under a pile only its bottom `strip` shows, so there it fills from left to right along that strip.
+ */
+function NextSlot({ top, w, h, strip, letter, at, progress, color, empty }: { top: number; w: number; h: number; strip: number; letter: string; at: number; progress: number; color: string; empty: boolean }) {
   const t = useTheme();
+  if (strip > 0) {
+    return (
+      <View style={{ position: 'absolute', top, left: 0, width: w, height: h, borderRadius: 12, backgroundColor: t.bg, overflow: 'hidden' }}>
+        <View style={{ position: 'absolute', left: 0, bottom: 0, height: strip, width: `${Math.round(progress * 100)}%`, backgroundColor: color, opacity: 0.28 }} />
+        <CardSlot size="md" color={t.dashed} style={{ width: w, height: h }} />
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: strip, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+          <Display size={Math.min(16, Math.round(strip * 0.6))} color={color} maxFontSizeMultiplier={fontScale.graphic}>
+            {letter}
+          </Display>
+          <Body size={10} weight="heavy" color={t.textSecondary} maxFontSizeMultiplier={fontScale.graphic}>
+            {`at ${at}`}
+          </Body>
+        </View>
+      </View>
+    );
+  }
   return (
     <View style={{ position: 'absolute', top, left: 0, width: w, height: h, borderRadius: 12, backgroundColor: t.bg, overflow: 'hidden' }}>
       <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${Math.round(progress * 100)}%`, backgroundColor: color, opacity: 0.22 }} />
@@ -582,7 +608,8 @@ function Account() {
 
   return (
     <Section title="Account">
-      {guest && !demo ? <SaveDeckCard moment="you" /> : null}
+      {/* It hides itself once the deck is saved, but keeps its sheet open to say so. */}
+      <SaveDeckCard moment="you" />
       {demo ? (
         <Body size={typeScale.text.sm} color={t.textSecondary}>
           This is the demo deck: a made-up player ten weeks in. Nothing in it is saved.

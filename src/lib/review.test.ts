@@ -7,7 +7,7 @@ vi.mock('./data', () => ({ useData: () => ({}) }));
 vi.mock('./deck', () => ({ useDeck: () => null }));
 vi.mock('./prefs', () => ({ usePrefs: () => ({}) }));
 
-const { REVIEW_GAP_DAYS, shouldAskForReview } = await import('./review');
+const { REVIEW_GAP_DAYS, playedWeeks, shouldAskForReview } = await import('./review');
 type Moment = Parameters<typeof shouldAskForReview>[0];
 
 // Wednesday 14 October 2026, mid-afternoon on the phone's clock.
@@ -50,6 +50,16 @@ describe('asking for a review', () => {
     expect(ask({ demo: true })).toBe(false);
     expect(ask({ playedWeeks: 1 })).toBe(false);
     expect(ask({ playedWeeks: 2 })).toBe(true);
+  });
+
+  it('counts only weeks that reached their Showdown, never the live week or the warm-up', () => {
+    const hand = {} as NonNullable<Parameters<typeof playedWeeks>[0][number]['hand']>;
+    const week = (patch: { warmup?: boolean; live?: boolean; hand?: typeof hand | null }) => ({ warmup: false, live: false, hand, ...patch });
+    // A Thursday start: the warm-up, one finished week and the week being played now.
+    expect(playedWeeks([week({ warmup: true }), week({}), week({ live: true })])).toBe(1);
+    expect(playedWeeks([week({}), week({}), week({ live: true })])).toBe(2);
+    // A finished week with nothing kept has no hand to play.
+    expect(playedWeeks([week({ hand: null }), week({})])).toBe(1);
   });
 
   it('never asks on a Comeback day or on Sunday night', () => {

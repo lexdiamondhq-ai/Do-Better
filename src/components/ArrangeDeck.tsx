@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
@@ -25,14 +25,16 @@ const ROW = 76;
  * arrows (which is also what a screen reader offers). Saved when the sheet closes, in one write.
  */
 export function ArrangeDeck({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  // A swipe down on the sheet, or Android's back button, closes it the way Save does: a new order is kept, not lost.
+  const closeRef = useRef<(() => void) | null>(null);
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : undefined} onRequestClose={onClose}>
-      {visible ? <ArrangeBody onClose={onClose} /> : null}
+    <Modal visible={visible} animationType="slide" presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : undefined} onRequestClose={() => (closeRef.current ?? onClose)()}>
+      {visible ? <ArrangeBody onClose={onClose} closeRef={closeRef} /> : null}
     </Modal>
   );
 }
 
-function ArrangeBody({ onClose }: { onClose: () => void }) {
+function ArrangeBody({ onClose, closeRef }: { onClose: () => void; closeRef: RefObject<(() => void) | null> }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const deck = useDeck();
@@ -68,6 +70,7 @@ function ArrangeBody({ onClose }: { onClose: () => void }) {
   };
 
   async function done() {
+    if (busy) return;
     if (!changed) {
       onClose();
       return;
@@ -81,6 +84,13 @@ function ArrangeBody({ onClose }: { onClose: () => void }) {
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    closeRef.current = done;
+    return () => {
+      closeRef.current = null;
+    };
+  });
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
@@ -189,8 +199,10 @@ function Row({
           </Body>
           <Label numberOfLines={1}>{`${index + 1} · ${SUIT_INFO[habit.suit].part}`}</Label>
         </View>
-        <Arrow glyph="↑" label={`Move ${habit.name} up`} disabled={index === 0} onPress={() => onMove(index, index - 1)} />
-        <Arrow glyph="↓" label={`Move ${habit.name} down`} disabled={index === count - 1} onPress={() => onMove(index, index + 1)} />
+        <View style={{ flexDirection: 'row' }}>
+          <Arrow glyph="↑" label={`Move ${habit.name} up`} disabled={index === 0} onPress={() => onMove(index, index - 1)} />
+          <Arrow glyph="↓" label={`Move ${habit.name} down`} disabled={index === count - 1} onPress={() => onMove(index, index + 1)} />
+        </View>
         <GestureDetector gesture={pan}>
           <View accessible={false} style={{ width: TAP, height: TAP, alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <View style={{ gap: 4 }} aria-hidden>
@@ -217,7 +229,7 @@ function Arrow({ glyph, label, disabled, onPress }: { glyph: string; label: stri
       importantForAccessibility="no-hide-descendants"
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => ({ width: 36, height: TAP, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.25 : pressed ? 0.5 : 1 })}
+      style={({ pressed }) => ({ width: TAP, height: TAP, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.25 : pressed ? 0.5 : 1 })}
     >
       <Display size={20} color={t.text} maxFontSizeMultiplier={fontScale.graphic}>
         {glyph}

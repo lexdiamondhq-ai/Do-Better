@@ -173,7 +173,7 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
-      <View style={{ paddingTop: top, paddingHorizontal: space.xl, paddingBottom: space.sm, gap: space.md }}>
+      <View style={{ paddingTop: top, paddingHorizontal: space.xl, paddingBottom: space.xs, gap: space.sm }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Display size={typeScale.display.lg} header>
             How it plays
@@ -184,13 +184,15 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
             </Body>
           </Pressable>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }} style={{ marginHorizontal: -space.xl }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 4 }} style={{ marginHorizontal: -space.xl, flexGrow: 0 }}>
           <View style={{ width: space.xl - space.sm }} />
           {RULES.map((s) => (
             <Pressable
               key={s.key}
               accessibilityRole="button"
               accessibilityLabel={`Go to ${s.chip}`}
+              // 36 points tall, so the reach above and below makes it a full 44.
+              hitSlop={{ top: 4, bottom: 4 }}
               onPress={() => {
                 tick();
                 jump(s.key, true);

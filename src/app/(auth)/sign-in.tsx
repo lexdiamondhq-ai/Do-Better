@@ -1,7 +1,7 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, TextInput, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import Animated, { cancelAnimation, Easing, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -13,7 +13,7 @@ import { useAuth } from '@/lib/auth';
 import { dealMeIn, sendEmailCode, SignInError, signInWithApple, verifyEmailCode } from '@/lib/signIn';
 import { useTheme } from '@/theme/ThemeProvider';
 import { SUITS } from '@/engine/cards';
-import { cardColors, fontScale, fonts, radius, space, suitColors, TAP, typeScale } from '@/theme/tokens';
+import { cardColors, fontScale, fonts, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
 /** Expo Go doesn't ship the native Apple sign-in button, so it can only be offered in a real build. */
 const APPLE = Platform.OS === 'ios' && Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
@@ -35,6 +35,7 @@ export default function SignIn() {
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState<'deal' | 'apple' | 'email' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const keyboard = useKeyboardShown();
   const compact = height < 720;
 
   async function run(which: 'deal' | 'apple' | 'email', action: () => Promise<unknown>) {
@@ -77,9 +78,15 @@ export default function SignIn() {
     minHeight: 54,
   };
 
+  // Marked with a red "!", so a problem never looks like one more field to fill in or a button to press.
   const noticeView = notice ? (
-    <View accessibilityLiveRegion="polite" role="alert" style={{ backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg }}>
-      <Body size={typeScale.text.md} weight="bold">
+    <View accessibilityLiveRegion="polite" role="alert" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.md, backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg, borderWidth: 1.5, borderColor: t.scheme === 'dark' ? cardColors.tomato.onDark : cardColors.tomato.bg }}>
+      <View aria-hidden style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: cardColors.tomato.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <Body size={14} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic}>
+          !
+        </Body>
+      </View>
+      <Body size={typeScale.text.md} weight="bold" style={{ flex: 1 }}>
         {notice}
       </Body>
     </View>
@@ -87,7 +94,13 @@ export default function SignIn() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={{ flex: 1, paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.lg, paddingHorizontal: space.xl, gap: compact ? space.md : space.lg }}>
+      {/* It fills the screen, and scrolls only when large text or the keyboard leaves too little room. */}
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        alwaysBounceVertical={false}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.lg, paddingHorizontal: space.xl, gap: compact ? space.md : space.lg }}
+      >
         {mode === 'sign-in' ? (
           <Pressable
             accessibilityRole="button"
@@ -107,7 +120,8 @@ export default function SignIn() {
           <Wordmark />
         )}
 
-        <HeroLoop calm={mode === 'sign-in'} />
+        {/* While typing, the email field and its button get the room. */}
+        {keyboard && mode === 'sign-in' ? null : <HeroLoop calm={mode === 'sign-in'} />}
 
         {mode === 'start' ? (
           <>
@@ -217,9 +231,24 @@ export default function SignIn() {
             </View>
           </>
         )}
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
+}
+
+/** Whether the on-screen keyboard is up. The web has none to report, so it stays false there. */
+function useKeyboardShown(): boolean {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const ios = Platform.OS === 'ios';
+    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', () => setShown(true));
+    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setShown(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return shown;
 }
 
 /** The name, with the four suits that stand for the four parts of you. */
