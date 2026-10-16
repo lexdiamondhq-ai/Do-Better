@@ -12,9 +12,10 @@ import { CardSlot, PlayingCard, SuitTag, type CardFace } from '@/components/Play
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Chip, Display, Label, raisedStyle } from '@/components/ui';
 import { SUIT_INFO, SUITS, type Suit } from '@/engine/cards';
-import { RECIPES, suggestRecipes, type Recipe } from '@/engine/playbook';
+import { RECIPES, type Recipe } from '@/engine/playbook';
 import { useData } from '@/lib/data';
 import * as feel from '@/lib/feel';
+import { armedWay, chosenRecipes, deckGroups, NO_PICKS, practiceRelease, PRACTICE_DISTANCE, seedPicks, STAMP_PREVIEW, togglePick, type DeckGroup, type Picks } from '@/lib/firstRun';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, cardFace, fontScale, fonts, INK, palette, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
@@ -47,10 +48,13 @@ const TOUR: readonly TourCard[] = [
   },
 ];
 
+type Practice = 'idle' | 'sideways' | 'short' | Kept;
+
 /** What the practice card says, before and after a drag. */
-const PRACTICE: Record<'idle' | 'sideways' | Kept, string> = {
+const PRACTICE: Record<Practice, string> = {
   idle: 'Try it: drag Read down for the Floor or up for the Ceiling.',
   sideways: 'In the game, sideways sends a card to the back of today’s deck. Try down or up.',
+  short: 'A bit further. Let go once the stamp lands on the card.',
   floor: 'Floor. The day is kept, and it deals a card.',
   ceiling: 'Ceiling. The day is kept, and it deals a card.',
 };
@@ -60,8 +64,6 @@ const IDENTITIES: { suit: Suit; identities: string[] }[] = SUITS.map((suit) => (
   suit,
   identities: [...new Set(RECIPES.filter((r) => r.suit === suit).map((r) => r.identity))],
 }));
-
-const SUIT_LINE = `Each part of you is a suit: ${SUITS.map((s) => `${SUIT_INFO[s].glyph} ${SUIT_INFO[s].part}`).join(' ')}`;
 
 function toggle<T>(list: readonly T[], item: T): T[] {
   return list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
@@ -74,7 +76,8 @@ export default function Onboarding() {
   const [step, setStep] = useState(0);
   const [identities, setIdentities] = useState<string[]>([]);
   const [northStar, setNorthStar] = useState('');
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picks, setPicks] = useState<Picks>(NO_PICKS);
+  const [everything, setEverything] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function finish(recipes: Recipe[]) {
@@ -129,22 +132,22 @@ export default function Onboarding() {
         onNorthStar={setNorthStar}
         onBack={() => setStep(TOUR.length - 1)}
         onNext={() => {
-          setPicked(
-            suggestRecipes(identities, [], 3)
-              .filter((r) => identities.includes(r.identity))
-              .map((r) => r.key),
-          );
+          // Coming back with the same identities keeps every pick; new ones keep the cards picked by hand.
+          setPicks((p) => seedPicks(p, identities));
           setStep(TOUR.length + 1);
         }}
       />
     );
   }
 
+  const { groups, more } = deckGroups(identities, picks.picked, everything);
   return (
     <DeckStep
-      suggestions={suggestRecipes(identities, [], 12)}
-      picked={picked}
-      onToggle={(key) => setPicked((l) => toggle(l, key))}
+      groups={groups}
+      more={more}
+      onEverything={() => setEverything(true)}
+      picked={picks.picked}
+      onToggle={(key) => setPicks((p) => togglePick(p, key))}
       busy={busy}
       onBack={() => setStep(TOUR.length)}
       onDeal={finish}
@@ -159,7 +162,7 @@ function Tour({ index, replay, onMove, onFinish, onSkip }: { index: number; repl
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const compact = height < 720;
-  const [practice, setPractice] = useState<'idle' | 'sideways' | Kept>('idle');
+  const [practice, setPractice] = useState<Practice>('idle');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -198,12 +201,17 @@ function Tour({ index, replay, onMove, onFinish, onSkip }: { index: number; repl
     AccessibilityInfo.announceForAccessibility(PRACTICE.sideways);
   }
 
+  function short() {
+    setPractice('short');
+    AccessibilityInfo.announceForAccessibility(PRACTICE.short);
+  }
+
   const done = practice === 'floor' || practice === 'ceiling' ? practice : null;
 
   const art = (scale: number): ReactNode => {
     if (index === 1) return <HandArt />;
     if (index === 2) return <ComebackArt />;
-    return done ? <DealtArt level={done} /> : <PracticeArt scale={scale} onKept={kept} onSideways={sideways} />;
+    return done ? <DealtArt level={done} /> : <PracticeArt scale={scale} onKept={kept} onSideways={sideways} onShort={short} />;
   };
 
   return (
@@ -256,10 +264,10 @@ function Tour({ index, replay, onMove, onFinish, onSkip }: { index: number; repl
             </Body>
             {index === 0 ? (
               <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-start', marginTop: space.xs }}>
-                <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done ? t.text : t.textSecondary}>
+                <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done || practice === 'short' ? t.text : t.textSecondary}>
                   {done ? '✓' : practice === 'sideways' ? '↔' : '↕'}
                 </Body>
-                <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done ? t.text : t.textSecondary} style={{ flex: 1 }}>
+                <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done || practice === 'short' ? t.text : t.textSecondary} style={{ flex: 1 }}>
                   {PRACTICE[practice]}
                 </Body>
               </View>
@@ -308,14 +316,31 @@ function RoundButton({ glyph, label, disabled, onPress }: { glyph: string; label
   );
 }
 
-/** Three little cards: the one you're on stands up. */
+/**
+ * Three little cards: the one you're on stands up, solid in the table's ink, so it reads on a light or
+ * a dark table alike (a card's own felt can sink into a dark table). Cards seen are filled in softer.
+ */
 function Progress({ index }: { index: number }) {
   const t = useTheme();
   return (
     <View aria-hidden style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', gap: 6 }}>
-      {TOUR.map((c, i) => (
-        <View key={i} style={{ width: i === index ? 16 : 11, height: i === index ? 22 : 15, borderRadius: 4, backgroundColor: i <= index ? c.felt : 'transparent', borderWidth: 1.5, borderColor: i === index ? t.text : i < index ? c.felt : t.border }} />
-      ))}
+      {TOUR.map((_, i) => {
+        const on = i === index;
+        const seen = i < index;
+        return (
+          <View
+            key={i}
+            style={{
+              width: on ? 17 : 11,
+              height: on ? 24 : 15,
+              borderRadius: on ? 5 : 4,
+              backgroundColor: on ? t.text : seen ? t.textSecondary : 'transparent',
+              borderWidth: on || seen ? 0 : 1.5,
+              borderColor: t.textSecondary,
+            }}
+          />
+        );
+      })}
     </View>
   );
 }
@@ -353,16 +378,23 @@ function useFilm(ms: number): SharedValue<number> {
 }
 
 const HABIT = { w: 124, h: 168 };
-const DISTANCE = 64;
-const VELOCITY = 800;
+/** A stamp's tilt, kept in every animated frame (an animated transform replaces the static one). */
+const STAMP_TILT = '-9deg';
 
-/** The practice card: a Read card that goes down for its Floor or up for its Ceiling, and springs back from anything else. */
-function PracticeArt({ scale, onKept, onSideways }: { scale: number; onKept: (level: Kept) => void; onSideways: () => void }) {
+/**
+ * The practice card: a Read card that goes down for its Floor or up for its Ceiling, and springs back
+ * from anything else. The FLOOR or CEILING stamp only lands at full strength, with a little pop and a
+ * tap you can feel, at the point where letting go counts (`armedWay`); before that it is a faint hint.
+ * A real attempt that falls short gets a line asking for a bit more.
+ */
+function PracticeArt({ scale, onKept, onSideways, onShort }: { scale: number; onKept: (level: Kept) => void; onSideways: () => void; onShort: () => void }) {
   const c = cardColors.lilac;
   const reduced = useReducedMotion();
   const x = useSharedValue(0);
   const y = useSharedValue(0);
+  // 1 armed for the Floor, -1 for the Ceiling, 0 not armed.
   const armed = useSharedValue(0);
+  const pop = useSharedValue(1);
   const nudge = useSharedValue(0);
 
   // A small bob up and down, now and then, until the card is touched: it can be dragged that way.
@@ -373,6 +405,10 @@ function PracticeArt({ scale, onKept, onSideways }: { scale: number; onKept: (le
   }, [reduced, nudge]);
 
   const onArm = (on: boolean) => (on ? feel.arm() : feel.disarm());
+  const onFellShort = () => {
+    feel.disarm();
+    onShort();
+  };
 
   const pan = Gesture.Pan()
     .onBegin(() => {
@@ -380,45 +416,54 @@ function PracticeArt({ scale, onKept, onSideways }: { scale: number; onKept: (le
       nudge.set(withTiming(0, { duration: 120 }));
     })
     .onUpdate((e) => {
+      // Measured in stage points, so the card keeps to the finger however the stage is scaled.
       const dx = e.translationX / scale;
       const dy = e.translationY / scale;
       x.set(dx);
       y.set(dy);
-      const over = Math.abs(dy) > DISTANCE && Math.abs(dy) > Math.abs(dx) ? 1 : 0;
-      if (over !== armed.get()) {
-        armed.set(over);
-        scheduleOnRN(onArm, over === 1);
+      const way = armedWay(dx, dy);
+      const now = way === 'floor' ? 1 : way === 'ceiling' ? -1 : 0;
+      if (now !== armed.get()) {
+        armed.set(now);
+        if (now !== 0) pop.set(withSequence(withTiming(1.22, { duration: 70 }), withSpring(1, { damping: 10, stiffness: 280 })));
+        scheduleOnRN(onArm, now !== 0);
       }
     })
     .onEnd((e) => {
       const dx = x.get();
       const dy = y.get();
-      const vertical = Math.abs(dy) > Math.abs(dx);
-      armed.set(0);
-      if (vertical && (Math.abs(dy) > DISTANCE || Math.abs(e.velocityY) > VELOCITY)) {
-        const level: Kept = dy > 0 ? 'floor' : 'ceiling';
+      const release = practiceRelease(dx, dy, e.velocityY);
+      if (release === 'floor' || release === 'ceiling') {
+        const way = release === 'floor' ? 1 : -1;
+        // A quick flick lands its stamp on the way out, so every kept swipe shows what it kept.
+        if (armed.get() !== way) {
+          armed.set(way);
+          pop.set(withSequence(withTiming(1.22, { duration: 70 }), withSpring(1, { damping: 10, stiffness: 280 })));
+        }
         x.set(withTiming(dx * 0.5, { duration: 240 }));
         y.set(
-          withTiming(dy > 0 ? 320 : -340, { duration: 240, easing: Easing.in(Easing.quad) }, (finished) => {
+          withTiming(way > 0 ? 320 : -340, { duration: 240, easing: Easing.in(Easing.quad) }, (finished) => {
             'worklet';
-            if (finished) scheduleOnRN(onKept, level);
+            if (finished) scheduleOnRN(onKept, release);
           }),
         );
         return;
       }
+      armed.set(0);
       x.set(withSpring(0, { damping: 13 }));
       y.set(withSpring(0, { damping: 13 }));
-      if (!vertical && Math.abs(dx) > 36) scheduleOnRN(onSideways);
+      if (release === 'sideways') scheduleOnRN(onSideways);
+      else if (release === 'short') scheduleOnRN(onFellShort);
     });
 
   const card = useAnimatedStyle(() => ({
     transform: [{ translateX: x.get() }, { translateY: y.get() + nudge.get() * 10 }, { rotate: `${-3 + x.get() / 14}deg` }],
   }));
-  const down = useAnimatedStyle(() => ({ opacity: interpolate(y.get(), [14, DISTANCE], [0, 1], 'clamp') }));
-  const up = useAnimatedStyle(() => ({ opacity: interpolate(-y.get(), [14, DISTANCE], [0, 1], 'clamp') }));
-  const side = useAnimatedStyle(() => ({ opacity: Math.abs(y.get()) > Math.abs(x.get()) ? 0 : interpolate(Math.abs(x.get()), [14, 50], [0, 1], 'clamp') }));
-  const hintUp = useAnimatedStyle(() => ({ opacity: interpolate(-y.get(), [0, DISTANCE], [0.9, 1], 'clamp'), transform: [{ scale: interpolate(-y.get(), [0, DISTANCE], [1, 1.15], 'clamp') }] }));
-  const hintDown = useAnimatedStyle(() => ({ opacity: interpolate(y.get(), [0, DISTANCE], [0.9, 1], 'clamp'), transform: [{ scale: interpolate(y.get(), [0, DISTANCE], [1, 1.15], 'clamp') }] }));
+  const down = useStamp(1, x, y, armed, pop);
+  const up = useStamp(-1, x, y, armed, pop);
+  const side = useAnimatedStyle(() => ({ opacity: Math.abs(y.get()) > Math.abs(x.get()) ? 0 : interpolate(Math.abs(x.get()), [14, 50], [0, 1], 'clamp'), transform: [{ rotate: STAMP_TILT }] }));
+  const hintUp = useAnimatedStyle(() => ({ opacity: interpolate(-y.get(), [0, PRACTICE_DISTANCE], [0.9, 1], 'clamp'), transform: [{ scale: interpolate(-y.get(), [0, PRACTICE_DISTANCE], [1, 1.15], 'clamp') }] }));
+  const hintDown = useAnimatedStyle(() => ({ opacity: interpolate(y.get(), [0, PRACTICE_DISTANCE], [0.9, 1], 'clamp'), transform: [{ scale: interpolate(y.get(), [0, PRACTICE_DISTANCE], [1, 1.15], 'clamp') }] }));
 
   return (
     <View style={{ width: STAGE.w, height: STAGE.h }}>
@@ -489,11 +534,27 @@ function PracticeArt({ scale, onKept, onSideways }: { scale: number; onKept: (le
   );
 }
 
+/**
+ * A stamp's look while the card is dragged its way (`way` 1 down, -1 up): a faint, small hint until the
+ * drag is armed, then full strength with a pop. Full strength means letting go now keeps the day.
+ */
+function useStamp(way: 1 | -1, x: SharedValue<number>, y: SharedValue<number>, armed: SharedValue<number>, pop: SharedValue<number>) {
+  return useAnimatedStyle(() => {
+    const along = way * y.get();
+    const vertical = Math.abs(y.get()) > Math.abs(x.get());
+    const on = armed.get() === way;
+    return {
+      opacity: on ? 1 : vertical ? interpolate(along, [14, PRACTICE_DISTANCE], [0, STAMP_PREVIEW], 'clamp') : 0,
+      transform: [{ rotate: STAMP_TILT }, { scale: on ? pop.get() : interpolate(along, [14, PRACTICE_DISTANCE], [0.8, 0.92], 'clamp') }],
+    };
+  });
+}
+
 function Stamp({ text, style }: { text: string; style: ReturnType<typeof useAnimatedStyle> }) {
   return (
     <Animated.View
       pointerEvents="none"
-      style={[{ position: 'absolute', top: 54, alignSelf: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3, transform: [{ rotate: '-9deg' }] }, style]}
+      style={[{ position: 'absolute', top: 54, alignSelf: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }, style]}
     >
       <Display size={20} color={INK} maxFontSizeMultiplier={fontScale.graphic}>
         {text}
@@ -672,9 +733,20 @@ function Identity({
 }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
+  const scroll = useRef<ScrollView>(null);
+  // Where each suit's identities start on the page, for the suit cards to jump to.
+  const groupY = useRef<Partial<Record<Suit, number>>>({});
+  const [northStarHeight, setNorthStarHeight] = useState(NORTH_STAR_MIN);
+
+  const jumpTo = (suit: Suit) => {
+    feel.tick();
+    const y = groupY.current[suit];
+    if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.lg), animated: true });
+  };
+
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: insets.bottom + space.xxl, paddingHorizontal: space.xl, gap: space.xl }}>
+      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: insets.bottom + space.xxl, paddingHorizontal: space.xl, gap: space.xl }}>
         <BackLink onPress={onBack} label="Back to the tour" />
         <View style={{ gap: space.sm }}>
           <Label>Step 1 of 2</Label>
@@ -683,33 +755,49 @@ function Identity({
           </Display>
         </View>
 
-        <View accessible accessibilityLabel={SUIT_LINE} style={{ gap: space.sm }}>
-          <Body weight="heavy">Each part of you is a suit:</Body>
+        {/* The four suits are an index: each card jumps to its part of you, and counts what you've picked there. */}
+        <View style={{ gap: space.sm }}>
+          <Body weight="heavy">Each part of you is a suit. Tap one to jump to it.</Body>
           <View style={{ flexDirection: 'row', gap: space.sm }}>
-            {SUITS.map((suit, i) => (
-              <View
-                key={suit}
-                style={{
-                  flex: 1,
-                  aspectRatio: 0.74,
-                  maxHeight: 112,
-                  backgroundColor: cardFace.bg,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: cardFace.edge,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4,
-                  transform: [{ rotate: `${(i - 1.5) * 2.5}deg` }],
-                  boxShadow: '0 6px 14px rgba(0, 0, 0, 0.16)',
-                }}
-              >
-                <SuitGlyph suit={suit} size={30} color={suitColors[suit].glyph} />
-                <Display size={16} color={INK} maxFontSizeMultiplier={fontScale.chrome}>
-                  {SUIT_INFO[suit].part}
-                </Display>
-              </View>
-            ))}
+            {SUITS.map((suit, i) => {
+              const part = SUIT_INFO[suit].part;
+              const count = IDENTITIES.find((g) => g.suit === suit)?.identities.filter((id) => identities.includes(id)).length ?? 0;
+              return (
+                <Pressable
+                  key={suit}
+                  accessibilityRole="button"
+                  accessibilityLabel={part}
+                  accessibilityHint={`Jumps to the ${part} identities.${count ? ` ${count} picked.` : ''}`}
+                  onPress={() => jumpTo(suit)}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    aspectRatio: 0.74,
+                    maxHeight: 112,
+                    backgroundColor: cardFace.bg,
+                    borderRadius: 12,
+                    borderWidth: count ? 2 : 1,
+                    borderColor: count ? suitColors[suit].glyph : cardFace.edge,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    transform: [{ rotate: `${(i - 1.5) * 2.5}deg` }, { translateY: pressed ? 3 : 0 }, { scale: pressed ? 0.96 : 1 }],
+                    boxShadow: pressed ? '0 2px 6px rgba(0, 0, 0, 0.16)' : '0 6px 14px rgba(0, 0, 0, 0.16)',
+                  })}
+                >
+                  <SuitGlyph suit={suit} size={30} color={suitColors[suit].glyph} />
+                  <Display size={16} color={INK} maxFontSizeMultiplier={fontScale.chrome}>
+                    {part}
+                  </Display>
+                  {count ? (
+                    <View aria-hidden style={{ position: 'absolute', top: -7, right: -7, minWidth: 24, height: 24, borderRadius: 12, paddingHorizontal: 6, backgroundColor: suitColors[suit].glyph, alignItems: 'center', justifyContent: 'center' }}>
+                      <Body size={13} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic}>
+                        {count}
+                      </Body>
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
           </View>
         </View>
 
@@ -718,7 +806,13 @@ function Identity({
         </Body>
 
         {IDENTITIES.map((group) => (
-          <View key={group.suit} style={{ gap: space.sm }}>
+          <View
+            key={group.suit}
+            onLayout={(e) => {
+              groupY.current[group.suit] = e.nativeEvent.layout.y;
+            }}
+            style={{ gap: space.sm }}
+          >
             <SuitTag suit={group.suit} size={14} />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
               <Display size={typeScale.display.sm} color={t.textSecondary} aria-hidden>
@@ -751,8 +845,12 @@ function Identity({
             placeholder="I’m becoming someone who…"
             placeholderTextColor={t.onRaisedSecondary}
             keyboardAppearance={t.scheme}
+            selectionColor={t.onRaised}
             multiline
-            style={{ fontFamily: fonts.display, fontSize: typeScale.display.md, color: t.onRaised, minHeight: 64, textAlignVertical: 'top' }}
+            // It grows with what you write, up to a few lines, so the start of the sentence stays in view.
+            onContentSizeChange={(e) => setNorthStarHeight(growTo(e.nativeEvent.contentSize.height, NORTH_STAR_MIN, NORTH_STAR_MAX))}
+            scrollEnabled={northStarHeight >= NORTH_STAR_MAX}
+            style={{ fontFamily: fonts.display, fontSize: typeScale.display.md, lineHeight: 30, color: t.onRaised, height: northStarHeight, textAlignVertical: 'top', padding: 0, outlineWidth: 0 }}
           />
           <Body size={typeScale.text.sm} color={t.onRaisedSecondary}>
             It sits at the top of You, so you see why on the hard days.
@@ -763,6 +861,15 @@ function Identity({
       </ScrollView>
     </KeyboardAvoidingView>
   );
+}
+
+/** The north star field: two lines tall to begin with, growing to five as you write. */
+const NORTH_STAR_MIN = 64;
+const NORTH_STAR_MAX = 154;
+
+/** A field's height for its content, kept between `min` and `max`. */
+function growTo(content: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.ceil(content)));
 }
 
 function BackLink({ onPress, label }: { onPress: () => void; label: string }) {
@@ -779,14 +886,19 @@ function BackLink({ onPress, label }: { onPress: () => void; label: string }) {
 /* ---------------------------------------------------------------- the first deal */
 
 function DeckStep({
-  suggestions,
+  groups,
+  more,
+  onEverything,
   picked,
   onToggle,
   busy,
   onBack,
   onDeal,
 }: {
-  suggestions: Recipe[];
+  groups: DeckGroup[];
+  /** How many more cards "Show every card" would add; 0 when every card is on screen. */
+  more: number;
+  onEverything: () => void;
   picked: readonly string[];
   onToggle: (key: string) => void;
   busy: boolean;
@@ -798,7 +910,8 @@ function DeckStep({
   const { width } = useWindowDimensions();
   // At least as tall as a playing card, and taller when large text needs the room.
   const tileHeight = Math.round(((width - space.xl * 2) * 0.475) / 0.74);
-  const chosen = suggestions.filter((r) => picked.includes(r.key));
+  const chosen = chosenRecipes(picked);
+  let tile = 0;
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
       <ScrollView contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: insets.bottom + 170, paddingHorizontal: space.xl, gap: space.xl }}>
@@ -811,11 +924,38 @@ function DeckStep({
           <Body color={t.textSecondary}>Start with one to three. A small deck you keep beats a big one you don’t. You can change every word later.</Body>
         </View>
 
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
-          {suggestions.map((r, i) => (
-            <RecipeTile key={r.key} recipe={r} on={picked.includes(r.key)} tilt={i % 2 ? 2 : -2} minHeight={tileHeight} onPress={() => onToggle(r.key)} />
-          ))}
-        </View>
+        {groups.map((group) => (
+          <View key={group.key} style={{ gap: space.md }}>
+            {group.suit ? (
+              <View accessibilityRole="header" style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingTop: space.xs }}>
+                <SuitTag suit={group.suit} size={16} />
+                <View style={{ flex: 1, height: 1.5, borderRadius: 1, backgroundColor: t.border }} />
+              </View>
+            ) : group.title ? (
+              <View accessibilityRole="header">
+                <Label>{group.title}</Label>
+              </View>
+            ) : null}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
+              {group.recipes.map((r) => (
+                <RecipeTile key={r.key} recipe={r} on={picked.includes(r.key)} tilt={tile++ % 2 ? 2 : -2} minHeight={tileHeight} onPress={() => onToggle(r.key)} />
+              ))}
+            </View>
+          </View>
+        ))}
+
+        {more > 0 ? (
+          <Button
+            label="Show every card"
+            variant="ghost"
+            hint={`${more} more ready-made cards, by suit.`}
+            icon={<Display size={18} maxFontSizeMultiplier={fontScale.graphic}>{`+${more}`}</Display>}
+            onPress={() => {
+              feel.tick();
+              onEverything();
+            }}
+          />
+        ) : null}
       </ScrollView>
 
       <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.lg, gap: space.sm, backgroundColor: t.bg, borderTopWidth: 1, borderTopColor: t.border }}>
@@ -840,6 +980,8 @@ function RecipeTile({ recipe: r, on, tilt, minHeight, onPress }: { recipe: Recip
       accessibilityRole="checkbox"
       accessibilityLabel={`${r.name}. ${SUIT_INFO[r.suit].part}. Ceiling, ${r.ceiling}. Floor, ${r.floor}.`}
       accessibilityState={{ checked: on }}
+      // The web reads the checked state from aria-checked only.
+      aria-checked={on}
       onPress={() => {
         feel.tick();
         onPress();
