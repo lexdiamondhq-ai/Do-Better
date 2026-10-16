@@ -10,7 +10,7 @@ import { mix } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardFace, chip, fontScale, fonts, INK, suitColors } from '@/theme/tokens';
 
-import { circleArrow, CourtMark, Star, SuitGlyph, SuitShape } from './Suit';
+import { circleArrow, CourtMark, Star, SuitGlyph, SuitShape, uTurnArrow } from './Suit';
 
 /** A card with a rank and maybe a suit: a saved day, the river card and a Joker's stand-in can have none. */
 export type FaceCard = { rank: Rank; suit: Suit | null };
@@ -250,7 +250,7 @@ function NumberFace({ face, size, g }: { face: Extract<CardFace, { kind: 'card' 
           {label}
         </Text>
         <Svg width={g.pip} height={g.pip}>
-          <Pip face={face} x={g.pip / 2} y={g.pip / 2} size={g.pip} ink={ink} />
+          {saved ? <TinySavedMark x={g.pip / 2} y={g.pip / 2} size={g.pip} ink={ink} /> : <Pip face={face} x={g.pip / 2} y={g.pip / 2} size={g.pip} ink={ink} />}
         </Svg>
         {also ? (
           <View style={{ position: 'absolute', top: g.top, right: Math.max(2, g.w * 0.05), gap: 1 }}>
@@ -259,7 +259,7 @@ function NumberFace({ face, size, g }: { face: Extract<CardFace, { kind: 'card' 
             ))}
           </View>
         ) : null}
-        {face.rescued && suit ? <SavedFrame g={g} /> : null}
+        {saved || (face.rescued && suit) ? <SavedFrame g={g} /> : null}
       </View>
     );
   }
@@ -287,6 +287,17 @@ function Pip({ face, x, y, size, ink, flip }: { face: Extract<CardFace, { kind: 
     <G>
       <Path d={arc} stroke={ink} strokeWidth={size * 0.13} strokeLinecap="round" fill="none" />
       <Path d={head} fill={ink} strokeLinejoin="round" stroke={ink} strokeWidth={size * 0.04} />
+    </G>
+  );
+}
+
+/** A saved day's mark on the smallest card: a turning arrow whose head stays in view when the next card overlaps it. */
+function TinySavedMark({ x, y, size, ink }: { x: number; y: number; size: number; ink: string }) {
+  const { path, head } = uTurnArrow(x, y, size);
+  return (
+    <G>
+      <Path d={path} stroke={ink} strokeWidth={size * 0.14} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <Path d={head} fill={ink} stroke={ink} strokeWidth={size * 0.04} strokeLinejoin="round" />
     </G>
   );
 }
