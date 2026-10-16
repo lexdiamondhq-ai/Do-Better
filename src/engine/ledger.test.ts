@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CheckInRow } from './kept';
-import { checkInLane, createLedger, levelIn, step, withLevel, type Lane, type Outcome } from './ledger';
+import { checkInLane, createLedger, lateIndex, levelIn, step, withLevel, type Lane, type Outcome } from './ledger';
 
 type State = { days: CheckInRow[]; positions: Record<string, number> };
 
@@ -262,5 +262,21 @@ describe('check-in rows', () => {
     expect(withLevel(rows, 'walk', '2026-10-13', null)).toEqual([{ habitId: 'read', day: '2026-10-13', level: 'floor' }]);
     expect(withLevel(rows, 'walk', '2026-10-12', null)).toEqual(rows);
     expect(rows).toHaveLength(2);
+  });
+
+  it('remembers the day a back-fill was logged, and only for a day logged after it ended', () => {
+    const late = withLevel(rows, 'read', '2026-10-12', 'floor', '2026-10-13');
+    expect(late.at(-1)).toEqual({ habitId: 'read', day: '2026-10-12', level: 'floor', loggedOn: '2026-10-13' });
+    expect(withLevel(rows, 'read', '2026-10-14', 'floor', '2026-10-14').at(-1)).toEqual({ habitId: 'read', day: '2026-10-14', level: 'floor' });
+    expect(lateIndex(late)).toEqual(new Map([['read', new Map([['2026-10-12', '2026-10-13']])]]));
+    expect(lateIndex(rows)).toEqual(new Map());
+  });
+
+  it('writes the late day through the lane, and takes it away with the row', () => {
+    const lane = checkInLane<{ days: CheckInRow[] }>('read', '2026-10-12', '2026-10-13');
+    const kept = lane.write({ days: rows }, 'floor');
+    expect(kept.days.at(-1)).toEqual({ habitId: 'read', day: '2026-10-12', level: 'floor', loggedOn: '2026-10-13' });
+    expect(lane.read(kept)).toBe('floor');
+    expect(lane.write(kept, null).days).toEqual(rows);
   });
 });

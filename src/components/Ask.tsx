@@ -4,9 +4,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Body, Display } from '@/components/ui';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cardColors, fontScale, radius, space, TAP } from '@/theme/tokens';
+import { cardColors, fontScale, hasEdge, radius, space, TAP } from '@/theme/tokens';
 
-export type AskButton = { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void };
+/**
+ * One choice. `cancel` is the way out, drawn quietest. `isPreferred` marks the one main next step: it is
+ * the solid pill in the browser sheet and the bold button in an iOS alert. An iOS action sheet can't mark
+ * a choice, so a menu with a preferred choice opens as an alert there instead.
+ */
+export type AskButton = { text: string; style?: 'cancel' | 'destructive'; isPreferred?: boolean; onPress?: () => void };
 
 type Question = { title: string; message?: string; buttons: AskButton[] };
 
@@ -26,11 +31,12 @@ export function ask(title: string, message?: string, buttons?: AskButton[]) {
 
 /**
  * A menu of things to do: the action sheet on iOS, an alert on Android, the `AskHost` sheet in a
- * browser. A Cancel is added if the buttons have none, so the menu can always be closed.
+ * browser. A Cancel is added if the buttons have none, so the menu can always be closed. A menu with a
+ * preferred choice is an alert on iOS too, so that choice can be the bold one.
  */
 export function menu(title: string, message: string | undefined, buttons: AskButton[]) {
   const all = buttons.some((b) => b.style === 'cancel') ? buttons : [...buttons, { text: 'Cancel', style: 'cancel' as const }];
-  if (Platform.OS === 'ios') {
+  if (Platform.OS === 'ios' && !all.some((b) => b.isPreferred)) {
     const destructive = all.flatMap((b, i) => (b.style === 'destructive' ? [i] : []));
     ActionSheetIOS.showActionSheetWithOptions(
       {
@@ -95,7 +101,7 @@ export function AskHost() {
             backgroundColor: t.bgRaised,
             borderTopLeftRadius: radius.lg,
             borderTopRightRadius: radius.lg,
-            borderTopWidth: t.scheme === 'dark' ? 1 : 0,
+            borderTopWidth: hasEdge(t) ? 1 : 0,
             borderColor: t.edge,
             padding: space.xl,
             paddingBottom: insets.bottom + space.xl,
@@ -110,6 +116,7 @@ export function AskHost() {
             {q.buttons.map((b) => {
               const destructive = b.style === 'destructive';
               const isCancel = b.style === 'cancel';
+              const preferred = !!b.isPreferred && !destructive && !isCancel;
               return (
                 <Pressable
                   key={b.text}
@@ -124,13 +131,14 @@ export function AskHost() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     // A destructive choice is a solid tomato pill: red text on a pale surface can't keep 4.5:1 on every table.
-                    backgroundColor: isCancel ? 'transparent' : destructive ? cardColors.tomato.bg : t.surface,
+                    // The preferred choice is the solid ink pill, like a primary button, so the main next step stands out.
+                    backgroundColor: isCancel ? 'transparent' : destructive ? cardColors.tomato.bg : preferred ? t.text : t.surface,
                     borderWidth: isCancel ? 1.5 : 0,
                     borderColor: t.border,
                     opacity: pressed ? 0.75 : 1,
                   })}
                 >
-                  <Body weight="heavy" color={destructive ? cardColors.tomato.ink : t.text} maxFontSizeMultiplier={fontScale.chrome} style={{ textAlign: 'center' }}>
+                  <Body weight="heavy" color={destructive ? cardColors.tomato.ink : preferred ? t.bg : t.text} maxFontSizeMultiplier={fontScale.chrome} style={{ textAlign: 'center' }}>
                     {b.text}
                   </Body>
                 </Pressable>

@@ -5,7 +5,7 @@ import { addDays, archivedAtFor, type Day } from '@/engine/day';
 import type { Level } from '@/engine/kept';
 
 import type { Loaded } from './backend';
-import { dealHabits, forgetMoments, gameInput, LATE_ADD_REFUSED, LATE_UNDO_REFUSED, lateKey, lateRefusal, momentsOf, newMemory, pastKey, type Moment } from './play';
+import { dealHabits, forgetMoments, gameInput, LATE_ADD_REFUSED, LATE_UNDO_REFUSED, lateKey, lateRefusal, momentsOf, newMemory, pastKey, playGameFor, type Moment } from './play';
 import type { Habit, HabitDay } from './types';
 
 // Wednesday 14 October 2026. The week started on Monday the 12th.
@@ -110,6 +110,38 @@ describe('moments a check-in causes', () => {
     expect(moments).toMatchObject([{ kind: 'backfill', habitId: 'read', day: YESTERDAY, deal: { was: null, card: { kind: 'card', day: YESTERDAY } } }]);
   });
 
+  it('earns a face card with a day logged late without turning yesterday into the Joker', () => {
+    // 29 People days before this week. Logging yesterday late makes 30: the Queen, earned today.
+    const lateDay = (data: Loaded): Loaded => ({ ...data, days: [...data.days, { habitId: 'reach', day: YESTERDAY, level: 'floor', loggedOn: TODAY }] });
+    const moments = momentsOf(queenEve, lateDay(queenEve), TODAY, SEED, { habitId: 'reach', level: 'floor', day: YESTERDAY }, newMemory());
+    expect(moments[0]).toMatchObject({ kind: 'face', suit: 'hearts', face: { face: 'queen' }, joker: false, jokerLands: 'today' });
+    expect(moments[1]).toMatchObject({ kind: 'backfill', day: YESTERDAY, deal: { card: { kind: 'card', day: YESTERDAY } } });
+    // Keeping today then deals the Joker on today's card.
+    const after = lateDay(queenEve);
+    expect(momentsOf(after, plus(after, 'reach', TODAY), TODAY, SEED, { habitId: 'reach', level: 'floor', day: TODAY }, newMemory())).toMatchObject([
+      { kind: 'deal', deal: { card: { kind: 'joker', day: TODAY } } },
+    ]);
+  });
+
+  it('keeps today’s Joker where it is when yesterday is logged late after it', () => {
+    const withToday = plus(queenEve, 'reach', TODAY);
+    const lateDay: Loaded = { ...withToday, days: [...withToday.days, { habitId: 'reach', day: YESTERDAY, level: 'floor', loggedOn: TODAY }] };
+    const [moment] = momentsOf(withToday, lateDay, TODAY, SEED, { habitId: 'reach', level: 'floor', day: YESTERDAY }, newMemory());
+    expect(moment).toMatchObject({ kind: 'backfill', deal: { card: { kind: 'card', day: YESTERDAY } } });
+    const game = playGameFor(lateDay, TODAY, SEED);
+    expect(game.current.slots.find((s) => s.card?.kind === 'joker')?.day).toBe(TODAY);
+    expect(game.current.slots.find((s) => s.day === YESTERDAY)?.card?.kind).toBe('card');
+  });
+
+  it('says a face card’s Joker waits for next week when this week already has one', () => {
+    // A Jack of Spades this week brought its Joker on Monday; logging yesterday late earns the Queen of Hearts too.
+    const data = loaded([habit('walk', 'spades', '2026-09-01'), habit('reach', 'hearts', '2026-09-01')], [...kept('walk', '2026-10-03', 10), ...kept('reach', '2026-09-10', 29)]);
+    expect(playGameFor(data, TODAY, SEED).current.slots.some((s) => s.card?.kind === 'joker')).toBe(true);
+    const after: Loaded = { ...data, days: [...data.days, { habitId: 'reach', day: YESTERDAY, level: 'floor', loggedOn: TODAY }] };
+    const moments = momentsOf(data, after, TODAY, SEED, { habitId: 'reach', level: 'floor', day: YESTERDAY }, newMemory());
+    expect(moments[0]).toMatchObject({ kind: 'face', suit: 'hearts', joker: false, jokerLands: 'next-week' });
+  });
+
   it('replaces the saved card when yesterday is logged after today was kept', () => {
     const data = plus(loaded([habit('read', 'clubs', '2026-10-01')], kept('read', '2026-10-05', 7)), 'read', TODAY);
     const [moment] = momentsOf(data, plus(data, 'read', YESTERDAY), TODAY, SEED, { habitId: 'read', level: 'floor', day: YESTERDAY }, newMemory());
@@ -144,6 +176,12 @@ describe('finished weeks', () => {
   it('are dealt again when a past day changes level, even with the same number of rows', () => {
     const upgraded: Loaded = { ...data, days: data.days.map((d) => (d.habitId === 'read' && d.day === '2026-09-22' ? { ...d, level: 'ceiling' } : d)) };
     expect(key(upgraded)).not.toBe(key(data));
+  });
+
+  it('are dealt again when a past day turns out to have been logged late', () => {
+    const late: Loaded = { ...data, days: data.days.map((d, i) => (i === 1 ? { ...d, loggedOn: addDays(d.day, 1) } : d)) };
+    expect(key(late)).not.toBe(key(data));
+    expect(gameInput(late, TODAY, SEED).late?.size).toBe(1);
   });
 
   it('are dealt again when a past day moves to another card', () => {

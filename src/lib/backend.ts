@@ -1,4 +1,4 @@
-import type { Day } from '@/engine/day';
+import { loggedAtFor, loggedLateOn, type Day } from '@/engine/day';
 import type { Level } from '@/engine/kept';
 import type { HandKind } from '@/engine/poker';
 
@@ -20,7 +20,8 @@ export interface Backend {
   /** A real account, whose rows are worth keeping on the phone, or the in-memory demo deck. */
   kind: 'remote' | 'demo';
   load(timezone: string): Promise<Loaded>;
-  saveDay(habitId: string, day: Day, level: Level): Promise<void>;
+  /** Keeps `day` at `level`. `loggedOn` is the day it is being logged, when that is after `day` (a back-fill). */
+  saveDay(habitId: string, day: Day, level: Level, loggedOn?: Day): Promise<void>;
   deleteDay(habitId: string, day: Day): Promise<void>;
   /** Makes every card in one write, so a retry after a failure can't leave half a deck behind. Positions count up from `position`. */
   createHabits(drafts: readonly HabitDraft[], startedOn: Day, position: number): Promise<Habit[]>;
@@ -66,13 +67,17 @@ async function fetchAllDays(userId: string): Promise<HabitDay[]> {
   for (let from = 0; ; from += page) {
     const { data, error } = await supabase
       .from('habit_days')
-      .select('habit_id, day, level')
+      .select('habit_id, day, level, logged_at')
       .eq('owner_id', userId)
       .order('day', { ascending: true })
       .order('habit_id', { ascending: true })
       .range(from, from + page - 1);
     if (error) throw friendly(error);
-    for (const r of data ?? []) out.push({ habitId: r.habit_id, day: r.day, level: r.level });
+    for (const r of data ?? []) {
+      // A back-fill stores the day it was logged (see `loggedAtFor`), so its Joker and face card stay put.
+      const late = loggedLateOn(r.day, r.logged_at);
+      out.push(late ? { habitId: r.habit_id, day: r.day, level: r.level, loggedOn: late } : { habitId: r.habit_id, day: r.day, level: r.level });
+    }
     if (!data || data.length < page) return out;
   }
 }
@@ -112,10 +117,10 @@ export function supabaseBackend(userId: string): Backend {
       };
     },
 
-    async saveDay(habitId, day, level) {
+    async saveDay(habitId, day, level, loggedOn = day) {
       const { error } = await supabase
         .from('habit_days')
-        .upsert({ habit_id: habitId, owner_id: userId, day, level, logged_at: new Date().toISOString() }, { onConflict: 'habit_id,day' });
+        .upsert({ habit_id: habitId, owner_id: userId, day, level, logged_at: loggedAtFor(day, loggedOn, new Date()) }, { onConflict: 'habit_id,day' });
       if (error) throw friendly(error);
     },
 

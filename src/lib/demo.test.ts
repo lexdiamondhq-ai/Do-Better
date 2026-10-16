@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { FACES, RUNGS, summarizeCourt } from '@/engine/court';
 import { addDays, weekday, weekStart, type Day } from '@/engine/day';
-import { playGame } from '@/engine/game';
+import { lastShowdown, playGame } from '@/engine/game';
 import { indexCheckIns, neverTwiceDay, type Level } from '@/engine/kept';
 
 import type { Loaded } from './backend';
@@ -37,6 +37,17 @@ describe.each(WEEK)('the demo deck on %s', (today) => {
     expect(moments).toEqual([expect.objectContaining({ kind: 'face', suit: 'hearts', face: expect.objectContaining({ face: 'queen' }), joker: true })]);
   });
 
+  it('keeps the Joker on today’s card when yesterday is then logged late', async () => {
+    if (weekday(today) === 0) return;
+    const { backend, data } = await open(today);
+    const yesterday = addDays(today, -1);
+    const withToday = keep(data, 'demo-reach-out', today);
+    const late: Loaded = { ...withToday, days: [...withToday.days, { habitId: 'demo-reach-out', day: yesterday, level: 'floor', loggedOn: today }] };
+    const jokerDay = (d: Loaded) => playGame(gameInput(d, today, backend.seed)).current.slots.find((s) => s.card?.kind === 'joker')?.day;
+    expect(jokerDay(withToday)).toBe(today);
+    expect(jokerDay(late)).toBe(today);
+  });
+
   it('deals plain cards for every other swipe today', async () => {
     const { backend, data } = await open(today);
     let state = keep(data, 'demo-reach-out', today);
@@ -63,6 +74,18 @@ describe.each(WEEK)('the demo deck on %s', (today) => {
     expect(game.current.slots.some((s) => s.card?.kind === 'joker')).toBe(false);
   });
 
+  it('only calls hands that pay, and opens on a Showdown whose call was made', async () => {
+    for (const typical of [false, true]) {
+      const { game } = await open(today, typical);
+      expect(game.weeks.filter((w) => w.call && w.callMultiplier === 0)).toEqual([]);
+      if (weekday(today) !== 0) expect(game.current.callMultiplier).toBeGreaterThan(0);
+    }
+    const { game } = await open(today);
+    const last = lastShowdown(game);
+    expect(last?.madeCall).toBe(true);
+    expect(last?.bonus).toBeGreaterThan(0);
+  });
+
   it('looks like ten weeks of play, with rescues and calls made and missed', async () => {
     const { data, game } = await open(today);
     expect(game.weeks).toHaveLength(10);
@@ -80,6 +103,17 @@ describe('the demo deck', () => {
   it('has the same history every week', async () => {
     const [a, b] = await Promise.all([open('2026-10-14'), open('2026-10-21')]);
     expect(b.data.days.map((d) => ({ ...d, day: addDays(d.day, -7) }))).toEqual(a.data.days);
+  });
+
+  it('remembers a day logged late, so its Joker and face card stay where they were dealt', async () => {
+    const backend = createDemoBackend('2026-10-16');
+    await backend.saveDay('demo-reach-out', '2026-10-15', 'floor', '2026-10-16');
+    await backend.saveDay('demo-reach-out', '2026-10-16', 'floor');
+    const days = (await backend.load('UTC')).days.filter((d) => d.habitId === 'demo-reach-out' && d.day >= '2026-10-15');
+    expect(days).toEqual([
+      { habitId: 'demo-reach-out', day: '2026-10-15', level: 'floor', loggedOn: '2026-10-16' },
+      { habitId: 'demo-reach-out', day: '2026-10-16', level: 'floor' },
+    ]);
   });
 
   it('can delete the whole deck, leaving an account that starts again from onboarding', async () => {

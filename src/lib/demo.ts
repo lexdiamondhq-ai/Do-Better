@@ -9,8 +9,8 @@
  */
 
 import { addDays, daysBetween, weekday, weekStart, type Day } from '@/engine/day';
-import { unit, type DealHabit } from '@/engine/deal';
-import { playPastWeeks, type Week } from '@/engine/game';
+import { keptCards, unit, type DealHabit } from '@/engine/deal';
+import { callPrices, playPastWeeks, type CallPrice, type Week } from '@/engine/game';
 import { indexCheckIns, type Level } from '@/engine/kept';
 import { RECIPES } from '@/engine/playbook';
 import { atLeast, handIndex, type HandKind } from '@/engine/poker';
@@ -136,8 +136,9 @@ function variety(weeks: readonly Week[]): number {
 }
 
 /**
- * The deal seed. The public demo takes the deal with the widest spread of hands. A typical player takes
- * the middle one, so a phone test sees what most players would.
+ * The deal seed. The public demo opens on last week's Showdown, so it takes a deal whose last week made a
+ * call that pays, and among those the one with the widest spread of hands. A typical player takes the
+ * middle one by spread, so a phone test sees what most players would.
  */
 function pickSeed(today: Day, habits: readonly Habit[], days: readonly HabitDay[], typical: boolean): { seed: string; weeks: Week[] } {
   const deals = Array.from({ length: typical ? 15 : 8 }, (_, i) => {
@@ -146,7 +147,8 @@ function pickSeed(today: Day, habits: readonly Habit[], days: readonly HabitDay[
     return { seed, weeks, score: variety(weeks) };
   });
   if (typical) return [...deals].sort((a, b) => a.score - b.score)[Math.floor(deals.length / 2)];
-  return deals.reduce((best, d) => (d.score > best.score ? d : best));
+  const opens = deals.filter((d) => lastCallPays(d.weeks, habits));
+  return (opens.length ? opens : deals).reduce((best, d) => (d.score > best.score ? d : best));
 }
 
 /** The highest callable hand a week's hand makes, or a Pair for a week that made none. */
@@ -163,17 +165,48 @@ function usualCall(weeks: readonly Week[]): HandKind {
   return recent.reduce((best, k) => (count(k) > count(best) || (count(k) === count(best) && handIndex(k) < handIndex(best)) ? k : best));
 }
 
+type Prices = Partial<Record<HandKind, CallPrice>>;
+
+/** What each call pays in a finished week, priced as the game prices it: from the weeks before, for the cards in the deck then. */
+function pricesFor(weeks: readonly Week[], i: number, habits: readonly Habit[]): Prices {
+  const week = weeks[i];
+  const first = keptCards(week.slots)[0]?.day ?? addDays(week.start, 6);
+  return callPrices(weeks.slice(0, i), habits.filter((h) => h.startedOn <= first).length);
+}
+
+const pays = (prices: Prices, kind: HandKind) => (prices[kind]?.multiplier ?? 0) > 0;
+
+/** `kind`, or the next call up that pays something. A sure thing pays nothing, and the call screen never offers one. */
+function payingFrom(kind: HandKind, prices: Prices): HandKind {
+  return CALLS.slice(CALLS.indexOf(kind)).find((k) => pays(prices, k)) ?? kind;
+}
+
 /**
- * The demo player's calls. The public demo calls what each week went on to make, and every third week
- * reaches one hand higher and misses, so the Hall shows both. A typical player calls their usual hand.
+ * The demo player's calls, every one of them priced to pay. The public demo calls the best paying hand
+ * each week went on to make, and every third week reaches for the next paying hand and misses, so the
+ * Hall shows both. A typical player calls their usual hand, or the next one up when that pays nothing.
  */
-function callsFor(weeks: readonly Week[], typical: boolean): Loaded['calls'] {
+function callsFor(weeks: readonly Week[], habits: readonly Habit[], typical: boolean): Loaded['calls'] {
   return weeks.map((w, i) => {
-    if (typical) return { weekStart: w.start, hand: usualCall(weeks.slice(0, i)) };
-    const made = callFor(w.hand?.kind);
-    const higher = CALLS[CALLS.indexOf(made) + 1];
-    return { weekStart: w.start, hand: i % 3 === 1 && higher ? higher : made };
+    const prices = pricesFor(weeks, i, habits);
+    if (typical) return { weekStart: w.start, hand: payingFrom(usualCall(weeks.slice(0, i)), prices) };
+    const made = (k: HandKind) => !!w.hand && atLeast(w.hand.kind, k);
+    const hits = CALLS.filter((k) => pays(prices, k) && made(k));
+    const reach = CALLS.find((k) => pays(prices, k) && !made(k));
+    // The last week is the Showdown the demo opens on, so it never carries the planned miss.
+    const planned = i % 3 === 1 && i < weeks.length - 1;
+    const hand = (planned && reach) || hits.at(-1) || reach || callFor(w.hand?.kind);
+    return { weekStart: w.start, hand };
   });
+}
+
+/** Whether the last finished week made a call that pays, so the Showdown the demo opens on can show one. */
+function lastCallPays(weeks: readonly Week[], habits: readonly Habit[]): boolean {
+  const i = weeks.length - 1;
+  const last = weeks[i];
+  if (!last?.hand) return false;
+  const prices = pricesFor(weeks, i, habits);
+  return CALLS.some((k) => pays(prices, k) && atLeast(last.hand!.kind, k));
 }
 
 /** Whether this is a development build asking for a typical player (EXPO_PUBLIC_DEMO=typical). */
@@ -190,9 +223,9 @@ export function createDemoBackend(today: Day, options: DemoOptions = { typical: 
   const typical = options.typical ?? false;
   const { habits, days } = buildHistory(today);
   const { seed, weeks } = pickSeed(today, habits, days, typical);
-  const calls = callsFor(weeks, typical);
+  const calls = callsFor(weeks, habits, typical);
   // On Monday the call is yours to make. Later in the week, the demo player already called their usual hand.
-  if (weekday(today) !== 0) calls.push({ weekStart: weekStart(today), hand: usualCall(weeks) });
+  if (weekday(today) !== 0) calls.push({ weekStart: weekStart(today), hand: payingFrom(usualCall(weeks), callPrices(weeks, habits.length)) });
 
   const state: Loaded = {
     profile: { id: 'demo', displayName: 'Demo', timezone: 'UTC', northStar: 'Someone who reads every day, keeps moving, and stays close to the people I love.', onboardedAt: habits[0].startedOn },
@@ -211,8 +244,9 @@ export function createDemoBackend(today: Day, options: DemoOptions = { typical: 
       state.profile = { ...state.profile, timezone };
       return copy();
     },
-    async saveDay(habitId, day, level) {
-      state.days = [...state.days.filter((d) => !(d.habitId === habitId && d.day === day)), { habitId, day, level }];
+    async saveDay(habitId, day, level, loggedOn) {
+      const row: HabitDay = loggedOn && loggedOn > day ? { habitId, day, level, loggedOn } : { habitId, day, level };
+      state.days = [...state.days.filter((d) => !(d.habitId === habitId && d.day === day)), row];
     },
     async deleteDay(habitId, day) {
       state.days = state.days.filter((d) => !(d.habitId === habitId && d.day === day));

@@ -79,14 +79,35 @@ export function unit(seed: string): number {
   return (h >>> 0) / 0x1_0000_0000;
 }
 
+/** How many cards a re-deal turns before it settles for a card dealt straight into the band. */
+const REDEAL_TRIES = 16;
+
+/** Card `k` of a day's re-deal, from 2 to the Ace: the first from `again` itself, the rest from a hash of it. */
+function redealCard(again: number, k: number): number {
+  if (k === 0) return Math.min(14, 2 + Math.floor(again * 13));
+  let h = (Math.floor(again * 0x1_0000_0000) ^ Math.imul(k, 0x9e3779b9)) >>> 0;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return 2 + Math.floor(((h >>> 0) / 0x1_0000_0000) * 13);
+}
+
 /**
  * The day's rank in a band from `lo` to the Ace. Every day has one card from the full deck (`u`); the band
- * keeps it when it is at least `lo`, and otherwise deals again inside the band with a second hash (`again`).
- * Every rank in a band is equally likely, and a higher `lo` never gives a lower card for the same hashes.
+ * keeps it when it is at least `lo`. Otherwise the day deals again from a second deck of its own (`again`)
+ * and keeps the first card that fits. So every rank in a band is equally likely, a higher `lo` never gives
+ * a lower card, and a card that still fits a higher band is kept: keeping more never changes a card that
+ * already fits.
  */
 export function rankFor(lo: Rank, u: number, again = u): Rank {
   const base = Math.min(14, 2 + Math.floor(u * 13));
   if (base >= lo) return base as Rank;
+  for (let k = 0; k < REDEAL_TRIES; k++) {
+    const card = redealCard(again, k);
+    if (card >= lo) return card as Rank;
+  }
   return Math.min(14, lo + Math.floor(again * (15 - lo))) as Rank;
 }
 

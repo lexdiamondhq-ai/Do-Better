@@ -8,15 +8,17 @@
  * warm-up: its cards deal and count in the Court, but it has no call and no Showdown. The first Showdown is
  * the first full week.
  *
- * Each face card earned in the Court deals a Joker on the first kept day from then on whose week doesn't
- * have one yet, so a burst of face cards spreads over the weeks that follow and no Joker is ever lost.
+ * Each face card earned in the Court deals a Joker on the first day from then on that was kept on the day
+ * and whose week doesn't have one yet, so a burst of face cards spreads over the weeks that follow and no
+ * Joker is ever lost. A day logged late never takes a Joker, and only counts toward a face card from the
+ * day it was logged, so logging yesterday can't move a Joker that has already been dealt.
  *
  * The Hall of Hands counts every kind of hand a week held, card backs unlock by their own conditions, and
  * a big enough stack opens a new table. All of it is worked out from check-ins and calls; none of it is stored.
  */
 
 import { SUIT_INFO, SUITS, type Rank, type Suit } from './cards';
-import { faceDays, nextFace, suitDays, type FaceInfo } from './court';
+import { faceDays, knownOn, nextFace, suitDays, type FaceInfo, type LoggedLate } from './court';
 import { addDays, weekday, weekStart, type Day } from './day';
 import { canKeep, dayRank, dealWeek, inDeck, keptCards, loOf, rescueWaiting, RIVER_DAYS, riverCard, tallyDay, TOP_LO, type DayCard, type DealHabit, type Slot } from './deal';
 import type { CheckIns } from './kept';
@@ -31,6 +33,8 @@ export type GameInput = {
   checkIns: ReadonlyMap<string, CheckIns>;
   /** Called hands, by the Monday their week starts. */
   calls: ReadonlyMap<Day, HandKind>;
+  /** Check-ins logged after their day, and the day each was logged. Left out, every check-in counts as made on its day. */
+  late?: LoggedLate;
 };
 
 /** What a made call pays, as a multiple of the hand's chips: 0 for a sure thing, up to 3 for a long shot. */
@@ -184,21 +188,25 @@ export function warmupWeek(habits: readonly DealHabit[]): Day | null {
   return first && 7 - weekday(first) < 5 ? weekStart(first) : null;
 }
 
-/** Every day up to today with at least one habit kept, in order. */
-function keptDaysOf(input: GameInput): Day[] {
+/** Every day up to today with at least one habit kept on the day itself, in order. Days only logged late are left out. */
+function liveDaysOf(input: GameInput): Day[] {
   const days = new Set<Day>();
-  for (const h of input.habits) for (const day of input.checkIns.get(h.id)?.keys() ?? []) if (day <= input.today) days.add(day);
+  for (const h of input.habits) {
+    for (const day of input.checkIns.get(h.id)?.keys() ?? []) if (day <= input.today && knownOn(input.late, h.id, day) === day) days.add(day);
+  }
   return [...days].sort();
 }
 
 /**
- * Where each face card's Joker lands: the first kept day on or after the face day whose week has no Joker
- * yet (never the warm-up week). Faces whose Joker has nowhere to land yet are `waiting`.
+ * Where each face card's Joker lands: the first day on or after the face day that was kept on the day
+ * itself and whose week has no Joker yet (never the warm-up week). Face days count a day logged late from
+ * the day it was logged, and a day logged late never takes a Joker, so a Joker once dealt stays where it
+ * is. Faces whose Joker has nowhere to land yet are `waiting`.
  */
 export function placeJokers(input: GameInput): { faces: FaceEarned[]; days: Set<Day>; waiting: FaceEarned[] } {
-  const faces = faceDays(input.habits, input.checkIns, input.today);
+  const faces = faceDays(input.habits, input.checkIns, input.today, input.late);
   const warm = warmupWeek(input.habits);
-  const kept = keptDaysOf(input);
+  const kept = liveDaysOf(input);
   const used = new Set<Day>();
   const days = new Set<Day>();
   const waiting: FaceEarned[] = [];
@@ -538,8 +546,9 @@ function ceilingsToLift(t: ReturnType<typeof tallyDay>, open: TodayOpen, lifts: 
 
 /**
  * What would lift today's card, worked out from the deal itself: "Keep Walk too and today's card is 5 or
- * better", or "goes up" when the card was dealt again inside its band and a better band still lifts it. The
- * card is called locked in only when nothing left to do today could change it.
+ * better". A card that already fits a better band keeps its rank there (see `rankFor`), so only a band
+ * above today's card can lift it. The card is called locked in only when nothing left to do today could
+ * change it.
  */
 function climbTip(input: GameInput, rank: Rank): Tip {
   const { today, habits, checkIns, seed } = input;
@@ -547,7 +556,7 @@ function climbTip(input: GameInput, rank: Rank): Tip {
   const lo = loOf(t) ?? 2;
   const open = todayOpen(input);
   const lifts = (to: Rank | null) => to !== null && dayRank(to, today, seed) > rank;
-  const result = (to: Rank) => (to > rank ? `today’s card is ${to} or better` : 'today’s card goes up');
+  const result = (to: Rank) => `today’s card is ${to} or better`;
   const locked: Tip = { tone: 'done', text: 'Today’s card is locked in. Each habit you keep still counts in your Court.' };
   if (t.kept < t.counted) {
     const keep = open.running;
@@ -566,11 +575,10 @@ function climbTip(input: GameInput, rank: Rank): Tip {
   if (lo >= TOP_LO) return t.ceilings === t.kept ? { tone: 'done', text: 'Perfect day. Every habit at its Ceiling.' } : locked;
   const lift = ceilingsToLift(t, open, lifts);
   if (!lift) return locked;
-  const news = lift.lo > rank;
-  const makes = news ? `today’s card ${lift.lo} or better` : 'today’s card';
-  if (lift.all) return { tone: 'climb', text: `${t.counted === 1 ? 'Reaching the Ceiling' : 'Every habit at its Ceiling'} ${news ? 'makes' : 'lifts'} ${makes}.` };
-  if (lift.more === 1) return { tone: 'climb', text: `One more Ceiling ${news ? 'makes' : 'lifts'} ${makes}.` };
-  return { tone: 'climb', text: `${lift.more} more Ceilings ${news ? 'make' : 'lift'} ${makes}.` };
+  const makes = `today’s card ${lift.lo} or better`;
+  if (lift.all) return { tone: 'climb', text: `${t.counted === 1 ? 'Reaching the Ceiling' : 'Every habit at its Ceiling'} makes ${makes}.` };
+  if (lift.more === 1) return { tone: 'climb', text: `One more Ceiling makes ${makes}.` };
+  return { tone: 'climb', text: `${lift.more} more Ceilings make ${makes}.` };
 }
 
 function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; callOpen: boolean; faces: readonly FaceEarned[]; waiting: readonly FaceEarned[] }): Tip[] {
@@ -586,10 +594,14 @@ function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; cal
   if (earnedToday.length) {
     const { face, suit } = earnedToday[0];
     const earned = `You earned the ${face.name} of ${SUIT_INFO[suit].name} today`;
+    // Earned with a day logged late, before anything was kept today: today's card will be the Joker.
+    const next = !card && !jokerThisWeek && !current.warmup;
     tips.push(
       card?.kind === 'joker'
         ? { tone: 'joker', text: `${earned}, so today’s card is a Joker. It plays as any rank.` }
-        : { tone: 'face', text: `${earned}. Its Joker waits for next week’s first kept day.` },
+        : next
+          ? { tone: 'joker', text: `${earned}. Keep any habit today and it’s dealt as a Joker.` }
+          : { tone: 'face', text: `${earned}. Its Joker waits for next week’s first kept day.` },
     );
   } else if (ctx.waiting.length) {
     tips.push(

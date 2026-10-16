@@ -121,9 +121,28 @@ describe('rankFor', () => {
     const ten = (10 - 2 + 0.5) / 13;
     expect([2, 3, 4, 5, 6].map((lo) => rankFor(lo as Rank, ten, 0.99))).toEqual([10, 10, 10, 10, 10]);
     const four = (4 - 2 + 0.5) / 13;
-    expect(rankFor(4, four, 0)).toBe(4);
-    expect(rankFor(5, four, 0)).toBe(5);
+    const nine = (9 - 2 + 0.5) / 13;
+    expect(rankFor(4, four, nine)).toBe(4);
+    // Too low for the band: the day's second deck turns a Nine, which fits.
+    expect(rankFor(5, four, nine)).toBe(9);
     expect(rankFor(6, four, 0.9999)).toBe(14);
+  });
+
+  it('keeps a card dealt again when it still fits a higher band, so keeping more never changes a card that fits', () => {
+    let kept = 0;
+    for (let i = 0; i < 3000; i++) {
+      const u = unit(`s:${i}`);
+      const again = unit(`s:${i}:again`);
+      for (let lo = 3; lo <= 6; lo++) {
+        const r = rankFor(lo as Rank, u, again);
+        for (let higher = lo + 1; higher <= 6; higher++) {
+          if (r < higher) continue;
+          expect(rankFor(higher as Rank, u, again)).toBe(r);
+          kept++;
+        }
+      }
+    }
+    expect(kept).toBeGreaterThan(1000);
   });
 
   it('is never lower for a higher lowest card, whatever the deal', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { addDays, archivedAtFor, archivedDay, canBackfill, daysBetween, laterDay, localDay, msUntilNextDay, weekDays, weekStart, weekday } from './day';
+import { addDays, archivedAtFor, archivedDay, canBackfill, daysBetween, laterDay, localDay, loggedAtFor, loggedLateOn, msUntilNextDay, weekDays, weekStart, weekday } from './day';
 
 describe('localDay', () => {
   it('uses the local date, not the UTC date', () => {
@@ -131,5 +131,29 @@ describe('archivedDay', () => {
     // 23:30 on Monday in New York is already Tuesday in London.
     expect(archivedDay('2026-10-13T03:30:00.000Z', 'America/New_York')).toBe('2026-10-12');
     expect(archivedDay('2026-10-13T03:30:00+00:00', 'Europe/London')).toBe('2026-10-13');
+  });
+});
+
+describe('logged late', () => {
+  const now = new Date('2026-10-14T15:20:00.000Z');
+
+  it('stores the real moment for a day kept on the day, and the day it was logged for a back-fill', () => {
+    expect(loggedAtFor('2026-10-14', '2026-10-14', now)).toBe('2026-10-14T15:20:00.000Z');
+    expect(loggedAtFor('2026-10-13', '2026-10-14', now)).toBe('2026-10-14T00:00:00.000Z');
+  });
+
+  it('reads a back-fill back as late, in any time zone, the way Postgres writes it', () => {
+    expect(loggedLateOn('2026-10-13', loggedAtFor('2026-10-13', '2026-10-14', now))).toBe('2026-10-14');
+    expect(loggedLateOn('2026-10-13', '2026-10-14T00:00:00+00:00')).toBe('2026-10-14');
+    expect(loggedLateOn('2026-10-13', '2026-10-14 00:00:00+00')).toBe('2026-10-14');
+  });
+
+  it('never calls a check-in late from a real moment, even one that is the next day somewhere else', () => {
+    // 21:30 in New York on the 13th is already the 14th in UTC and in Tokyo.
+    expect(loggedLateOn('2026-10-13', '2026-10-14T01:30:00.000Z')).toBeNull();
+    expect(loggedLateOn('2026-10-14', loggedAtFor('2026-10-14', '2026-10-14', now))).toBeNull();
+    expect(loggedLateOn('2026-10-14', '2026-10-14T00:00:00.000Z')).toBeNull();
+    expect(loggedLateOn('2026-10-14', null)).toBeNull();
+    expect(loggedLateOn('2026-10-14', undefined)).toBeNull();
   });
 });

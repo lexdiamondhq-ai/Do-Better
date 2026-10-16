@@ -26,7 +26,13 @@ export type Habit = {
   archivedAt: string | null;
 };
 
-export type HabitDay = { habitId: string; day: Day; level: Level };
+export type HabitDay = {
+  habitId: string;
+  day: Day;
+  level: Level;
+  /** Set only for a day logged after it ended ("Did it, forgot to log"): the day it was logged on. */
+  loggedOn?: Day;
+};
 
 export type RecoveryResponse = 'floor_only' | 'two_minute' | 'dismissed';
 

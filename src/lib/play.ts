@@ -4,7 +4,7 @@ import { archivedDay, canBackfill, weekStart, type Day } from '@/engine/day';
 import type { DayCard, DealHabit } from '@/engine/deal';
 import { dealEvent, playGame, playLiveWeek, playPastWeeks, type DealEvent, type Game, type GameInput, type Week } from '@/engine/game';
 import { indexCheckIns, type Level } from '@/engine/kept';
-import { levelIn } from '@/engine/ledger';
+import { lateIndex, levelIn } from '@/engine/ledger';
 import type { HandKind } from '@/engine/poker';
 
 import type { Loaded } from './backend';
@@ -32,6 +32,7 @@ export function gameInput(data: Loaded, today: Day, seed: string): GameInput {
     habits: dealHabits(data.habits, data.profile.timezone),
     checkIns: indexCheckIns(data.days),
     calls: new Map<Day, HandKind>(data.calls.map((c) => [c.weekStart, c.hand])),
+    late: lateIndex(data.days),
   };
 }
 
@@ -54,7 +55,8 @@ function hashes(text: string): [number, number] {
 
 /**
  * A fingerprint of everything finished weeks are dealt from: the habits, every check-in before this week
- * (habit, day and level, in any order) and the calls. A past Floor turning into a Ceiling changes it.
+ * (habit, day, level and the day a late one was logged, in any order) and the calls. A past Floor turning
+ * into a Ceiling changes it.
  */
 export function pastKey(data: Loaded, input: GameInput): string {
   const thisWeek = weekStart(input.today);
@@ -65,7 +67,7 @@ export function pastKey(data: Loaded, input: GameInput): string {
   let sumB = 0;
   for (const d of data.days) {
     if (d.day >= thisWeek) continue;
-    const [a, b] = hashes(`${d.habitId}:${d.day}:${d.level}`);
+    const [a, b] = hashes(`${d.habitId}:${d.day}:${d.level}${d.loggedOn && d.loggedOn > d.day ? `@${d.loggedOn}` : ''}`);
     count++;
     sumA = (sumA + a) >>> 0;
     sumB = (sumB + b) >>> 0;
@@ -118,8 +120,12 @@ export const MILESTONES: readonly number[] = [10, 25, 50, 100, 250, 500, 1000];
 export type GameEvent =
   /** Today's card got better. `saved` is yesterday's card when the same check-in saved it too. */
   | { id: number; kind: 'deal'; habitId: string; level: Level; deal: DealEvent; saved: DayCard | null }
-  /** A suit earned a face card in the Court. `joker` when the same check-in also dealt a Joker. */
-  | { id: number; kind: 'face'; suit: Suit; face: FaceInfo; identities: string[]; joker: boolean }
+  /**
+   * A suit earned a face card in the Court. `joker` when the same check-in also dealt a Joker, always
+   * on today's card. Otherwise `jokerLands` says where it will: `today` when keeping anything today deals
+   * it (the face came from a day logged late), `next-week` when this week already has one.
+   */
+  | { id: number; kind: 'face'; suit: Suit; face: FaceInfo; identities: string[]; joker: boolean; jokerLands?: 'today' | 'next-week' }
   /** The very first card this player has been dealt. */
   | { id: number; kind: 'first'; habitId: string; level: Level; deal: DealEvent }
   /** Yesterday was logged late and got its card ("Yesterday saved"). `deal.card` is yesterday's card. */
@@ -167,6 +173,7 @@ export function momentsOf(before: Loaded, after: Loaded, today: Day, seed: strin
   const out: Moment[] = [];
 
   const joker = jokers(now) > jokers(was);
+  const jokerLands = joker ? {} : { jokerLands: jokers(now) > 0 || now.warmup ? ('next-week' as const) : ('today' as const) };
   const courtWas = courtOf(before, today);
   const courtNow = courtOf(after, today);
   let jokerShown = false;
@@ -174,7 +181,7 @@ export function momentsOf(before: Loaded, after: Loaded, today: Day, seed: strin
     const key = `face:${f.suit}:${f.face.face}:${today}`;
     if (memory.celebrated.has(key)) continue;
     memory.celebrated.add(key);
-    out.push({ kind: 'face', suit: f.suit, face: f.face, identities: f.identities, joker });
+    out.push({ kind: 'face', suit: f.suit, face: f.face, identities: f.identities, joker, ...jokerLands });
     jokerShown ||= joker;
   }
 

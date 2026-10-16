@@ -13,7 +13,7 @@
 import type { Suit } from '@/engine/cards';
 import type { TableKey } from '@/engine/game';
 
-import { contrast, faintestAlpha, mix, withAlpha } from './color';
+import { contrast, faintestAlpha, mix, parseColor, withAlpha } from './color';
 
 export const INK = '#17121F';
 export const WHITE = '#FFFFFF';
@@ -163,6 +163,19 @@ export const themes: { light: Theme; dark: Theme } = {
     vignette: 0,
   },
 };
+
+/** Whether the theme's edge shows at all. The light table's edge is see-through, so it takes no border. */
+export function hasEdge(t: Pick<Theme, 'edge'>): boolean {
+  return parseColor(t.edge).a > 0;
+}
+
+/**
+ * The border a panel on the table wears: a 1px edge where the theme has one, and none where it is
+ * see-through, so a panel never sits a pixel off on the light table. Spread it into a style.
+ */
+export function edgeBorder(t: Pick<Theme, 'edge'>): { borderWidth: number; borderColor: string } {
+  return { borderWidth: hasEdge(t) ? 1 : 0, borderColor: t.edge };
+}
 
 /**
  * A dark table: felt, velvet or leather under the cards, light text, one accent. Its panels and the

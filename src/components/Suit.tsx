@@ -117,6 +117,22 @@ export function Star({ size = 20, color }: { size?: number; color: string }) {
 }
 
 /**
+ * The saved day's mark for the smallest cards: an arrow that rises on the right, turns over the top and
+ * comes back down on the left with its head. Its head sits on the left, so it still reads as an arrow
+ * (never as a letter) when the next card in a row covers the right of the card. Fits a `size` square
+ * centred on (cx, cy), as a stroked path and a filled head.
+ */
+export function uTurnArrow(cx: number, cy: number, size: number): { path: string; head: string } {
+  const r = size * 0.3;
+  const top = cy - size * 0.06;
+  const path = `M${r2(cx + r)} ${r2(top + size * 0.36)} L${r2(cx + r)} ${r2(top)} A${r2(r)} ${r2(r)} 0 0 0 ${r2(cx - r)} ${r2(top)} L${r2(cx - r)} ${r2(top + size * 0.12)}`;
+  const w = size * 0.2;
+  const base = top + size * 0.1;
+  const head = `M${r2(cx - r - w)} ${r2(base)} L${r2(cx - r + w)} ${r2(base)} L${r2(cx - r)} ${r2(base + size * 0.26)} Z`;
+  return { path, head };
+}
+
+/**
  * An open circle with an arrowhead, turning back on itself: the mark of a saved day. Centred on
  * (cx, cy) with radius `r`, as a stroked arc and a filled head.
  */

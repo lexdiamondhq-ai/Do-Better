@@ -121,13 +121,38 @@ export function summarizeCourt(habits: readonly CourtHabit[], checkIns: Readonly
 }
 
 /**
- * When each face card was earned: the day the suit reached the days it needs, oldest first. Each one
- * deals a Joker on the first kept day from then on whose week doesn't have one yet (see game.ts).
+ * Check-ins logged after their own day ("Did it, forgot to log"): habit id, then the day kept, then the
+ * later day it was logged on. A check-in made on its own day isn't listed.
  */
-export function faceDays(habits: readonly Pick<CourtHabit, 'id' | 'suit'>[], checkIns: ReadonlyMap<string, CheckIns>, upTo: Day): { day: Day; suit: Suit; face: FaceInfo }[] {
+export type LoggedLate = ReadonlyMap<string, ReadonlyMap<Day, Day>>;
+
+/** The day a check-in became known: its own day, or the later day it was logged on. */
+export function knownOn(late: LoggedLate | undefined, habitId: string, day: Day): Day {
+  const on = late?.get(habitId)?.get(day);
+  return on && on > day ? on : day;
+}
+
+/**
+ * When each face card was earned, as it happened: the day the suit's count of kept days reached the
+ * days the card needs, oldest first. A day logged late joins the count on the day it was logged, so
+ * logging yesterday never moves a face card back to yesterday. Each one deals a Joker on the first day
+ * from then on that was kept on the day and whose week doesn't have one yet (see game.ts).
+ */
+export function faceDays(habits: readonly Pick<CourtHabit, 'id' | 'suit'>[], checkIns: ReadonlyMap<string, CheckIns>, upTo: Day, late?: LoggedLate): { day: Day; suit: Suit; face: FaceInfo }[] {
   const out: { day: Day; suit: Suit; face: FaceInfo }[] = [];
   for (const suit of SUITS) {
-    const days = suitDays(habits, checkIns, suit, upTo);
+    // Each kept day of the suit, by the day it was first known: a day kept by two habits counts once.
+    const known = new Map<Day, Day>();
+    for (const h of habits) {
+      if (h.suit !== suit) continue;
+      for (const day of (checkIns.get(h.id) ?? new Map<Day, never>()).keys()) {
+        const on = knownOn(late, h.id, day);
+        if (day > upTo || on > upTo) continue;
+        const was = known.get(day);
+        if (!was || on < was) known.set(day, on);
+      }
+    }
+    const days = [...known.values()].sort();
     for (const face of FACES) if (days.length >= face.votes) out.push({ day: days[face.votes - 1], suit, face });
   }
   // Same day: deck order of the suits, then lower face first, so the order never depends on the habit list.

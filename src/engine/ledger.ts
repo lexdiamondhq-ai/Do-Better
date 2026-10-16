@@ -169,19 +169,40 @@ export function levelIn(rows: readonly CheckInRow[], habitId: string, day: Day):
   return rows.find((r) => r.habitId === habitId && r.day === day)?.level ?? null;
 }
 
-/** Check-in rows with one habit's day set to `level`, or removed when it's null. Every other row is untouched. */
-export function withLevel(rows: readonly CheckInRow[], habitId: string, day: Day, level: Level | null): CheckInRow[] {
+/** A check-in row that may have been logged after its day: `loggedOn` is set only then, to the day it was logged. */
+export type LoggedRow = CheckInRow & { loggedOn?: Day };
+
+/**
+ * Check-in rows with one habit's day set to `level`, or removed when it's null. Every other row is
+ * untouched. Pass `loggedOn` for a day logged late ("Did it, forgot to log"): the row remembers it.
+ */
+export function withLevel(rows: readonly LoggedRow[], habitId: string, day: Day, level: Level | null, loggedOn?: Day): LoggedRow[] {
   const i = rows.findIndex((r) => r.habitId === habitId && r.day === day);
   if (level === null) return i < 0 ? [...rows] : [...rows.slice(0, i), ...rows.slice(i + 1)];
-  const row = { habitId, day, level };
+  const row: LoggedRow = loggedOn && loggedOn > day ? { habitId, day, level, loggedOn } : { habitId, day, level };
   return i < 0 ? [...rows, row] : [...rows.slice(0, i), row, ...rows.slice(i + 1)];
 }
 
-/** One habit's check-in on one day, in any state that keeps its check-ins as rows under `days`. */
-export function checkInLane<S extends { days: readonly CheckInRow[] }>(habitId: string, day: Day): Lane<S, Level | null> {
+/**
+ * One habit's check-in on one day, in any state that keeps its check-ins as rows under `days`. `loggedOn`
+ * marks a check-in logged after its day, so the game knows it was logged late.
+ */
+export function checkInLane<S extends { days: readonly LoggedRow[] }>(habitId: string, day: Day, loggedOn?: Day): Lane<S, Level | null> {
   return {
     key: `day:${habitId}:${day}`,
     read: (s) => levelIn(s.days, habitId, day),
-    write: (s, level) => ({ ...s, days: withLevel(s.days, habitId, day, level) }),
+    write: (s, level) => ({ ...s, days: withLevel(s.days, habitId, day, level, loggedOn) }),
   };
+}
+
+/** The check-ins logged after their day, by habit then day, with the day each was logged. For `GameInput.late`. */
+export function lateIndex(rows: readonly LoggedRow[]): Map<string, Map<Day, Day>> {
+  const out = new Map<string, Map<Day, Day>>();
+  for (const r of rows) {
+    if (!r.loggedOn || r.loggedOn <= r.day) continue;
+    let days = out.get(r.habitId);
+    if (!days) out.set(r.habitId, (days = new Map()));
+    days.set(r.day, r.loggedOn);
+  }
+  return out;
 }

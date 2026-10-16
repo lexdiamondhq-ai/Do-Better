@@ -193,6 +193,72 @@ describe('Jokers', () => {
   });
 });
 
+describe('Jokers and days logged late', () => {
+  const call: DealHabit = { id: 'call', suit: 'hearts', startedOn: '2026-07-27', archivedOn: null, name: 'Call' };
+  const move: DealHabit = { id: 'move', suit: 'spades', startedOn: '2026-07-27', archivedOn: null, name: 'Move' };
+  const deck = [call, move];
+  // Friday 16 October. Hearts has 29 days before this week, one short of its Queen; Spades kept Monday to Thursday.
+  const today = '2026-10-16';
+  const yesterday = '2026-10-15';
+  const hearts = Object.fromEntries(Array.from({ length: 29 }, (_, i) => [addDays('2026-07-27', i * 2), 'floor' as Level]));
+  const spades = run('2026-10-12', 4);
+  const late = (habitId: string, day: Day, on: Day) => new Map([[habitId, new Map([[day, on]])]]);
+  const jokerDay = (game: { current: Week }) => game.current.slots.find((s) => s.card?.kind === 'joker')?.day ?? null;
+
+  it('keeps a Joker on the day it was dealt when yesterday is logged late, whatever the deal', () => {
+    let lower = 0;
+    for (let i = 0; i < 200; i++) {
+      const seed = `late-${i}`;
+      const before = input({ seed, today, habits: deck, days: { call: { ...hearts, [today]: 'floor' }, move: { ...spades, [today]: 'floor' } } });
+      const after = { ...before, checkIns: log({ call: { ...hearts, [today]: 'floor', [yesterday]: 'floor' }, move: { ...spades, [today]: 'floor' } }), late: late('call', yesterday, today) };
+      const was = playGame(before);
+      const now = playGame(after);
+      expect(jokerDay(was)).toBe(today);
+      expect(jokerDay(now)).toBe(today);
+      expect(now.faces.find((f) => f.face.face === 'queen')?.day).toBe(today);
+      // Yesterday's own card can only go up. A hand gets weaker only when that higher card breaks a match.
+      const card = (g: typeof was) => g.current.slots.find((s) => s.day === yesterday)?.card;
+      expect(rankOf(card(now))).toBeGreaterThanOrEqual(rankOf(card(was)));
+      if ((now.current.hand?.score ?? 0) < (was.current.hand?.score ?? 0)) {
+        lower++;
+        expect(rankOf(card(now))).toBeGreaterThan(rankOf(card(was)));
+      }
+    }
+    expect(lower).toBeLessThan(20);
+  });
+
+  it('without knowing a day was logged late, would have moved the Joker back to it', () => {
+    const days = { call: { ...hearts, [today]: 'floor' as Level, [yesterday]: 'floor' as Level }, move: { ...spades, [today]: 'floor' as Level } };
+    expect(jokerDay(playGame(input({ today, habits: deck, days })))).toBe(yesterday);
+    expect(jokerDay(playGame({ ...input({ today, habits: deck, days }), late: late('call', yesterday, today) }))).toBe(today);
+  });
+
+  it('deals the Joker of a face card earned with a day logged late on today’s card, never on yesterday’s', () => {
+    const days = { call: { ...hearts, [yesterday]: 'floor' as Level }, move: spades };
+    const game = playGame({ ...input({ today, habits: deck, days }), late: late('call', yesterday, today) });
+    expect(game.faces.at(-1)).toMatchObject({ day: today, suit: 'hearts', face: { face: 'queen' } });
+    expect(jokerDay(game)).toBeNull();
+    expect(game.pendingJoker).toBe('hearts');
+    expect(game.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today. Keep any habit today and it’s dealt as a Joker.' });
+    const kept = playGame({ ...input({ today, habits: deck, days: { ...days, move: { ...spades, [today]: 'floor' } } }), late: late('call', yesterday, today) });
+    expect(jokerDay(kept)).toBe(today);
+    expect(kept.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today, so today’s card is a Joker. It plays as any rank.' });
+  });
+
+  it('never lands a waiting Joker on a day that was only logged late', () => {
+    // Four Jacks on one day: the first lands that day and the rest wait for the weeks after.
+    const four: DealHabit[] = ['spades', 'hearts', 'diamonds', 'clubs'].map((suit) => ({ id: suit, suit: suit as DealHabit['suit'], startedOn: W1, archivedOn: null }));
+    const ten = Object.fromEntries(four.map((h) => [h.id, run(W1, 10)]));
+    const tue = '2026-10-06';
+    const wed = '2026-10-07';
+    const waiting = playGame({ ...input({ habits: four, today: wed, days: { ...ten, spades: { ...ten.spades, [tue]: 'floor' } } }), late: late('spades', tue, wed) });
+    expect(waiting.current.slots.some((s) => s.card?.kind === 'joker')).toBe(false);
+    expect(waiting.tips[0]).toEqual({ tone: 'joker', text: 'Keep any habit today and it’s dealt as a Joker.' });
+    const kept = playGame({ ...input({ habits: four, today: wed, days: { ...ten, spades: { ...ten.spades, [tue]: 'floor', [wed]: 'floor' } } }), late: late('spades', tue, wed) });
+    expect(jokerDay(kept)).toBe(wed);
+  });
+});
+
 describe('calls', () => {
   const hand = (kind: HandKind): Hand => ({ kind, cards: [], ranks: [], suit: null, suited: null, score: HAND_LADDER.indexOf(kind), title: '' });
   const week = (kind: HandKind | null, over: Partial<Week> = {}): Week => ({
@@ -695,12 +761,13 @@ describe('tips', () => {
       const both = rankOf(dealDay(today, [read, walk], log({ read: { [today]: 'floor' }, walk: { [today]: 'floor' } }), seed));
       const top = rankOf(dealDay(today, [read, walk], log({ read: { [today]: 'ceiling' }, walk: { [today]: 'ceiling' } }), seed));
       const climb = game.tips.find((t) => t.tone === 'climb' || t.tone === 'done');
+      // A card that already fits a better band keeps its rank there, so only a band above it can lift it.
+      if (rank >= 5) expect(both).toBe(rank);
+      if (rank >= 6) expect(top).toBe(rank);
       if (rank < 5) {
         named++;
         expect(climb).toEqual({ tone: 'climb', text: 'Keep Walk too and today’s card is 5 or better.' });
-      } else if (both > rank) expect(climb).toEqual({ tone: 'climb', text: 'Keep Walk too and today’s card goes up.' });
-      else if (rank < 6) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card is 6 or better.' });
-      else if (top > rank) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card goes up.' });
+      } else if (rank < 6) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card is 6 or better.' });
       else expect(climb?.tone).toBe('done');
     }
     expect(named).toBeGreaterThan(3);
@@ -714,7 +781,6 @@ describe('tips', () => {
     const states = Array.from({ length: 26 }, (_, m) => deck.map((_, i) => levels[Math.floor((m + 1) / 3 ** i) % 3]));
     const daysOf = (state: (Level | undefined)[]) => Object.fromEntries(deck.flatMap((h, i) => (state[i] ? [[h.id, { [today]: state[i]! }]] : [])));
     const tones = new Set<string>();
-    let rose = 0;
     for (let n = 0; n < 120; n++) {
       const seed = `lift-${n}`;
       const rankAt = (state: (Level | undefined)[]) => rankOf(dealDay(today, deck, log(daysOf(state)), seed));
@@ -729,14 +795,14 @@ describe('tips', () => {
         else expect(best).toBeGreaterThan(rank);
         const or = /(\d+) or better/.exec(tip.text);
         if (or) expect(Number(or[1])).toBeGreaterThan(rank);
-        if (/goes up|lifts/.test(tip.text)) rose++;
         // "Keep Walk too", "Keep the other 2 habits too": keeping them at the Floor lifts the card.
         if (/ too and /.test(tip.text)) expect(rankAt(state.map((l) => l ?? 'floor'))).toBeGreaterThan(rank);
       }
     }
-    expect(rose).toBeGreaterThan(0);
     expect(tones).toContain('Today’s card is locked in. Each habit you keep still counts in your Court.');
-    expect(tones).toContain('Every habit at its Ceiling lifts today’s card.');
+    expect(tones).toContain('Every habit at its Ceiling makes today’s card N or better.');
+    // Every climb names a band above today's card: a card that fits a better band keeps its rank there.
+    expect([...tones].some((x) => /goes up|lifts/.test(x))).toBe(false);
   });
 
   it('never asks for a habit archived today, which still counts but can’t be kept', () => {
@@ -749,7 +815,7 @@ describe('tips', () => {
       const tip = game.tips.find((t) => t.tone === 'climb' || t.tone === 'done')!;
       expect(tip.text).not.toMatch(/Walk|other|Keep every habit,/);
       const ceiling = rankOf(dealDay(today, [read, gone], log({ read: { [today]: 'ceiling' } }), seed));
-      if (ceiling > rank) expect(tip.text).toMatch(/^Keep every habit you still can, all at their Ceilings, and today’s card (is 4 or better|goes up)\.$/);
+      if (ceiling > rank) expect(tip.text).toBe('Keep every habit you still can, all at their Ceilings, and today’s card is 4 or better.');
       else expect(tip.tone).toBe('done');
     }
   });
