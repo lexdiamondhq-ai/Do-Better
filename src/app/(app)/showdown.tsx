@@ -306,6 +306,9 @@ function Table({ week, game }: { week: Week; game: Game }) {
   };
 
   const offerCall = latest && game.callOpen && !game.current.call;
+  // Showdowns played while you were away, older than this one and newer than the last you saw.
+  const seen = prefs.showdownSeen[seed];
+  const away = latest && seen ? game.weeks.filter((w) => w.hand && !w.warmup && w.start > seen && w.start < week.start).reverse() : [];
   const stageHeight = phase === 'result' ? geo.fanHeight + space.sm : geo.revealHeight;
   const hint = !playable ? null : riverReady ? 'Hold the river card to turn it.' : daysTurned ? null : 'Tap a card to turn it over.';
 
@@ -400,6 +403,8 @@ function Table({ week, game }: { week: Week; game: Game }) {
               felt={felt}
               mastered={deck?.cards.find((c) => c.mastered)?.habit ?? null}
               tune={latest && !prefs.music ? () => setPrefs({ music: true }) : null}
+              away={away}
+              onReplay={(w) => router.push({ pathname: '/showdown', params: { week: w.start } })}
               onEdit={(id, focus) => router.push({ pathname: '/habit/edit', params: { id, focus } })}
             />
           ) : null}
@@ -703,6 +708,8 @@ function Result({
   felt,
   mastered,
   tune,
+  away,
+  onReplay,
   onEdit,
 }: {
   week: Week;
@@ -719,6 +726,8 @@ function Result({
   felt: Felt;
   mastered: Habit | null;
   tune: (() => void) | null;
+  away: readonly Week[];
+  onReplay: (week: Week) => void;
   onEdit: (id: string, focus: 'floor' | 'ceiling') => void;
 }) {
   const t = useTheme();
@@ -777,6 +786,7 @@ function Result({
           />
         ) : null}
         <Chapter game={game} week={week} />
+        {away.length ? <Away weeks={away} onReplay={onReplay} /> : null}
         {tune ? <TuneRow onPress={tune} /> : null}
         {latest ? <SaveDeckCard moment="showdown" /> : null}
       </Animated.View>
@@ -1161,6 +1171,40 @@ function Chapter({ game, week }: { game: Game; week: Week }) {
           </Body>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/** Showdowns that played while you were away: their chips are already in the stack, and each can be replayed. */
+function Away({ weeks, onReplay }: { weeks: readonly Week[]; onReplay: (week: Week) => void }) {
+  const t = useTheme();
+  return (
+    <View style={[{ borderRadius: radius.lg, padding: space.lg, gap: space.md }, raisedStyle(t)]}>
+      <Display size={22} color={t.onRaised} header>
+        While you were away
+      </Display>
+      <Body size={14} color={t.onRaisedSecondary}>
+        {weeks.length === 1 ? 'One more Showdown played without you. Its chips are in your stack.' : `${weeks.length} more Showdowns played without you. Their chips are in your stack.`}
+      </Body>
+      {weeks.map((w) => (
+        <Pressable
+          key={w.start}
+          onPress={() => onReplay(w)}
+          accessibilityRole="button"
+          accessibilityLabel={`${weekRange(w.start)}: ${w.hand?.title}. ${weekTotal(w)} chips.`}
+          accessibilityHint="Replays this week’s Showdown"
+          style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border, opacity: pressed ? 0.7 : 1 })}
+        >
+          {w.hand ? <HandRow faces={playedFaces(w.hand.cards)} size="xs" overlap={0.5} /> : null}
+          <View style={{ flex: 1, gap: 2 }}>
+            <Label color={t.onRaisedSecondary}>{weekRange(w.start)}</Label>
+            <Body size={14} weight="heavy" color={t.onRaised} numberOfLines={2}>
+              {w.hand?.title}
+            </Body>
+          </View>
+          <Chips value={weekTotal(w)} size={13} sign color={t.onRaised} />
+        </Pressable>
+      ))}
     </View>
   );
 }
