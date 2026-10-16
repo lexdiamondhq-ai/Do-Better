@@ -139,7 +139,8 @@ export function TimeChooser({
         <PlusMinus sign="+" label={`${label} later`} onPress={() => move(STEP)} onLongPress={() => move(60)} disabled={quietHours && minutes >= hi} />
       </View>
       {presets.length ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.sm }}>
+        // The row reaches 4pt past each pill, so every pill answers a 44pt touch without the row growing.
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.sm, paddingVertical: 4, marginVertical: -4 }}>
           {presets.map((p) => {
             const active = p === clockOf(minutes);
             return (
@@ -148,6 +149,7 @@ export function TimeChooser({
                 accessibilityRole="button"
                 accessibilityLabel={clockLabel(p)}
                 accessibilityState={{ selected: active }}
+                hitSlop={{ top: 4, bottom: 4 }}
                 onPress={() => {
                   feel.tick();
                   onChange(p);
@@ -205,7 +207,7 @@ export function ReminderBanner({ title, body, when, style }: { title: string; bo
           {when}
         </Body>
       </View>
-      <Body weight="heavy" size={15} color={INK} maxFontSizeMultiplier={fontScale.chrome} numberOfLines={1}>
+      <Body weight="heavy" size={15} color={INK} maxFontSizeMultiplier={fontScale.chrome} numberOfLines={2}>
         {title}
       </Body>
       <Body size={15} color={INK} maxFontSizeMultiplier={fontScale.chrome} numberOfLines={2} style={{ lineHeight: 20 }}>

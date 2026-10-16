@@ -258,8 +258,13 @@ export function cuesFor(snapshot: CueSnapshot, settings: CueSettings, now: Date,
     chosen.sort((a, b) => PRIORITY[a.kind as Exclude<CueKind, 'plays'>] - PRIORITY[b.kind as Exclude<CueKind, 'plays'>]);
     kept.push(...chosen.slice(0, away >= TAPER_FROM ? 1 : DAILY_CAP), ...own);
   }
-  kept.sort((a, b) => a.fireAt - b.fireAt || a.id.localeCompare(b.id));
-  return kept.slice(0, MAX_CUES);
+  // The Monday mornings (a Showdown, or a new week) always fit: a deck full of the player's own times only
+  // trims the rest of the week ahead, never the way back in.
+  const order = (a: Cue, b: Cue) => a.fireAt - b.fireAt || a.id.localeCompare(b.id);
+  const monday = (c: Cue) => c.kind === 'new-week' || c.kind === 'showdown';
+  const mondays = kept.filter(monday);
+  const rest = kept.filter((c) => !monday(c)).sort(order);
+  return [...rest.slice(0, MAX_CUES - mondays.length), ...mondays].sort(order);
 }
 
 function newWeek(day: Day, habits: readonly CueHabit[], n: number): Draft {

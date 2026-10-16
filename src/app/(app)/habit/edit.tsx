@@ -48,7 +48,7 @@ function Tip({ tip }: { tip: TipText }) {
         setOpen((o) => !o);
       }}
       hitSlop={6}
-      style={({ pressed }) => ({ flexDirection: 'row', gap: space.sm, paddingHorizontal: space.xs, paddingVertical: 6, opacity: pressed ? 0.6 : 1 })}
+      style={({ pressed }) => ({ flexDirection: 'row', gap: space.sm, minHeight: 32, paddingHorizontal: space.xs, paddingVertical: 6, opacity: pressed ? 0.6 : 1 })}
     >
       <View aria-hidden style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: t.textSecondary, alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
         <Body weight="heavy" size={12} color={t.textSecondary} maxFontSizeMultiplier={fontScale.graphic} style={{ lineHeight: 14 }}>
@@ -344,7 +344,7 @@ export default function EditHabit() {
         'anchor',
         <View style={{ gap: space.sm }}>
           <Field label="When it plays" value={draft.anchor} onChangeText={(v) => set({ anchor: v })} placeholder={hint?.anchor ?? 'after my first coffee'} hint="A moment that already happens every day. Add a time, like 7 am, if it has one." autoCapitalize="none" inputRef={anchor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => firstMove.current?.focus()} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginHorizontal: -space.xl }} contentContainerStyle={{ paddingHorizontal: space.xl, gap: space.sm }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginHorizontal: -space.xl, marginVertical: -4 }} contentContainerStyle={{ paddingHorizontal: space.xl, paddingVertical: 4, gap: space.sm }}>
             {MOMENTS.map((m) => {
               const on = draft.anchor.trim().toLowerCase() === m;
               return (
@@ -353,6 +353,7 @@ export default function EditHabit() {
                   accessibilityRole="button"
                   accessibilityLabel={`Plays ${m}`}
                   accessibilityState={{ selected: on }}
+                  hitSlop={{ top: 4, bottom: 4 }}
                   onPress={() => {
                     feel.tick();
                     set({ anchor: m });

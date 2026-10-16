@@ -100,9 +100,11 @@ function signature(cues: readonly Cue[] | null): string {
   return cues ? cues.map((c) => `${c.id}@${c.fireAt}:${c.title}|${c.body}`).join('\n') : 'off';
 }
 
-/** Replaces everything scheduled with `cues`, or clears it all when null. Skips work when nothing changed. */
-function apply(cues: readonly Cue[] | null) {
-  const gen = generation;
+/**
+ * Replaces everything scheduled with `cues`, or clears it all when null. Skips work when nothing changed.
+ * `gen` is the sign-in the plan was made for: a plan made before a sign-out is dropped, never written.
+ */
+function apply(cues: readonly Cue[] | null, gen = generation) {
   const sig = signature(cues);
   enqueue(async () => {
     if (gen !== generation || sig === applied) return;
@@ -223,10 +225,19 @@ export function CueScheduler({ deck }: { deck: Deck | null }) {
       return;
     }
     const plan = cuesFor(cueSnapshot(deck, prefs, seed), cueSettings(prefs), new Date(now), deviceTimeZone());
+    // The plan belongs to this sign-in and this render. If the deck changes, or the player signs out, while
+    // the phone is still answering about permission, the stale plan is dropped instead of written.
+    const gen = generation;
+    let live = true;
     const timer = setTimeout(() => {
-      hasPermission().then((allowed) => apply(allowed ? plan : null));
+      hasPermission().then((allowed) => {
+        if (live) apply(allowed ? plan : null, gen);
+      });
     }, 800);
-    return () => clearTimeout(timer);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
   }, [deck, prefs, seed, now, on, ready, demo]);
 
   // Taps, while running and from a cold start.

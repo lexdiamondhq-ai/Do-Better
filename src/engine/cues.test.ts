@@ -191,6 +191,14 @@ describe('cuesFor', () => {
     expect([...cues].sort((a, b) => a.fireAt - b.fireAt)).toEqual(cues);
     expect(plan().map((c) => c.id)).toEqual(plan().map((c) => c.id));
   });
+
+  it('keeps all four Mondays ahead even when the player’s own times fill the phone’s limit', () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ ...read, id: `h${i}`, name: `Card ${'abcdefghij'[i]}`, remindAt: '10:00' }));
+    const cues = plan({ habits: many });
+    expect(cues.length).toBe(MAX_CUES);
+    const mondays = cues.filter((c) => c.kind === 'new-week' || c.kind === 'showdown').map((c) => c.day);
+    expect(mondays).toEqual([NEXT_MON, '2026-10-26', '2026-11-02', '2026-11-09']);
+  });
 });
 
 describe('atLocal', () => {

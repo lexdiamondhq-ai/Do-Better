@@ -122,7 +122,8 @@ function useComputedDeck(): Deck | null {
         ceilings30: w.ceilingDays,
         days30: w.daysInWindow,
         hasFirstMove: !!c.habit.twoMinuteLabel,
-        hasAnchor: !!c.habit.anchor,
+        // An older card's time and place counts: it shows under When it plays.
+        hasAnchor: !!(c.habit.anchor?.trim() || c.habit.whenWhere?.trim()),
         hasIdentity: !!c.habit.identity,
         comeback: !!c.neverTwice,
         mastered: c.mastered,
@@ -135,7 +136,7 @@ function useComputedDeck(): Deck | null {
       today,
       habitCount: active.length,
       habitsWithoutTwoMinute: active.filter((h) => !h.twoMinuteLabel).length,
-      habitsWithoutAnchor: active.filter((h) => !h.anchor).length,
+      habitsWithoutAnchor: active.filter((h) => !(h.anchor?.trim() || h.whenWhere?.trim())).length,
       habitsWithoutIdentity: active.filter((h) => !h.identity).length,
       neverTwiceCount: cards.filter((c) => c.neverTwice).length,
       keptRate30: inWindow >= 7 ? kept30 / inWindow : null,

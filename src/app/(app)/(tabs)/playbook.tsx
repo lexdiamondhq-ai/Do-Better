@@ -11,7 +11,7 @@ import { PRINCIPLES, RECIPES, type Recipe, type Recommendation } from '@/engine/
 import { useData } from '@/lib/data';
 import { useDeck, type HabitView } from '@/lib/deck';
 import { useTheme } from '@/theme/ThemeProvider';
-import { withAlpha } from '@/theme/color';
+import { contrast, mix, withAlpha } from '@/theme/color';
 import { cardColors, fontScale, radius, space, suitColors, WHITE, type CardColor, type Theme } from '@/theme/tokens';
 
 /** A ready-made card in a carousel: narrow enough that the next one peeks in, so the row reads as a hand. */
@@ -101,7 +101,7 @@ export default function Playbook() {
                     {SUIT_INFO[k].name}
                   </Label>
                   {have ? (
-                    <Label color={suitInk(t, k)} style={{ marginLeft: 'auto', marginTop: 3 }}>
+                    <Label color={suitText(t, k)} style={{ marginLeft: 'auto', marginTop: 3 }}>
                       {`${have} in your deck`}
                     </Label>
                   ) : null}
@@ -193,6 +193,16 @@ function suitInk(t: Theme, suit: Suit) {
   return t.scheme === 'dark' ? suitColors[suit].bright : suitColors[suit].glyph;
 }
 
+/** A suit's colour for small text on the page: its ink deepened until it reads at 4.5:1 (Hearts on the light table). */
+function suitText(t: Theme, suit: Suit) {
+  const ink = suitInk(t, suit);
+  for (let step = 0; step <= 10; step++) {
+    const c = mix(ink, t.text, step / 10);
+    if (contrast(c, t.bg) >= 4.5) return c;
+  }
+  return t.text;
+}
+
 /**
  * One piece of advice. An ink outline sets it apart from the Comeback card and the cards in your deck; when
  * it is about one of your cards, that card's colour and name lead it. The whole card is the button.
@@ -223,7 +233,7 @@ function AdviceCard({ rec, width, card, onPress }: { rec: Recommendation; width:
       <View style={{ gap: space.sm }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           {card ? <MiniCard color={card.habit.color} /> : <Spark color={t.text} />}
-          <Label color={t.textSecondary} numberOfLines={2} style={{ flex: 1 }}>
+          <Label color={t.textSecondary} numberOfLines={3} style={{ flex: 1 }}>
             {rec.reason}
           </Label>
         </View>

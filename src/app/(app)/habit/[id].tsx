@@ -13,7 +13,7 @@ import { Body, Button, Centered, Display, Label, raisedStyle, Section } from '@/
 import { SUIT_INFO } from '@/engine/cards';
 import { cleanIdentity } from '@/engine/court';
 import { addDays, canBackfill, daysBetween, weekStart, type Day } from '@/engine/day';
-import { best30, bounceBacks, calendarWeeks, keptBetween, MASTERY, summarizeWindow, type Level } from '@/engine/kept';
+import { best30, bounceBacks, calendarWeeks, keptBetween, MASTERY, type CalendarDay, type Level } from '@/engine/kept';
 import { ownWhy, playsLine, PRINCIPLES, recipeFor, type EditField } from '@/engine/playbook';
 import { useData } from '@/lib/data';
 import { useDeck, type HabitView } from '@/lib/deck';
@@ -21,7 +21,7 @@ import * as feel from '@/lib/feel';
 import { monthDay, shortDay } from '@/lib/format';
 import { playSound } from '@/lib/sound';
 import { useTheme } from '@/theme/ThemeProvider';
-import { mix } from '@/theme/color';
+import { mix, withAlpha } from '@/theme/color';
 import { cardColors, fontScale, INK, radius, space, TAP, typeScale, WHITE } from '@/theme/tokens';
 
 /** One card, turned over: keep it from here, see what it has added up to, and why you keep it. */
@@ -87,11 +87,15 @@ export default function HabitDetail() {
   }
 
   const late = canBackfill(yesterday, today, habit, checkIns);
-  const month = calendarWeeks(today, { days: 30 }, habit.startedOn, checkIns);
   const quarter = calendarWeeks(today, { weeks: 12 }, habit.startedOn, checkIns);
   const window30 = view.window30;
-  const quarterKept = summarizeWindow(today, 84, habit.startedOn, checkIns);
+  // Counted from the grid itself, so the number always matches the squares under it.
+  const quarterKept = gridCount(quarter);
   const age = daysBetween(habit.startedOn, today) + 1;
+  // A young card's calendar starts the week it was made, not with empty weeks before it.
+  const young = age < 30;
+  const month = calendarWeeks(today, { days: Math.max(1, Math.min(30, age)) }, habit.startedOn, checkIns);
+  const monthTitle = young ? 'Since you started' : 'Last 30 days';
   const best = age >= 30 ? best30(habit.startedOn, today, checkIns) : null;
   const identity = cleanIdentity(habit.identity);
   const why = ownWhy(habit);
@@ -120,10 +124,10 @@ export default function HabitDetail() {
             <View
               accessible
               accessibilityRole="header"
-              accessibilityLabel={`Last 30 days: ${window30.keptDays} kept, ${window30.ceilingDays} at the Ceiling.`}
+              accessibilityLabel={`${monthTitle}: ${window30.keptDays} kept, ${window30.ceilingDays} at the Ceiling.`}
               style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md }}
             >
-              <Display size={typeScale.display.sm}>Last 30 days</Display>
+              <Display size={typeScale.display.sm}>{monthTitle}</Display>
               <PileLegend color={habit.color} />
             </View>
             <DayCalendar
@@ -192,28 +196,41 @@ export default function HabitDetail() {
             </View>
           ) : null}
 
-          <View style={{ gap: space.md }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.md }}>
-              <Display size={typeScale.display.sm} header>
-                Twelve weeks
-              </Display>
-              <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
-                {`${quarterKept.keptDays} kept`}
-              </Body>
+          {young ? null : (
+            <View style={{ gap: space.md }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.md }}>
+                <Display size={typeScale.display.sm} header>
+                  Twelve weeks
+                </Display>
+                <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
+                  {`${quarterKept.keptDays} kept`}
+                </Body>
+              </View>
+              <WeeksGrid
+                weeks={quarter}
+                color={habit.color}
+                today={today}
+                label={`The last twelve weeks: ${quarterKept.keptDays} days kept, ${quarterKept.ceilingDays} at the Ceiling, ${keptBetween(checkIns, weekStart(today), today)} this week.`}
+              />
             </View>
-            <WeeksGrid
-              weeks={quarter}
-              color={habit.color}
-              today={today}
-              label={`The last twelve weeks: ${quarterKept.keptDays} days kept, ${quarterKept.ceilingDays} at the Ceiling, ${keptBetween(checkIns, weekStart(today), today)} this week.`}
-            />
-          </View>
+          )}
 
           <Body size={typeScale.text.sm} color={t.textSecondary} style={{ textAlign: 'center' }}>{`In your deck since ${monthDay(habit.startedOn, today)}.`}</Body>
         </View>
       </ScrollView>
     </View>
   );
+}
+
+/** Kept and Ceiling days among the cells of a calendar. */
+function gridCount(weeks: CalendarDay[][]): { keptDays: number; ceilingDays: number } {
+  let keptDays = 0;
+  let ceilingDays = 0;
+  for (const cell of weeks.flat()) {
+    if (cell.status === 'floor' || cell.status === 'ceiling') keptDays++;
+    if (cell.status === 'ceiling') ceilingDays++;
+  }
+  return { keptDays, ceilingDays };
 }
 
 function Chevron({ color }: { color: string }) {
@@ -339,7 +356,7 @@ function KeepButtons({ view, level, onKeep, onUndo }: { view: HabitView; level: 
             {title}
           </Label>
         </View>
-        <Body weight="heavy" size={typeScale.text.md} color={fg} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 19 }}>
+        <Body weight="heavy" size={typeScale.text.md} color={fg} numberOfLines={3} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 19 }}>
           {value}
         </Body>
       </>
@@ -361,13 +378,13 @@ function KeepButtons({ view, level, onKeep, onUndo }: { view: HabitView; level: 
   if (level === 'ceiling') {
     return (
       <View style={{ gap: space.sm }}>
-        <View accessible accessibilityLabel={`Ceiling reached today: ${habit.ceilingLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 64, borderRadius: 20, backgroundColor: c.ink, paddingHorizontal: space.lg }}>
+        <View accessible accessibilityLabel={`Ceiling reached today: ${habit.ceilingLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 64, borderRadius: 20, backgroundColor: c.ink, paddingHorizontal: space.lg, paddingVertical: space.sm }}>
           <Display size={typeScale.display.md} color={c.bg}>
             ✓
           </Display>
           <View style={{ flex: 1 }}>
             <Label color={c.bg}>Ceiling reached today</Label>
-            <Body weight="heavy" size={typeScale.text.md} color={c.bg} numberOfLines={1}>
+            <Body weight="heavy" size={typeScale.text.md} color={c.bg} numberOfLines={2}>
               {habit.ceilingLabel}
             </Body>
           </View>
@@ -444,7 +461,7 @@ function PartOfYou({ view, age, onRaise }: { view: HabitView; age: number; onRai
           {`${Math.min(value, goal)} of ${goal}`}
         </Body>
       </View>
-      <View style={{ height: 10, borderRadius: 5, backgroundColor: t.edge === 'transparent' ? 'rgba(255,255,255,0.14)' : t.edge, overflow: 'hidden' }}>
+      <View style={{ height: 10, borderRadius: 5, backgroundColor: withAlpha(t.onRaised, 0.16), overflow: 'hidden' }}>
         <View style={{ width: `${Math.min(1, value / goal) * 100}%`, height: '100%', borderRadius: 5, backgroundColor: c.onDark }} />
       </View>
     </View>

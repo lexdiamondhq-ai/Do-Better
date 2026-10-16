@@ -97,7 +97,10 @@ export function DayCalendar({
               </Body>
             );
             const ring = isToday ? { borderWidth: 2.5, borderColor: t.text } : null;
-            if (cell.status === 'outside' || cell.status === 'before') return <View key={cell.day} style={base} />;
+            // A card made yesterday and not kept reads as "before" (its first day only counts once kept),
+            // but yesterday can still be logged late, so it gets the plus like any other day not kept.
+            const late = (cell.status === 'missed' || cell.status === 'before') && !!onLogLate && !!canLogLate?.(cell.day);
+            if (!late && (cell.status === 'outside' || cell.status === 'before')) return <View key={cell.day} style={base} />;
             if (cell.status === 'later') {
               return (
                 <View key={cell.day} style={[base, { borderWidth: 1, borderColor: t.border }]}>
@@ -124,7 +127,7 @@ export function DayCalendar({
               );
             }
             // A day not kept. Yesterday may still be logged late.
-            if (canLogLate?.(cell.day) && onLogLate) {
+            if (late && onLogLate) {
               return (
                 <Pressable
                   key={cell.day}
