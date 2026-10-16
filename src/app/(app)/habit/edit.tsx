@@ -134,12 +134,16 @@ export default function EditHabit() {
   useEffect(() => {
     if (!target) return;
     const input: Record<EditField, RefObject<TextInput | null>> = { name, ceilingLabel: ceiling, floorLabel: floor, identity, anchor, twoMinuteLabel: firstMove, why };
-    const timer = setTimeout(() => {
-      const y = tops.current[target];
-      if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.xxxl), animated: true });
-      input[target].current?.focus();
-    }, 450);
-    return () => clearTimeout(timer);
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    timers.push(
+      setTimeout(() => {
+        const y = tops.current[target];
+        if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.xxxl), animated: true });
+        // Focus once the scroll has settled: a scroll still running can count as a drag and put the keyboard away.
+        timers.push(setTimeout(() => input[target].current?.focus(), y === undefined ? 0 : 450));
+      }, 450),
+    );
+    return () => timers.forEach(clearTimeout);
   }, [target]);
 
   usePreventRemove(dirty && !busy, ({ data }) => {
@@ -236,7 +240,8 @@ export default function EditHabit() {
     <ScrollView
       ref={scroll}
       keyboardShouldPersistTaps="handled"
-      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      // On the web every scroll counts as a drag, so a field opened by a tip would lose its focus as it scrolls into view.
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : Platform.OS === 'web' ? 'none' : 'on-drag'}
       automaticallyAdjustKeyboardInsets
       style={{ flex: 1, backgroundColor: t.bg }}
       contentContainerStyle={{ padding: space.xl, paddingTop: space.lg, paddingBottom: insets.bottom + space.xxxl, gap: space.lg }}
