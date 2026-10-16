@@ -414,6 +414,15 @@ describe('receipts', () => {
     expect(r.line).toBe('Eight of Spades. A higher card broke your Pair of Eights. Your hand is now King high.');
   });
 
+  it('never blames a higher card when a Joker is what lowered the hand', () => {
+    // A Joker has no suit, so turning a card that made a straight flush into one can only leave a Straight.
+    const sf = { kind: 'straight-flush' as const, title: 'Straight flush in Spades', score: 900 };
+    const straight = { kind: 'straight' as const, title: 'Straight to the Nine', score: 500 };
+    const r = receiptCopy({ ...deal, card: 'Joker', joker: true, wentUp: false, dropped: true, hand: straight, handWas: sf });
+    expect(r.title).toBe('A Joker!');
+    expect(r.line).toBe('Your hand is now a Straight to the Nine. It was a Straight flush in Spades.');
+  });
+
   it('leads with a saved yesterday, so it is never the line that gets cut', () => {
     const r = receiptCopy({ ...deal, card: 'Ten of Diamonds', hand: pairBetter, handWas: pair, saved: true });
     expect(r.lead).toBe('Yesterday’s card was saved too.');

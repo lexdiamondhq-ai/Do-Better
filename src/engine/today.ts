@@ -465,9 +465,10 @@ export type ReceiptCopy = { eyebrow: string; title: string; lead: string | null;
 
 /**
  * The hand, in words, after a change: a broken match said plainly, a better kicker named as just that.
- * `rose` says the changed card went up, so it can be named as what broke the hand.
+ * `rose` says the changed card went up, so it can be named as what broke the hand. Otherwise (a Joker,
+ * which has no suit, taking the place of a card that made a straight flush) the hand is just named, then and now.
  */
-function handLine(hand: HandLike | null, handWas: HandLike | null, dropped: boolean, rose = true): string {
+function handLine(hand: HandLike | null, handWas: HandLike | null, dropped: boolean, rose: boolean): string {
   if (!hand) return '';
   if (dropped && handWas) return rose ? `A higher card broke your ${handWas.title}. Your hand is now ${handPhrase(hand)}.` : `Your hand is now ${handPhrase(hand)}. It was ${handPhrase(handWas)}.`;
   if (handWas && hand.score > handWas.score) return hand.title === handWas.title ? `Still ${handPhrase(hand)}, now with a higher side card.` : `Your hand is now ${handPhrase(hand)}.`;
@@ -490,7 +491,7 @@ const rungNote = (r: RungNote | null | undefined) => (r ? [`And ${grouped(r.days
 export function receiptCopy(r: Receipt): ReceiptCopy {
   if (r.kind === 'rung') return { eyebrow: `The Court · ${r.suit}`, title: `${grouped(r.days)} days of ${r.part}`, lead: null, line: 'Still climbing toward the Ace.', notes: [] };
   const eyebrow = r.level === 'ceiling' ? 'Ceiling reached' : 'Floor kept';
-  const hand = r.kind === 'deal' ? handLine(r.hand, r.handWas, r.dropped) : handLine(r.hand, r.handWas, !!r.dropped, !!r.wentUp);
+  const hand = handLine(r.hand, r.handWas, !!r.dropped, !!r.wentUp);
   const line = (r.joker ? hand : `${r.card}. ${hand}`).trim();
   const notes = [...(r.joker ? [JOKER_LINE] : []), ...rungNote(r.rung)];
   if (r.kind === 'backfill') {
