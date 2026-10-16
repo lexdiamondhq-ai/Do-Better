@@ -11,7 +11,7 @@ import { useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import type { Habit } from '@/lib/types';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cardColors, fontScale, radius, space, TAP, typeScale } from '@/theme/tokens';
+import { cardColors, edgeBorder, fontScale, radius, space, TAP, typeScale } from '@/theme/tokens';
 
 import { ask } from './Ask';
 import { SuitGlyph } from './Suit';
@@ -189,7 +189,7 @@ function Row({
       onAccessibilityAction={(e) => onMove(index, index + (e.nativeEvent.actionName === 'up' ? -1 : 1))}
       style={[{ position: 'absolute', left: 0, right: 0, top: index * ROW, height: ROW - space.sm }, style]}
     >
-      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md, backgroundColor: t.bgRaised, borderRadius: radius.md, paddingLeft: space.sm, paddingRight: space.xs, borderWidth: t.edge === 'transparent' ? 0 : 1, borderColor: t.edge }}>
+      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md, backgroundColor: t.bgRaised, borderRadius: radius.md, paddingLeft: space.sm, paddingRight: space.xs, ...edgeBorder(t) }}>
         <View style={{ width: 40, height: 54, borderRadius: 9, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center' }} aria-hidden>
           <SuitGlyph suit={habit.suit} size={18} color={c.ink} />
         </View>

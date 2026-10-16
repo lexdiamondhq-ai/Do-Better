@@ -9,7 +9,7 @@ import { remindersSupported } from '@/lib/cues';
 import { useDeck, type Deck } from '@/lib/deck';
 import { usePrefs } from '@/lib/prefs';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
-import { fontScale, radius, space, themeOn, typeScale } from '@/theme/tokens';
+import { edgeBorder, fontScale, radius, space, themeOn, typeScale } from '@/theme/tokens';
 
 import { clockLabel, ReminderBanner, TimeChooser, ToggleRow, useTurnOnReminders } from './Reminders';
 import { Body, Button, Display, Label } from './ui';
@@ -93,7 +93,7 @@ function PromptSheet({ onClose, preview }: { onClose: () => void; preview: boole
         <Animated.View
           entering={SlideInDown.springify().damping(20).stiffness(180)}
           accessibilityViewIsModal
-          style={{ maxHeight: '92%', backgroundColor: scene.bg, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card, borderWidth: base.edge === 'transparent' ? 0 : 1, borderColor: base.edge, overflow: 'hidden' }}
+          style={{ maxHeight: '92%', backgroundColor: scene.bg, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card, ...edgeBorder(base), overflow: 'hidden' }}
         >
           <ThemeScope theme={scene}>
             <ScrollView bounces={false} contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.lg, gap: space.lg }}>

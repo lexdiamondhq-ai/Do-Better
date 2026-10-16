@@ -11,7 +11,7 @@ import * as feel from '@/lib/feel';
 import { hasSeen, usePrefs } from '@/lib/prefs';
 import { confirmSavedEmail, confirmSwitchEmail, saveDeckWithApple, saveDeckWithEmail, SignInError, switchToApple, switchToEmail } from '@/lib/signIn';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cardColors, cardFace, fontScale, fonts, INK, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
+import { cardColors, cardFace, edgeBorder, fontScale, fonts, INK, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
 import { ask } from './Ask';
 import { SuitGlyph } from './Suit';
@@ -212,8 +212,7 @@ function SaveBody({ onClose }: { onClose: () => void }) {
     paddingHorizontal: space.xl,
     fontSize: typeScale.text.lg,
     minHeight: 54,
-    borderWidth: t.edge === 'transparent' ? 0 : 1,
-    borderColor: t.edge,
+    ...edgeBorder(t),
   };
 
   return (

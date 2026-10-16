@@ -25,7 +25,7 @@ import { playSound, setSoundSettings } from '@/lib/sound';
 import { supabase } from '@/lib/supabase';
 import type { Habit } from '@/lib/types';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
-import { cardColors, fontScale, fonts, radius, space, suitColors, TAP, themeFor, typeScale } from '@/theme/tokens';
+import { cardColors, edgeBorder, fontScale, fonts, radius, space, suitColors, TAP, themeFor, typeScale } from '@/theme/tokens';
 
 /** The public TestFlight invite. Until it's set, "Deal a friend in" shares the idea without a link. */
 const TESTFLIGHT_URL = '';
@@ -85,14 +85,14 @@ export default function You() {
             { n: deck.totals.rescues, label: 'empty days saved' },
             { n: deck.totals.jokers, label: 'Jokers dealt' },
           ].map((s) => (
-            <View key={s.label} accessible accessibilityLabel={`${s.n} ${s.label}`} style={{ flexGrow: 1, flexBasis: '45%', backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg, borderWidth: t.edge === 'transparent' ? 0 : 1, borderColor: t.edge }}>
+            <View key={s.label} accessible accessibilityLabel={`${s.n} ${s.label}`} style={{ flexGrow: 1, flexBasis: '45%', backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg, ...edgeBorder(t) }}>
               <Display size={typeScale.display.lg}>{formatChips(s.n)}</Display>
               <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
                 {s.label}
               </Body>
             </View>
           ))}
-          <View style={{ width: '100%', backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg, gap: 2, borderWidth: t.edge === 'transparent' ? 0 : 1, borderColor: t.edge }}>
+          <View style={{ width: '100%', backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg, gap: 2, ...edgeBorder(t) }}>
             <Label>Best hand ever</Label>
             <Display size={typeScale.display.sm}>{game.bestEver?.hand.title ?? 'Your first Showdown is on a Sunday night'}</Display>
           </View>
@@ -609,7 +609,7 @@ function Account() {
 
   const leaveDemo = () =>
     menu('Leave the demo?', 'That was a made-up player ten weeks in. Your own deck deals today.', [
-      { text: 'Deal me in', onPress: () => void startOwnDeck() },
+      { text: 'Deal me in', isPreferred: true, onPress: () => void startOwnDeck() },
       { text: 'Back to the first screen', onPress: () => endDemo() },
       { text: 'Keep exploring', style: 'cancel' },
     ]);
@@ -653,7 +653,7 @@ function Rows({ children }: { children: ReactNode }) {
   const items = (Array.isArray(children) ? children : [children]).flat().filter(Boolean);
   if (!items.length) return null;
   return (
-    <View style={{ backgroundColor: t.bgRaised, borderRadius: radius.lg, overflow: 'hidden', borderWidth: t.edge === 'transparent' ? 0 : 1, borderColor: t.edge }}>
+    <View style={{ backgroundColor: t.bgRaised, borderRadius: radius.lg, overflow: 'hidden', ...edgeBorder(t) }}>
       {items.map((child, i) => (
         <View key={i} style={{ borderTopWidth: i ? 1 : 0, borderTopColor: t.border }}>
           {child}

@@ -17,7 +17,7 @@ import { useData } from '@/lib/data';
 import * as feel from '@/lib/feel';
 import { armedWay, chosenRecipes, deckGroups, NO_PICKS, practiceRelease, PRACTICE_DISTANCE, seedPicks, STAMP_PREVIEW, togglePick, type DeckGroup, type Picks } from '@/lib/firstRun';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cardColors, cardFace, fontScale, fonts, INK, palette, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
+import { cardColors, cardFace, edgeBorder, fontScale, fonts, INK, palette, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
 /**
  * First run: three cards that teach the game, then who you're becoming, then a starter deck, all
@@ -231,7 +231,7 @@ function Tour({ index, replay, onMove, onFinish, onSkip }: { index: number; repl
         </Pressable>
       </View>
 
-      <View style={{ flex: 1, borderRadius: radius.card, overflow: 'hidden', backgroundColor: t.bgRaised, borderWidth: t.edge === 'transparent' ? 0 : 1, borderColor: t.edge }}>
+      <View style={{ flex: 1, borderRadius: radius.card, overflow: 'hidden', backgroundColor: t.bgRaised, ...edgeBorder(t) }}>
         <Pressable accessible={false} accessibilityRole="none" onPress={index === 0 ? undefined : () => go(index + 1)} style={{ flex: 1, minHeight: 150, overflow: 'hidden', backgroundColor: card.felt }}>
           <FitStage key={index} w={STAGE.w} h={STAGE.h}>
             {art}

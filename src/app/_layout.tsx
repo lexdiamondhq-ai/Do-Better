@@ -5,7 +5,6 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -13,7 +12,7 @@ import { AskHost } from '@/components/Ask';
 import { AuthProvider, onSignOut, useAuth } from '@/lib/auth';
 import { clearCache, hideSplash } from '@/lib/cache';
 import { PrefsProvider, usePrefs } from '@/lib/prefs';
-import { resumeMusicAfterTap, setSoundSettings } from '@/lib/sound';
+import { setSoundSettings } from '@/lib/sound';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 
 SplashScreen.preventAutoHideAsync();
@@ -89,13 +88,9 @@ function Sound({ on }: { on: boolean }) {
   const { prefs, ready } = usePrefs();
   const music = on && ready && prefs.music;
   const sounds = prefs.sounds;
+  // On the web, sound.ts itself listens for the first tap or key that lets music start.
   useEffect(() => {
     setSoundSettings({ sounds, music });
   }, [sounds, music]);
-  useEffect(() => {
-    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
-    document.addEventListener('pointerdown', resumeMusicAfterTap);
-    return () => document.removeEventListener('pointerdown', resumeMusicAfterTap);
-  }, []);
   return null;
 }

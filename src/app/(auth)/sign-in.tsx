@@ -13,7 +13,7 @@ import { useAuth } from '@/lib/auth';
 import { checkEmail, dealMeIn, sendEmailCode, SignInError, signInWithApple, verifyEmailCode } from '@/lib/signIn';
 import { useTheme } from '@/theme/ThemeProvider';
 import { SUITS } from '@/engine/cards';
-import { cardColors, fontScale, fonts, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
+import { cardColors, edgeBorder, fontScale, fonts, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
 /** Expo Go doesn't ship the native Apple sign-in button, so it can only be offered in a real build. */
 const APPLE = Platform.OS === 'ios' && Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
@@ -404,7 +404,7 @@ function Caption({ p }: { p: SharedValue<number> }) {
   }));
   return (
     <Animated.View style={[{ position: 'absolute', top: 44, left: 0, right: 0, alignItems: 'center' }, style]}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, backgroundColor: t.raised, borderRadius: radius.pill, paddingVertical: space.md, paddingLeft: space.xl, paddingRight: space.lg, borderWidth: t.edge === 'transparent' ? 0 : 1, borderColor: t.edge }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, backgroundColor: t.raised, borderRadius: radius.pill, paddingVertical: space.md, paddingLeft: space.xl, paddingRight: space.lg, ...edgeBorder(t) }}>
         <Display size={30} color={t.onRaised} maxFontSizeMultiplier={fontScale.graphic}>
           Straight
         </Display>

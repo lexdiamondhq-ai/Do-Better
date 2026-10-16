@@ -29,8 +29,6 @@ describe('asking for a review', () => {
   it('asks after a made call, a new card back, or a Queen or better', () => {
     expect(ask({})).toBe(true);
     expect(ask({ showdown: { madeCall: false, newBack: true } })).toBe(true);
-    expect(ask({ trigger: 'call' })).toBe(true);
-    expect(ask({ trigger: 'back', showdown: { madeCall: false, newBack: true } })).toBe(true);
     expect(ask({ trigger: 'face', newestFace: { face: 'queen', day: '2026-10-14' } })).toBe(true);
     expect(ask({ trigger: 'face', newestFace: { face: 'king', day: '2026-10-13' } })).toBe(true);
   });
@@ -38,8 +36,6 @@ describe('asking for a review', () => {
   it('never asks at an ordinary moment', () => {
     expect(ask({ showdown: { madeCall: false, newBack: false } })).toBe(false);
     expect(ask({ showdown: null })).toBe(false);
-    expect(ask({ trigger: 'call', showdown: { madeCall: false, newBack: true } })).toBe(false);
-    expect(ask({ trigger: 'back', showdown: { madeCall: true, newBack: false } })).toBe(false);
     // A Jack is the first face card, too early to ask; an old Queen isn't this moment.
     expect(ask({ trigger: 'face', newestFace: { face: 'jack', day: '2026-10-14' } })).toBe(false);
     expect(ask({ trigger: 'face', newestFace: { face: 'queen', day: '2026-10-01' } })).toBe(false);

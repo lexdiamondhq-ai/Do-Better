@@ -47,7 +47,7 @@ import {
 } from '@/engine/today';
 import { useAuth } from '@/lib/auth';
 import { useData, useEvents } from '@/lib/data';
-import { useDeck, useLook, type Deck, type HabitView } from '@/lib/deck';
+import { useDeck, useKeep, useLook, type Deck, type HabitView } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { shortDay } from '@/lib/format';
 import { hasSeen, usePrefs } from '@/lib/prefs';
@@ -87,6 +87,7 @@ function Table({ deck }: { deck: Deck }) {
   const inFront = useIsFocused();
   const { back } = useLook();
   const { checkIn, undoCheckIn, recordPrompt, seed } = useData();
+  const keepCard = useKeep();
   const { events } = useEvents();
   const { prefs, ready, markSeen } = usePrefs();
   const { game } = deck;
@@ -270,8 +271,11 @@ function Table({ deck }: { deck: Deck }) {
     setPromoted(0);
   };
 
-  /** Keeps a card at a level: from a swipe, a button, the list or a pill. Every kept day comes from one of those. */
-  function keep(view: HabitView, level: Level, comeback: boolean, tag?: string) {
+  /**
+   * Keeps a card at a level: from a swipe, a button, the list or a pill. Every kept day comes from one of those.
+   * `firstMove` is Done it on the Comeback card.
+   */
+  function keep(view: HabitView, level: Level, firstMove = false) {
     const id = view.habit.id;
     playSound(level);
     if (level === 'ceiling') feel.ceiling();
@@ -280,9 +284,9 @@ function Table({ deck }: { deck: Deck }) {
     setFocused(null);
     setMove((m) => ({ habitId: id, name: view.habit.name, level, was: view.today, n: (m?.n ?? 0) + 1 }));
     if (coachDue) markSeen(seed, COACH);
-    checkIn(id, level).catch(fail);
-    // A Ceiling on the Comeback card still answers it as the Floor; only Done it is the first move.
-    if (comeback && view.neverTwice) recordPrompt(id, view.neverTwice, tag === 'first' ? 'two_minute' : 'floor_only').catch(() => {});
+    // The shared keep also answers a waiting Comeback, the same way the card's own page does. A Ceiling
+    // on the Comeback card still answers it as the Floor; only Done it is the first move.
+    keepCard(view, level, { firstMove }).catch(fail);
   }
 
   /** The front card has gone one way: it plays out as a ghost while the deck moves on under it. */
@@ -307,7 +311,7 @@ function Table({ deck }: { deck: Deck }) {
       setFocused((f) => (f === item.id ? null : f));
       return;
     }
-    keep(view, dir === 'up' ? 'ceiling' : 'floor', item.kind === 'comeback', tag);
+    keep(view, dir === 'up' ? 'ceiling' : 'floor', item.kind === 'comeback' && tag === 'first');
   }
 
   const gone = (key: string) => setLeaving((l) => l.filter((p) => p.key !== key));
@@ -354,7 +358,7 @@ function Table({ deck }: { deck: Deck }) {
       return;
     }
     const buttons: AskButton[] = [{ text: 'Undo today', style: 'destructive', onPress: () => undo(id) }];
-    if (view.today === 'floor') buttons.push({ text: `Reach the Ceiling: ${view.habit.ceilingLabel}`, onPress: () => keep(view, 'ceiling', false) });
+    if (view.today === 'floor') buttons.push({ text: `Reach the Ceiling: ${view.habit.ceilingLabel}`, onPress: () => keep(view, 'ceiling') });
     else
       buttons.push({
         text: `Make it a Floor day`,
@@ -558,9 +562,9 @@ function Table({ deck }: { deck: Deck }) {
                 <ListRow
                   key={view.habit.id}
                   view={view}
-                  onFloor={() => keep(view, 'floor', !!view.neverTwice)}
-                  onCeiling={() => keep(view, 'ceiling', !!view.neverTwice)}
-                  onFirstMove={() => keep(view, 'floor', true, 'first')}
+                  onFloor={() => keep(view, 'floor')}
+                  onCeiling={() => keep(view, 'ceiling')}
+                  onFirstMove={() => keep(view, 'floor', true)}
                   onUndo={() => undo(view.habit.id)}
                   onLogYesterday={view.neverTwice && lateCards.some((c) => c.habit.id === view.habit.id) ? () => logYesterday(view) : undefined}
                 />

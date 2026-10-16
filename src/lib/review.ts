@@ -11,10 +11,10 @@ import { usePrefs } from './prefs';
 
 /**
  * Asks for an App Store review at a good moment, and almost never. `const ask = useReviewAsk()`, then
- * ask('face') after a Queen or better, ask('showdown') when the Showdown closes, ask('call') after a
- * made call, ask('back') after a new card back. It checks the moment itself before asking.
+ * ask('face') after a Queen or better, and ask('showdown') when the Showdown closes (it asks only when that
+ * week made its call or unlocked a new card back). It checks the moment itself before asking.
  */
-export type ReviewTrigger = 'face' | 'showdown' | 'call' | 'back';
+export type ReviewTrigger = 'face' | 'showdown';
 
 /** Days between two asks. */
 export const REVIEW_GAP_DAYS = 120;
@@ -56,15 +56,11 @@ export function shouldAskForReview(m: ReviewMoment): boolean {
   return qualifies(m);
 }
 
-/** The moment itself is a high point: a Queen or better earned in the last day, a made call or a new card back. */
+/** The moment itself is a high point: a Queen or better earned in the last day, or a Showdown with a made call or a new card back. */
 function qualifies(m: ReviewMoment): boolean {
   switch (m.trigger) {
     case 'face':
       return !!m.newestFace && m.newestFace.face !== 'jack' && m.newestFace.day >= addDays(m.today, -1);
-    case 'call':
-      return !!m.showdown?.madeCall;
-    case 'back':
-      return !!m.showdown?.newBack;
     case 'showdown':
       return !!m.showdown && (m.showdown.madeCall || m.showdown.newBack);
   }
