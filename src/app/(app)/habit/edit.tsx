@@ -197,7 +197,7 @@ export default function EditHabit() {
         </View>
         <View style={{ gap: space.sm }}>
           <Field label="When and where" value={draft.whenWhere} onChangeText={(whenWhere) => set({ whenWhere })} placeholder="10 pm, in bed" />
-          <Tip principle="when-where" />
+          
         </View>
         <View style={{ gap: space.sm }}>
           <Field label="First move" value={draft.twoMinuteLabel} onChangeText={(twoMinuteLabel) => set({ twoMinuteLabel })} placeholder="Open the book to your bookmark" hint="Offered the morning after a miss." />

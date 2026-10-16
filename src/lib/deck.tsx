@@ -107,7 +107,6 @@ function useComputedDeck(): Deck | null {
       habitCount: active.length,
       habitsWithoutTwoMinute: active.filter((h) => !h.twoMinuteLabel).length,
       habitsWithoutAnchor: active.filter((h) => !h.anchor).length,
-      habitsWithoutWhenWhere: active.filter((h) => !h.whenWhere).length,
       habitsWithoutIdentity: active.filter((h) => !h.identity).length,
       neverTwiceCount: cards.filter((c) => c.neverTwice).length,
       keptRate30: inWindow >= 7 ? kept30 / inWindow : null,
