@@ -8,7 +8,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, radius, space } from '@/theme/tokens';
 
 import { SuitGlyph } from './Suit';
-import { Body, Display, Label } from './ui';
+import { Body, Display, Label, raisedStyle } from './ui';
 
 /** "♣ MIND · I'm a reader": the part of you this card deals for, and who it says you are. */
 function Identity({ habit, ink }: { habit: Habit; ink: string }) {
@@ -64,7 +64,7 @@ export function NeverTwiceCard({ habit, week, saving, style }: { habit: Habit; w
   const t = useTheme();
   const c = cardColors[habit.color];
   return (
-    <View style={[{ flex: 1, backgroundColor: t.cardBack, borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }, style]}>
+    <View style={[{ flex: 1, ...raisedStyle(t), borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }, style]}>
       <View style={{ gap: space.md }}>
         <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{`Comeback · ${habit.name}`}</Label>
         <View style={{ flexDirection: 'row', gap: 6 }}>
