@@ -124,7 +124,7 @@ describe('room on screen', () => {
   const base = { cardHeight: 520, windowHeight: 932, fontScale: 1, screenReader: false };
 
   it('shows the full card when it has room', () => {
-    expect(densityFor(base)).toEqual({ mode: 'regular', mergeTip: false, foldComeback: false });
+    expect(densityFor(base)).toEqual({ mode: 'regular', mergeTip: false, foldComeback: false, tightComeback: false });
   });
 
   it('folds the card when its body is shorter than 360 points', () => {
@@ -135,6 +135,11 @@ describe('room on screen', () => {
   it('folds the Comeback card sooner, below 470 points', () => {
     expect(densityFor({ ...base, cardHeight: 469 })).toMatchObject({ mode: 'regular', foldComeback: true });
     expect(densityFor({ ...base, cardHeight: 470 }).foldComeback).toBe(false);
+  });
+
+  it('keeps the Comeback evidence line until the card is shorter than 340 points', () => {
+    expect(densityFor({ ...base, cardHeight: 353 })).toMatchObject({ mode: 'compact', foldComeback: true, tightComeback: false });
+    expect(densityFor({ ...base, cardHeight: 339 }).tightComeback).toBe(true);
   });
 
   it('gives the tip its own band only on screens 900 points tall or more', () => {

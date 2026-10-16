@@ -360,7 +360,7 @@ export function ComebackCard({
         {firstMove ? 'First move · counts today' : 'The way back in'}
       </Label>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-        <Fit size={big ? 24 : 19} color={ink} lines={big ? 3 : 2} style={{ flex: 1 }}>
+        <Fit size={big ? 24 : 19} color={ink} lines={big && !compact ? 3 : 2} style={{ flex: 1 }}>
           {firstMove ?? habit.floorLabel}
         </Fit>
         {firstMove ? doneIt : null}
@@ -389,16 +389,23 @@ export function ComebackCard({
               {`${copy.eyebrow}. ${copy.evidence}`}
             </Body>
           )}
-          {tight || !saving ? null : (
+          {tight ? null : saving ? (
             <Body size={13} weight="bold" color={quiet} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
               Keep it today and yesterday still gets its card.
             </Body>
-          )}
+          ) : why ? (
+            <Body size={13} weight="semi" color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
+              {`Why: ${why}`}
+            </Body>
+          ) : null}
         </View>
-        {move(false)}
-        <View style={{ flexDirection: 'row', gap: space.sm }}>
-          {firstMove ? floorButton : doneIt}
-          {ceilingButton}
+        {/* The way in stays together at the bottom, under the thumb, with any spare room above it. */}
+        <View style={{ gap: space.sm }}>
+          {move(!tight)}
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            {firstMove ? floorButton : doneIt}
+            {ceilingButton}
+          </View>
         </View>
       </View>
     );

@@ -406,7 +406,7 @@ function Table({ deck }: { deck: Deck }) {
           gap={comebackGap(habit.startedOn, deck.today, view.checkIns)}
           saving={!!game.rescue}
           compact={folded}
-          tight={compact}
+          tight={density.tightComeback}
           onFirstMove={live ? () => fling('down', { note: FIRST_MOVE_NOTE, tag: 'first' }) : undefined}
           onFloor={live ? () => fling('down') : undefined}
           onCeiling={live ? () => fling('up') : undefined}

@@ -151,6 +151,8 @@ export type Density = 'regular' | 'compact' | 'list';
 export const COMPACT_BELOW = 360;
 /** The Comeback card says more, so it folds sooner: to its first move, Done it and the Floor. */
 export const COMEBACK_BELOW = 470;
+/** Below this the folded Comeback drops its evidence line too, keeping only who you are and the way in. */
+export const COMEBACK_TIGHT_BELOW = 340;
 /** At this text size or larger, cards become a list with buttons. */
 export const LIST_FONT_SCALE = 1.35;
 /** Only screens at least this tall give the tip its own band; on the rest it joins the hand line, leaving the room to the card. */
@@ -161,11 +163,14 @@ export function densityFor({ cardHeight, windowHeight, fontScale, screenReader }
   mergeTip: boolean;
   /** Show the Comeback card folded. */
   foldComeback: boolean;
+  /** Fold it further, to who you are and the way in. */
+  tightComeback: boolean;
 } {
   const mergeTip = windowHeight < TALL_SCREEN;
   const foldComeback = cardHeight < COMEBACK_BELOW;
-  if (screenReader || fontScale >= LIST_FONT_SCALE) return { mode: 'list', mergeTip, foldComeback };
-  return { mode: cardHeight < COMPACT_BELOW ? 'compact' : 'regular', mergeTip, foldComeback };
+  const tightComeback = cardHeight < COMEBACK_TIGHT_BELOW;
+  if (screenReader || fontScale >= LIST_FONT_SCALE) return { mode: 'list', mergeTip, foldComeback, tightComeback };
+  return { mode: cardHeight < COMPACT_BELOW ? 'compact' : 'regular', mergeTip, foldComeback, tightComeback };
 }
 
 // The Comeback card's words -----------------------------------------------------------------------------
