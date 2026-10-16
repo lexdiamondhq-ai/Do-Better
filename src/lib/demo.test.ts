@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { FACES, RUNGS, summarizeCourt } from '@/engine/court';
 import { addDays, weekday, weekStart, type Day } from '@/engine/day';
-import { playGame } from '@/engine/game';
+import { lastShowdown, playGame } from '@/engine/game';
 import { indexCheckIns, neverTwiceDay, type Level } from '@/engine/kept';
 
 import type { Loaded } from './backend';
@@ -72,6 +72,18 @@ describe.each(WEEK)('the demo deck on %s', (today) => {
     expect(new Set(weeks).size).toBe(weeks.length);
     expect(weeks).not.toContain(weekStart(today));
     expect(game.current.slots.some((s) => s.card?.kind === 'joker')).toBe(false);
+  });
+
+  it('only calls hands that pay, and opens on a Showdown whose call was made', async () => {
+    for (const typical of [false, true]) {
+      const { game } = await open(today, typical);
+      expect(game.weeks.filter((w) => w.call && w.callMultiplier === 0)).toEqual([]);
+      if (weekday(today) !== 0) expect(game.current.callMultiplier).toBeGreaterThan(0);
+    }
+    const { game } = await open(today);
+    const last = lastShowdown(game);
+    expect(last?.madeCall).toBe(true);
+    expect(last?.bonus).toBeGreaterThan(0);
   });
 
   it('looks like ten weeks of play, with rescues and calls made and missed', async () => {
