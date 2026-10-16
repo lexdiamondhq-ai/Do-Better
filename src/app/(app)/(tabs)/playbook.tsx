@@ -201,8 +201,10 @@ export default function Playbook() {
           added={added}
           color={joined.habit.color}
           onSee={() => {
+            // Today brings the new card to the front, so "See it" shows the card it promised.
+            const id = added.id;
             clearAdded();
-            router.navigate('/');
+            router.navigate({ pathname: '/', params: { focus: id } });
           }}
           onClose={clearAdded}
         />
@@ -266,9 +268,10 @@ function AdviceCard({ rec, width, card, onPress }: { rec: Recommendation; width:
         </Body>
       </View>
       {acts ? (
-        <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: t.text, borderRadius: radius.pill, paddingHorizontal: space.lg, minHeight: 40 }}>
+        // Padded top and bottom, so a long label that wraps still sits inside the pill; the arrow keeps to the last word.
+        <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: t.text, borderRadius: radius.pill, paddingHorizontal: space.lg, paddingVertical: space.sm, minHeight: 40 }}>
           <Body size={15} weight="heavy" color={t.bg} maxFontSizeMultiplier={fontScale.chrome}>
-            {`${rec.cta} →`}
+            {`${rec.cta}\u00A0→`}
           </Body>
         </View>
       ) : null}
@@ -306,7 +309,8 @@ function RecipeCard({ recipe, tilt, place, kept, onPress }: { recipe: Recipe; ti
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
         <View style={{ flex: 1, flexDirection: 'row', gap: 3, paddingTop: 2 }}>
           <Arrow up color={c.ink} size={13} />
-          <Body weight="heavy" size={12} color={c.ink} numberOfLines={3} maxFontSizeMultiplier={fontScale.graphic} style={{ flex: 1, lineHeight: 15 }}>
+          {/* Four lines: the Ceiling is the reason to pick the card, so even "An evening together, phones away" shows whole. */}
+          <Body weight="heavy" size={12} color={c.ink} numberOfLines={4} maxFontSizeMultiplier={fontScale.graphic} style={{ flex: 1, lineHeight: 15 }}>
             {recipe.ceiling}
           </Body>
         </View>
@@ -485,8 +489,12 @@ function Receipt({ added, color, onSee, onClose }: { added: Added; color: CardCo
             </Svg>
           </View>
           <View style={{ flex: 1, gap: 1 }}>
-            <Display size={18} color={t.bg} numberOfLines={2}>
-              {title}
+            {/* Only the name is ever cut: "is in your deck" always shows on its own line. */}
+            <Display size={18} color={t.bg} numberOfLines={1}>
+              {added.name}
+            </Display>
+            <Display size={18} color={t.bg} numberOfLines={1}>
+              {added.back ? 'is back in your deck' : 'is in your deck'}
             </Display>
             <Body size={typeScale.text.sm} weight="bold" color={t.bg}>
               {body}

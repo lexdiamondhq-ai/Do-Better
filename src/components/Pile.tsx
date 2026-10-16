@@ -12,7 +12,8 @@ import { Body } from './ui';
 /**
  * A habit's days as small cards in its colour: solid for a Ceiling, pale for a Floor, a dashed gap for a
  * day not kept. On a dark table the Ceiling takes the colour's lifted `onDark` shade and the Floor a dim
- * wash of it, so the Ceiling always stands out most. Days before the habit started are left blank.
+ * wash of it, so the Ceiling always stands out most. Days before the habit started are left blank in the
+ * calendar and hold a small dot in the weeks grid.
  */
 export function pileColors(t: Theme, color: CardColor) {
   const c = cardColors[color];
@@ -195,6 +196,14 @@ export function WeeksGrid({ weeks, color, today, label }: { weeks: CalendarDay[]
             if (cell.status === 'floor') return <View key={cell.day} style={[base, { backgroundColor: fill.floor.bg }, ring]} />;
             if (cell.status === 'missed') return <View key={cell.day} style={[base, { borderWidth: 1, borderColor: t.border }]} />;
             if (cell.status === 'open') return <View key={cell.day} style={[base, ring]} />;
+            // Days before the card was in the deck hold a small dot, so its first weeks read as not yet started, not as a gap.
+            if (cell.status === 'before') {
+              return (
+                <View key={cell.day} style={[base, { alignItems: 'center', justifyContent: 'center' }]}>
+                  <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: t.border }} />
+                </View>
+              );
+            }
             return <View key={cell.day} style={base} />;
           })}
         </View>

@@ -45,7 +45,7 @@ export const PRINCIPLES: Record<PrincipleKey, Principle> = {
     key: 'identity',
     title: 'Who the card makes you',
     idea: 'A habit lasts when it is about who you are, not what you finish. Every day you keep says it a little louder.',
-    tryThis: 'Give each card a line like "a reader". Every day you keep it counts for that person in your Court.',
+    tryThis: 'Give each card a line like “a reader”. Every day you keep it counts for that person in your Court.',
   },
   'first-move': {
     key: 'first-move',
@@ -69,7 +69,7 @@ export const PRINCIPLES: Record<PrincipleKey, Principle> = {
     key: 'when-it-plays',
     title: 'Play it after something you already do',
     idea: 'A new card is easy to forget. Tie it to a moment that already happens every day, and that moment becomes the reminder.',
-    tryThis: 'Fill in "When it plays" on each card, like "after my first coffee". Give it a time too, and the card can come and find you.',
+    tryThis: 'Fill in “When it plays” on each card, like “after my first coffee”. Give it a time too, and the card can come and find you.',
   },
   celebrate: {
     key: 'celebrate',
@@ -238,13 +238,13 @@ export const RECIPES: readonly Recipe[] = [
   { key: 'phone-free', name: 'Phone-free morning', identity: 'in charge of my attention', floor: '10 minutes without the phone', ceiling: 'First hour phone-free', twoMinute: 'Leave the phone in another room', anchor: 'on waking up', part: 'morning', category: 'focus', suit: 'clubs', why: 'A phone charging in the kitchen is extra effort that works for you.', prompt: 'I want my mornings back.', principle: 'friction' },
   { key: 'morning-light', name: 'Morning light', identity: 'a morning person', floor: 'Step outside for a minute', ceiling: '10 minutes outside', twoMinute: 'Open the curtains', anchor: 'after my first glass of water', part: 'morning', category: 'rest', suit: 'spades', why: 'Daylight early in the day helps set your body clock for the night.', prompt: 'I want to wake up properly.', principle: 'sleep' },
   { key: 'lights-out', name: 'Lights out', identity: 'well rested', floor: 'In bed by midnight', ceiling: 'In bed by 10:30, no screens', twoMinute: 'Plug the phone in outside the bedroom', anchor: 'after brushing my teeth at night', part: 'evening', category: 'rest', suit: 'spades', why: 'A steady bedtime does more for energy and mood than almost anything.', prompt: 'I’m better at everything when I’ve slept.', principle: 'sleep' },
-  { key: 'tidy', name: 'Reset the space', identity: 'tidy', floor: 'Put away 5 things', ceiling: '15-minute tidy', twoMinute: 'Clear one surface', anchor: 'before I sit down for the evening', part: 'evening', category: 'rest', suit: 'clubs', why: 'A clear room makes tomorrow\'s good habits easier to start.', prompt: 'A clear room clears my head.', principle: 'environment' },
+  { key: 'tidy', name: 'Reset the space', identity: 'tidy', floor: 'Put away 5 things', ceiling: '15-minute tidy', twoMinute: 'Clear one surface', anchor: 'before I sit down for the evening', part: 'evening', category: 'rest', suit: 'clubs', why: 'A clear room makes tomorrow’s good habits easier to start.', prompt: 'A clear room clears my head.', principle: 'environment' },
   { key: 'reach-out', name: 'Reach out', identity: 'a good friend', floor: 'Send one message', ceiling: 'Call someone you love', twoMinute: 'Open your last chat', anchor: 'after lunch', part: 'midday', category: 'connection', suit: 'hearts', why: 'Relationships are kept up the same way as habits: a little, often.', prompt: 'I don’t want to drift from the people I love.', principle: 'pile' },
   { key: 'kindness', name: 'One kind act', identity: 'kind', floor: 'Say one thank-you', ceiling: 'Do something thoughtful for someone', twoMinute: 'Smile at the next person you see', anchor: 'at lunch', part: 'midday', category: 'connection', suit: 'hearts', why: 'Kindness is a habit like any other, and it is contagious.', prompt: 'I want to be someone who makes a day better.', principle: 'identity' },
   { key: 'listen', name: 'Really listen', identity: 'a good listener', floor: 'Ask one real question', ceiling: 'A long talk, phone away', twoMinute: 'Put the phone face down', anchor: 'when we sit down to eat', part: 'evening', category: 'connection', suit: 'hearts', why: 'Attention is the simplest gift there is, and the one people remember.', prompt: 'I want the people I love to feel heard.', principle: 'when-it-plays' },
   { key: 'partner', name: 'Partner time', identity: 'a loving partner', floor: 'Ask about their day', ceiling: 'An evening together, phones away', twoMinute: 'Send them a kind message', anchor: 'after dinner', part: 'evening', category: 'connection', suit: 'hearts', why: 'Small daily moments do more for a relationship than rare big gestures.', prompt: 'I want us to stay close.', principle: 'pile' },
   { key: 'family', name: 'Present at home', identity: 'a present parent', floor: '5 minutes, phone away', ceiling: 'An hour of real time together', twoMinute: 'Put the phone face down', anchor: 'when everyone is home', part: 'evening', category: 'connection', suit: 'hearts', why: 'The moment everyone is home is a reliable switch from the day to people.', prompt: 'I want them to remember me being there.', principle: 'when-it-plays' },
-  { key: 'save', name: 'Save', identity: 'good with money', floor: 'Check your balance', ceiling: 'Review the week\'s spending', twoMinute: 'Open your banking app', anchor: 'after my morning coffee', part: 'morning', category: 'money', suit: 'diamonds', why: 'The amount matters less than becoming someone who saves.', prompt: 'I want to stop worrying about money.', principle: 'identity' },
+  { key: 'save', name: 'Save', identity: 'good with money', floor: 'Check your balance', ceiling: 'Review the week’s spending', twoMinute: 'Open your banking app', anchor: 'after my morning coffee', part: 'morning', category: 'money', suit: 'diamonds', why: 'The amount matters less than becoming someone who saves.', prompt: 'I want to stop worrying about money.', principle: 'identity' },
   { key: 'no-spend', name: 'Spend on purpose', identity: 'a careful spender', floor: 'Skip one thing I don’t need', ceiling: 'A no-spend day', twoMinute: 'Remove one saved card from a shop', anchor: 'before lunch', part: 'midday', category: 'money', suit: 'diamonds', why: 'A small delay is enough to stop most impulse buys.', prompt: 'I want my money to go on what matters.', principle: 'friction' },
 ];
 
@@ -259,7 +259,7 @@ const FORMER: Record<string, { anchors?: string[]; whys?: string[] }> = {
   'deep-work': { anchors: ['at 9 am, at my desk'] },
   plan: { anchors: ['before shutting the laptop'] },
   'lights-out': { anchors: ['after brushing my teeth'] },
-  tidy: { anchors: ['after dinner'] },
+  tidy: { anchors: ['after dinner'], whys: ["A clear room makes tomorrow's good habits easier to start."] },
   'reach-out': { anchors: ['on my commute home'] },
   kindness: { anchors: ['on getting to work'] },
   family: { anchors: ['on walking in the door'], whys: ['The doorway is a reliable moment to switch from work to people.'] },
@@ -410,6 +410,8 @@ export type HabitFacts = {
   comeback: boolean;
   /** Kept nearly every day for a month with plenty of Ceilings (`masteryOf`). */
   mastered: boolean;
+  /** Brought back from the archive this session. The coach never asks to rest a card the player just chose to keep. */
+  justBack?: boolean;
 };
 
 export type RecommendationContext = {
@@ -554,7 +556,7 @@ export function recommend(ctx: RecommendationContext): Recommendation[] {
   // A big deck that isn't being kept: rest the card kept least, on the screen that can archive it, but
   // never a card whose Comeback is waiting today. A small deck kept well: a clean page for one more.
   if (ctx.habitCount > 4 && ctx.keptRate30 !== null && ctx.keptRate30 < 0.7) {
-    const rest = keptLeast(habits.filter((h) => !h.comeback));
+    const rest = keptLeast(habits.filter((h) => !h.comeback && !h.justBack));
     add(
       'focus',
       `${ctx.habitCount} cards in your deck`,
@@ -627,5 +629,11 @@ const SUIT_WORDS: readonly [Suit, RegExp][] = [
 /** A best guess at the suit for a habit typed by hand, from its name and identity. Mind when nothing fits. */
 export function inferSuit(name: string, identity: string | null = null): Suit {
   const text = `${name} ${identity ?? ''}`;
-  return SUIT_WORDS.find(([, words]) => words.test(text))?.[0] ?? 'clubs';
+  // The word that comes first wins, so "Stretch before bed and breathe slowly" is Body, not Mind.
+  let best: { suit: Suit; at: number } | null = null;
+  for (const [suit, words] of SUIT_WORDS) {
+    const at = text.search(words);
+    if (at >= 0 && (!best || at < best.at)) best = { suit, at };
+  }
+  return best?.suit ?? 'clubs';
 }

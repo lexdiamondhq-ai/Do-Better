@@ -31,6 +31,16 @@ describe('recipes', () => {
     expect(Object.values(PRINCIPLES).every((p) => !('source' in p))).toBe(true);
   });
 
+  it('use curly quotes and apostrophes on screen, like the rest of the app', () => {
+    for (const p of Object.values(PRINCIPLES)) expect(`${p.title} ${p.idea} ${p.tryThis}`, p.key).not.toMatch(/['"]/);
+    for (const r of RECIPES) expect(`${r.name} ${r.identity} ${r.floor} ${r.ceiling} ${r.twoMinute} ${r.anchor} ${r.why} ${r.prompt}`, r.key).not.toMatch(/['"]/);
+  });
+
+  it('still know a card made with the earlier straight-apostrophe line as the app’s own', () => {
+    expect(ownWhy({ why: "A clear room makes tomorrow's good habits easier to start.", recipeKey: 'tidy' })).toBeNull();
+    expect(ownWhy({ why: 'A clear room makes tomorrow’s good habits easier to start.', recipeKey: 'tidy' })).toBeNull();
+  });
+
   it('hold every day of the week: no anchor or Floor waits for a payday, a commute, the kids, a desk or work', () => {
     const weekdayOnly = /paid|commute|kids|desk|\bwork\b|laptop|office|school/i;
     for (const r of RECIPES) {
@@ -215,6 +225,12 @@ describe('recommend', () => {
     expect(recommend({ ...ctx, habits: onlyComebacks }).find((r) => r.principle.key === 'focus')).toMatchObject({ href: '/you?sheet=arrange', cta: 'Put your best cards first' });
   });
 
+  it('never asks to rest a card the player just brought back', () => {
+    const habits = [facts({ id: 'r', name: 'Read', kept30: 20, days30: 30 }), facts({ id: 'w', name: 'Walk', kept30: 12, days30: 30, justBack: true }), facts({ id: 'j', name: 'Journal', kept30: 16, days30: 30 })];
+    const rec = recommend({ ...calm, habitCount: 5, keptRate30: 0.6, habits }).find((r) => r.principle.key === 'focus');
+    expect(rec).toMatchObject({ habitId: 'j', cta: 'Archive Journal for now' });
+  });
+
   it('starts a new deck with identity and a lead card', () => {
     expect(recommend({ ...calm, habitCount: 0, keptRate30: null, ceilingShare30: null }).map((r) => r.principle.key).slice(0, 2)).toEqual(['identity', 'lead-card']);
   });
@@ -249,6 +265,12 @@ describe('inferSuit', () => {
     expect(inferSuit('Something new')).toBe('clubs');
     expect(inferSuit('Write a song')).toBe('diamonds');
     expect(inferSuit('Get ready for work')).toBe('diamonds');
+  });
+
+  it('goes by the word that comes first in the name', () => {
+    expect(inferSuit('Stretch before bed and breathe slowly')).toBe('spades');
+    expect(inferSuit('Walk and listen to a podcast')).toBe('spades');
+    expect(inferSuit('Breathe, then stretch')).toBe('clubs');
   });
 
   it('agrees with the suit of every ready-made habit', () => {
