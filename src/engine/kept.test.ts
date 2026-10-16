@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { best30, bounceBacks, dayStatus, indexCheckIns, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
-import { addDays } from './day';
+import { best30, bounceBacks, daysAway, dayStatus, indexCheckIns, masteryOf, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
+import { addDays, weekStart } from './day';
+import { dealWeek } from './deal';
 
 const days = (entries: Record<string, Level>) => new Map(Object.entries(entries));
 
@@ -16,6 +17,23 @@ describe('dayStatus', () => {
 
   it('never calls today a miss', () => {
     expect(dayStatus('2026-10-10', '2026-10-05', '2026-10-10', new Map())).toBe('open');
+  });
+
+  it('treats an unkept first day as before the habit, like the deal does', () => {
+    expect(dayStatus('2026-10-12', '2026-10-12', '2026-10-13', new Map())).toBe('before');
+    expect(dayStatus('2026-10-12', '2026-10-12', '2026-10-12', new Map())).toBe('open');
+    expect(dayStatus('2026-10-12', '2026-10-12', '2026-10-13', days({ '2026-10-12': 'floor' }))).toBe('floor');
+    expect(dayStatus('2026-10-13', '2026-10-12', '2026-10-14', new Map())).toBe('missed');
+  });
+
+  it('agrees with the deal about the day a card was made', () => {
+    // Made on Monday the 12th, nothing kept: Monday is outside the game in both, Tuesday is open today.
+    const habit = { id: 'a', suit: 'clubs' as const, startedOn: '2026-10-12', archivedOn: null };
+    const slots = dealWeek(weekStart('2026-10-13'), '2026-10-13', [habit], new Map(), 'seed');
+    expect(slots[0].state).toBe('before');
+    expect(dayStatus('2026-10-12', habit.startedOn, '2026-10-13', new Map())).toBe('before');
+    const summary = summarizeWindow('2026-10-13', 30, habit.startedOn, new Map());
+    expect(summary).toEqual({ daysInWindow: 1, keptDays: 0, ceilingDays: 0, missedDays: 0 });
   });
 });
 
@@ -34,7 +52,9 @@ describe('indexCheckIns', () => {
 describe('summarizeWindow', () => {
   it('counts only days since the habit started, today included', () => {
     const checkIns = days({ '2026-10-08': 'floor', '2026-10-10': 'ceiling' });
-    expect(summarizeWindow('2026-10-10', 30, '2026-10-06', checkIns)).toEqual({ daysInWindow: 5, keptDays: 2, ceilingDays: 1, missedDays: 3 });
+    // Started the 6th and not kept that day, so the window runs from the 7th.
+    expect(summarizeWindow('2026-10-10', 30, '2026-10-06', checkIns)).toEqual({ daysInWindow: 4, keptDays: 2, ceilingDays: 1, missedDays: 2 });
+    expect(summarizeWindow('2026-10-10', 30, '2026-10-06', days({ '2026-10-06': 'floor' }))).toEqual({ daysInWindow: 5, keptDays: 1, ceilingDays: 0, missedDays: 3 });
   });
 
   it('returns days oldest first', () => {
@@ -63,6 +83,10 @@ describe('neverTwiceDay', () => {
     expect(neverTwiceDay('2026-10-01', '2026-10-10', days({ '2026-10-09': 'floor' }))).toBeNull();
     expect(neverTwiceDay('2026-10-10', '2026-10-10', new Map())).toBeNull();
   });
+
+  it('never greets a new card with a Comeback on day 2', () => {
+    expect(neverTwiceDay('2026-10-12', '2026-10-13', new Map())).toBeNull();
+  });
 });
 
 describe('bounceBacks', () => {
@@ -70,6 +94,76 @@ describe('bounceBacks', () => {
     // started 1st: kept 1, miss 2, kept 3, miss 4, miss 5, kept 6
     const checkIns = days({ '2026-10-01': 'floor', '2026-10-03': 'floor', '2026-10-06': 'ceiling' });
     expect(bounceBacks('2026-10-01', '2026-10-06', checkIns)).toBe(2);
+  });
+
+  it('skips an unkept first day: it was never a miss', () => {
+    expect(bounceBacks('2026-10-12', '2026-10-13', days({ '2026-10-13': 'floor' }))).toBe(0);
+    expect(bounceBacks('2026-10-12', '2026-10-15', days({ '2026-10-13': 'floor', '2026-10-15': 'floor' }))).toBe(1);
+  });
+});
+
+describe('daysAway', () => {
+  const deck = (...habits: Record<string, Level>[]) => habits.map(days);
+
+  it('is zero once anything is kept today, or when yesterday was kept', () => {
+    expect(daysAway(deck({ '2026-10-16': 'floor' }, { '2026-10-01': 'floor' }), '2026-10-16', '2026-09-01')).toBe(0);
+    expect(daysAway(deck({ '2026-10-15': 'floor' }), '2026-10-16', '2026-09-01')).toBe(0);
+  });
+
+  it('counts the whole days since the last day anything was kept, on any card', () => {
+    expect(daysAway(deck({ '2026-10-10': 'floor' }, { '2026-10-12': 'ceiling' }), '2026-10-16', '2026-09-01')).toBe(3);
+    expect(daysAway(deck({ '2026-10-02': 'floor' }), '2026-10-16', '2026-09-01')).toBe(13);
+  });
+
+  it('counts from the day after the first card started when nothing was ever kept', () => {
+    expect(daysAway(deck({}), '2026-10-16', '2026-10-12')).toBe(3);
+    expect(daysAway(deck({}), '2026-10-13', '2026-10-12')).toBe(0);
+    expect(daysAway([], '2026-10-16', null)).toBe(0);
+  });
+
+  it('ignores days after today, such as rows from a phone in another time zone', () => {
+    expect(daysAway(deck({ '2026-10-10': 'floor', '2026-10-17': 'floor' }), '2026-10-16', '2026-09-01')).toBe(5);
+  });
+});
+
+describe('masteryOf', () => {
+  const run = (end: string, n: number, level: (i: number) => Level | null) => {
+    const m = new Map<string, Level>();
+    for (let i = 0; i < n; i++) {
+      const l = level(i);
+      if (l) m.set(addDays(end, -i), l);
+    }
+    return m;
+  };
+
+  it('needs 27 of the last 30 days kept and 15 of them at the Ceiling', () => {
+    const today = '2026-10-16';
+    // Yesterday back 30 days: 3 missed, 15 Ceilings.
+    const yes = run(addDays(today, -1), 30, (i) => (i % 10 === 9 ? null : i < 16 ? 'ceiling' : 'floor'));
+    expect(masteryOf(yes, today)).toEqual({ mastered: true, kept: 27, ceilings: 15 });
+    const fewCeilings = run(addDays(today, -1), 30, (i) => (i % 10 === 9 ? null : i < 15 ? 'ceiling' : 'floor'));
+    expect(masteryOf(fewCeilings, today).mastered).toBe(false);
+    const fourMissed = run(addDays(today, -1), 30, (i) => (i % 7 === 6 ? null : 'ceiling'));
+    expect(masteryOf(fourMissed, today).mastered).toBe(false);
+  });
+
+  it('keeps a card mastered in the morning, before today is kept', () => {
+    const today = '2026-10-16';
+    // Kept the last 27 days up to yesterday; the window ending today would drop the oldest kept day.
+    const m = run(addDays(today, -1), 27, () => 'ceiling');
+    expect(masteryOf(m, today).mastered).toBe(true);
+  });
+
+  it('counts today once it is kept', () => {
+    const today = '2026-10-16';
+    const m = run(addDays(today, -1), 26, () => 'ceiling');
+    expect(masteryOf(m, today).mastered).toBe(false);
+    m.set(today, 'floor');
+    expect(masteryOf(m, today)).toEqual({ mastered: true, kept: 27, ceilings: 26 });
+  });
+
+  it('a brand-new card is never mastered', () => {
+    expect(masteryOf(days({ '2026-10-16': 'ceiling' }), '2026-10-16').mastered).toBe(false);
   });
 });
 
