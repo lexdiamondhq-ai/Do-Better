@@ -538,8 +538,9 @@ function ceilingsToLift(t: ReturnType<typeof tallyDay>, open: TodayOpen, lifts: 
 
 /**
  * What would lift today's card, worked out from the deal itself: "Keep Walk too and today's card is 5 or
- * better", or "goes up" when the card was dealt again inside its band and a better band still lifts it. The
- * card is called locked in only when nothing left to do today could change it.
+ * better". A card that already fits a better band keeps its rank there (see `rankFor`), so only a band
+ * above today's card can lift it. The card is called locked in only when nothing left to do today could
+ * change it.
  */
 function climbTip(input: GameInput, rank: Rank): Tip {
   const { today, habits, checkIns, seed } = input;
@@ -547,7 +548,7 @@ function climbTip(input: GameInput, rank: Rank): Tip {
   const lo = loOf(t) ?? 2;
   const open = todayOpen(input);
   const lifts = (to: Rank | null) => to !== null && dayRank(to, today, seed) > rank;
-  const result = (to: Rank) => (to > rank ? `today’s card is ${to} or better` : 'today’s card goes up');
+  const result = (to: Rank) => `today’s card is ${to} or better`;
   const locked: Tip = { tone: 'done', text: 'Today’s card is locked in. Each habit you keep still counts in your Court.' };
   if (t.kept < t.counted) {
     const keep = open.running;
@@ -566,11 +567,10 @@ function climbTip(input: GameInput, rank: Rank): Tip {
   if (lo >= TOP_LO) return t.ceilings === t.kept ? { tone: 'done', text: 'Perfect day. Every habit at its Ceiling.' } : locked;
   const lift = ceilingsToLift(t, open, lifts);
   if (!lift) return locked;
-  const news = lift.lo > rank;
-  const makes = news ? `today’s card ${lift.lo} or better` : 'today’s card';
-  if (lift.all) return { tone: 'climb', text: `${t.counted === 1 ? 'Reaching the Ceiling' : 'Every habit at its Ceiling'} ${news ? 'makes' : 'lifts'} ${makes}.` };
-  if (lift.more === 1) return { tone: 'climb', text: `One more Ceiling ${news ? 'makes' : 'lifts'} ${makes}.` };
-  return { tone: 'climb', text: `${lift.more} more Ceilings ${news ? 'make' : 'lift'} ${makes}.` };
+  const makes = `today’s card ${lift.lo} or better`;
+  if (lift.all) return { tone: 'climb', text: `${t.counted === 1 ? 'Reaching the Ceiling' : 'Every habit at its Ceiling'} makes ${makes}.` };
+  if (lift.more === 1) return { tone: 'climb', text: `One more Ceiling makes ${makes}.` };
+  return { tone: 'climb', text: `${lift.more} more Ceilings make ${makes}.` };
 }
 
 function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; callOpen: boolean; faces: readonly FaceEarned[]; waiting: readonly FaceEarned[] }): Tip[] {

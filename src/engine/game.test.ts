@@ -695,12 +695,13 @@ describe('tips', () => {
       const both = rankOf(dealDay(today, [read, walk], log({ read: { [today]: 'floor' }, walk: { [today]: 'floor' } }), seed));
       const top = rankOf(dealDay(today, [read, walk], log({ read: { [today]: 'ceiling' }, walk: { [today]: 'ceiling' } }), seed));
       const climb = game.tips.find((t) => t.tone === 'climb' || t.tone === 'done');
+      // A card that already fits a better band keeps its rank there, so only a band above it can lift it.
+      if (rank >= 5) expect(both).toBe(rank);
+      if (rank >= 6) expect(top).toBe(rank);
       if (rank < 5) {
         named++;
         expect(climb).toEqual({ tone: 'climb', text: 'Keep Walk too and today’s card is 5 or better.' });
-      } else if (both > rank) expect(climb).toEqual({ tone: 'climb', text: 'Keep Walk too and today’s card goes up.' });
-      else if (rank < 6) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card is 6 or better.' });
-      else if (top > rank) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card goes up.' });
+      } else if (rank < 6) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card is 6 or better.' });
       else expect(climb?.tone).toBe('done');
     }
     expect(named).toBeGreaterThan(3);
@@ -714,7 +715,6 @@ describe('tips', () => {
     const states = Array.from({ length: 26 }, (_, m) => deck.map((_, i) => levels[Math.floor((m + 1) / 3 ** i) % 3]));
     const daysOf = (state: (Level | undefined)[]) => Object.fromEntries(deck.flatMap((h, i) => (state[i] ? [[h.id, { [today]: state[i]! }]] : [])));
     const tones = new Set<string>();
-    let rose = 0;
     for (let n = 0; n < 120; n++) {
       const seed = `lift-${n}`;
       const rankAt = (state: (Level | undefined)[]) => rankOf(dealDay(today, deck, log(daysOf(state)), seed));
@@ -729,14 +729,14 @@ describe('tips', () => {
         else expect(best).toBeGreaterThan(rank);
         const or = /(\d+) or better/.exec(tip.text);
         if (or) expect(Number(or[1])).toBeGreaterThan(rank);
-        if (/goes up|lifts/.test(tip.text)) rose++;
         // "Keep Walk too", "Keep the other 2 habits too": keeping them at the Floor lifts the card.
         if (/ too and /.test(tip.text)) expect(rankAt(state.map((l) => l ?? 'floor'))).toBeGreaterThan(rank);
       }
     }
-    expect(rose).toBeGreaterThan(0);
     expect(tones).toContain('Today’s card is locked in. Each habit you keep still counts in your Court.');
-    expect(tones).toContain('Every habit at its Ceiling lifts today’s card.');
+    expect(tones).toContain('Every habit at its Ceiling makes today’s card N or better.');
+    // Every climb names a band above today's card: a card that fits a better band keeps its rank there.
+    expect([...tones].some((x) => /goes up|lifts/.test(x))).toBe(false);
   });
 
   it('never asks for a habit archived today, which still counts but can’t be kept', () => {
@@ -749,7 +749,7 @@ describe('tips', () => {
       const tip = game.tips.find((t) => t.tone === 'climb' || t.tone === 'done')!;
       expect(tip.text).not.toMatch(/Walk|other|Keep every habit,/);
       const ceiling = rankOf(dealDay(today, [read, gone], log({ read: { [today]: 'ceiling' } }), seed));
-      if (ceiling > rank) expect(tip.text).toMatch(/^Keep every habit you still can, all at their Ceilings, and today’s card (is 4 or better|goes up)\.$/);
+      if (ceiling > rank) expect(tip.text).toBe('Keep every habit you still can, all at their Ceilings, and today’s card is 4 or better.');
       else expect(tip.tone).toBe('done');
     }
   });
