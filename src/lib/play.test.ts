@@ -150,7 +150,7 @@ describe('moments a check-in causes', () => {
 
   it('counts a milestone once, on the way up', () => {
     // Nine kept days across two suits: today's makes ten without earning a Jack.
-    const data = loaded([habit('walk', 'spades', '2026-10-01'), habit('reach', 'hearts', '2026-10-01')], [...kept('walk', '2026-10-05', 5), ...kept('reach', '2026-10-05', 4)]);
+    const data = loaded([habit('walk', 'spades', '2026-10-01'), habit('reach', 'hearts', '2026-10-01')], [...kept('walk', '2026-10-01', 5), ...kept('reach', '2026-10-06', 4)]);
     const memory = newMemory();
     const after = plus(data, 'walk', TODAY);
     const moments = momentsOf(data, after, TODAY, SEED, { habitId: 'walk', level: 'floor', day: TODAY }, memory);
@@ -159,6 +159,15 @@ describe('moments a check-in causes', () => {
     expect(kinds(momentsOf(data, plus(data, 'reach', TODAY), TODAY, SEED, { habitId: 'reach', level: 'floor', day: TODAY }, memory))).not.toContain('milestone');
     // A new day starts fresh, but only a real crossing counts.
     expect(kinds(momentsOf(after, plus(after, 'reach', '2026-10-15'), '2026-10-15', SEED, { habitId: 'reach', level: 'floor', day: '2026-10-15' }, memory))).not.toContain('milestone');
+  });
+
+  it('counts kept days as calendar days, so a second card on the same day is no milestone', () => {
+    // Nine days with both cards kept: nine kept days, not eighteen.
+    const data = loaded([habit('walk', 'spades', '2026-10-01'), habit('reach', 'hearts', '2026-10-01')], [...kept('walk', '2026-10-05', 9), ...kept('reach', '2026-10-05', 9)]);
+    const memory = newMemory();
+    const one = plus(data, 'walk', TODAY);
+    expect(momentsOf(data, one, TODAY, SEED, { habitId: 'walk', level: 'floor', day: TODAY }, memory).at(-1)).toEqual({ kind: 'milestone', count: 10 });
+    expect(kinds(momentsOf(one, plus(one, 'reach', TODAY), TODAY, SEED, { habitId: 'reach', level: 'floor', day: TODAY }, memory))).not.toContain('milestone');
   });
 
   it('celebrates a rung between the King and the Ace', () => {

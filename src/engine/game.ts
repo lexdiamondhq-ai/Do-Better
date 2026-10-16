@@ -70,7 +70,7 @@ export type Week = {
   river: { earned: boolean; need: number; card: DayCard | null };
   /** Every kind of hand the week's cards held, not only the one it ended on. */
   contains: Set<HandKind>;
-  /** Kept days: habits kept, one per habit per day. */
+  /** Times kept: one per habit per day, so it can pass 7. On screen it is "times kept", never "kept days". */
   keptDays: number;
 };
 
@@ -723,7 +723,7 @@ export type ChapterRecap = {
   best: { hand: Hand; week: Day } | null;
   /** Days you kept something. */
   dealtDays: number;
-  /** Habits kept, one per habit per day. */
+  /** Times kept, one per habit per day. On screen it is "times kept", never "kept days". */
   keptDays: number;
   faces: FaceEarned[];
 };
@@ -758,7 +758,7 @@ export type WeekReview = {
   saved: number;
   /** Days with at least one Ceiling. */
   ceilingDays: number;
-  /** Habits kept, one per habit per day. */
+  /** Times kept, one per habit per day. On screen it is "times kept", never "kept days". */
   keptDays: number;
   ceilings: number;
   /** The part of you that showed up most: the suit kept on the most days (saved days don't count). */

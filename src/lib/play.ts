@@ -130,7 +130,7 @@ export type GameEvent =
   | { id: number; kind: 'first'; habitId: string; level: Level; deal: DealEvent }
   /** Yesterday was logged late and got its card ("Yesterday saved"). `deal.card` is yesterday's card. */
   | { id: number; kind: 'backfill'; habitId: string; level: Level; day: Day; deal: DealEvent }
-  /** Kept days across every card reached one of the MILESTONES. */
+  /** Kept days (calendar days with anything kept) reached one of the MILESTONES. */
   | { id: number; kind: 'milestone'; count: number }
   /** A suit reached one of the RUNGS between its King and its Ace. */
   | { id: number; kind: 'rung'; suit: Suit; days: number };
@@ -153,7 +153,8 @@ const FIRST = 'first';
 /** The check-in that caused the moments. `day` is today, or yesterday for a back-fill. */
 export type CheckInMade = { habitId: string; level: Level; day: Day };
 
-const keptDays = (data: Loaded, upTo: Day) => data.days.filter((d) => d.day <= upTo).length;
+/** Calendar days with anything kept, the same count Today and You show: two cards on one day make one kept day. */
+const keptDays = (data: Loaded, upTo: Day) => new Set(data.days.filter((d) => d.day <= upTo).map((d) => d.day)).size;
 const jokers = (week: Week) => week.slots.filter((s) => s.card?.kind === 'joker').length;
 const cardOn = (week: Week, day: Day) => week.slots.find((s) => s.day === day)?.card ?? null;
 const courtOf = (data: Loaded, today: Day) => summarizeCourt(courtHabits(data.habits), indexCheckIns(data.days), today);

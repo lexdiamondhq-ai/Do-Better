@@ -1058,7 +1058,7 @@ function BehindTheHand({
       </Display>
       <View style={{ flexDirection: 'row', gap: space.md }}>
         <Stat value={review.dealt} label={review.dealt === 1 ? 'day dealt' : 'days dealt'} />
-        <Stat value={review.keptDays} label="kept days" />
+        <Stat value={review.keptDays} label={review.keptDays === 1 ? 'time kept' : 'times kept'} />
         <Stat value={review.ceilings} label={review.ceilings === 1 ? 'Ceiling' : 'Ceilings'} />
       </View>
       <View style={{ gap: space.md }}>
@@ -1234,7 +1234,7 @@ function Chapter({ game, week }: { game: Game; week: Week }) {
         Thirteen weeks, played.
       </Display>
       <View style={{ flexDirection: 'row', gap: space.md }}>
-        <Stat value={recap.keptDays} label="kept days" />
+        <Stat value={recap.keptDays} label={recap.keptDays === 1 ? 'time kept' : 'times kept'} />
         <Stat value={recap.dealtDays} label="days dealt" />
         <Stat value={recap.faces.length} label={recap.faces.length === 1 ? 'face card' : 'face cards'} />
       </View>
