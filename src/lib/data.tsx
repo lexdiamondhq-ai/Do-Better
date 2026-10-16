@@ -8,6 +8,7 @@ import { checkInLane, createLedger, levelIn, step, type Lane, type Outcome, type
 import type { HandKind } from '@/engine/poker';
 
 import type { Backend, Loaded } from './backend';
+import { cancelCacheWrite, readCache, writeCache } from './cache';
 import { forgetMoments, gameInput, momentsOf, newMemory, type CheckInMade, type GameEvent, type Moment } from './play';
 import { draftFromHabit, type Habit, type HabitDraft, type RecoveryPrompt, type RecoveryResponse } from './types';
 
@@ -20,7 +21,13 @@ type DataApi = {
   today: Day;
   /** Seeds the deal for this player. */
   seed: string;
+  /** Loads the deck again after an error, showing the loading screen meanwhile. */
   reload: () => void;
+  /**
+   * Fetches the deck again in the background, keeping what's on screen if that fails. For pull to
+   * refresh. Changes still saving are kept on top of what arrives. Never rejects.
+   */
+  refresh: () => Promise<void>;
   /**
    * Keeps a card at `level`. Leave `day` out for today: the write always goes to the real date, even
    * just after midnight. Pass yesterday to log it late ("Did it, forgot to log"); that only adds a
@@ -114,11 +121,38 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
   // Comeback answers given in this session, by the card and the day they kept, so undoing that check-in
   // brings the Comeback back.
   const answered = useRef(new Map<string, Day>());
+  // When the rows last came from the server, for refreshing after a long time away or a new day.
+  const loadedAt = useRef({ at: 0, day: '' });
+  const refreshing = useRef<Promise<void> | null>(null);
+  // False once this player's deck has closed (sign-out), so a late save can't write their rows back.
+  const alive = useRef(true);
 
-  const commit = useCallback((next: DataState) => {
-    store.current = next;
-    setState(next);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      cancelCacheWrite();
+    };
   }, []);
+
+  const commit = useCallback(
+    (next: DataState) => {
+      if (!alive.current) return;
+      store.current = next;
+      setState(next);
+      if (next.status === 'ready' && backend.kind === 'remote') writeCache(backend.seed, next);
+    },
+    [backend],
+  );
+
+  /** Fresh rows from the server, with every change still saving (or saved since `since`) kept on top. */
+  const arrived = useCallback(
+    (data: Loaded, since: number) => {
+      loadedAt.current = { at: Date.now(), day: currentDay() };
+      commit({ ...ledger.replay(data, since), status: 'ready' });
+    },
+    [ledger, commit],
+  );
 
   /** A change to the loaded rows, made to the newest copy. */
   const update = useCallback(
@@ -129,25 +163,61 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
     [commit],
   );
 
+  // Open on the rows this phone kept last time, if any, while the server is asked for the latest. With no
+  // connection the kept rows stay on screen; only a phone with nothing kept shows the error.
   useEffect(() => {
     let cancelled = false;
     const since = ledger.mark();
+    const kept = backend.kind === 'remote' ? readCache(backend.seed) : Promise.resolve(null);
+    kept.then((rows) => {
+      if (!cancelled && rows && store.current.status === 'loading') commit({ ...ledger.replay(rows, 0), status: 'ready' });
+    });
     backend.load(deviceTimeZone()).then(
-      (data) => !cancelled && commit({ ...ledger.replay(data, since), status: 'ready' }),
-      (e: unknown) => !cancelled && commit({ status: 'error', message: e instanceof Error ? e.message : 'Could not load your deck.' }),
+      (data) => !cancelled && arrived(data, since),
+      async (e: unknown) => {
+        const rows = await kept;
+        if (cancelled || store.current.status === 'ready') return;
+        if (rows) commit({ ...ledger.replay(rows, 0), status: 'ready' });
+        else commit({ status: 'error', message: e instanceof Error ? e.message : 'Couldn’t load your deck.' });
+      },
     );
     return () => {
       cancelled = true;
     };
-  }, [backend, reloadKey, ledger, commit]);
+  }, [backend, reloadKey, ledger, commit, arrived]);
 
-  // A new day starts when the app comes back to the foreground after midnight.
+  const refresh = useCallback(() => {
+    if (refreshing.current) return refreshing.current;
+    const since = ledger.mark();
+    const run = backend
+      .load(deviceTimeZone())
+      .then(
+        (data) => {
+          if (alive.current) arrived(data, since);
+        },
+        () => {
+          // Keep what's on screen. The next time the app opens, it tries again.
+        },
+      )
+      .finally(() => {
+        refreshing.current = null;
+      });
+    refreshing.current = run;
+    return run;
+  }, [backend, ledger, arrived]);
+
+  // Coming back to the app: a new day may have started, and after a new day or ten minutes away the rows
+  // are fetched again quietly, in case another device changed them.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => {
-      if (s === 'active') setToday(currentDay());
+      if (s !== 'active') return;
+      const now = currentDay();
+      setToday(now);
+      const last = loadedAt.current;
+      if (store.current.status === 'ready' && (now !== last.day || Date.now() - last.at > 10 * 60_000)) refresh();
     });
     return () => sub.remove();
-  }, []);
+  }, [refresh]);
 
   // And at midnight while the app stays open: a timer to the next local day, with a check every minute in
   // case the timer is late or the phone changes time zone.
@@ -448,6 +518,7 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       today,
       seed: backend.seed,
       reload: () => setReloadKey((k) => k + 1),
+      refresh,
       checkIn,
       undoCheckIn,
       createHabit,
@@ -460,7 +531,7 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       saveProfile,
       callHand,
     }),
-    [state, today, backend, checkIn, undoCheckIn, createHabit, createHabits, updateHabit, archiveHabit, restoreHabit, updatePositions, recordPrompt, saveProfile, callHand],
+    [state, today, backend, refresh, checkIn, undoCheckIn, createHabit, createHabits, updateHabit, archiveHabit, restoreHabit, updatePositions, recordPrompt, saveProfile, callHand],
   );
 
   // Its own context, so a toast coming and going doesn't redraw every screen that reads the deck.

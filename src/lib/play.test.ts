@@ -5,7 +5,7 @@ import { addDays, type Day } from '@/engine/day';
 import type { Level } from '@/engine/kept';
 
 import type { Loaded } from './backend';
-import { forgetMoments, momentsOf, newMemory, type Moment } from './play';
+import { dealHabits, forgetMoments, gameInput, momentsOf, newMemory, pastKey, type Moment } from './play';
 import type { Habit, HabitDay } from './types';
 
 // Wednesday 14 October 2026. The week started on Monday the 12th.
@@ -116,5 +116,40 @@ describe('moments a check-in causes', () => {
     const moments = momentsOf(data, plus(data, 'walk', TODAY), TODAY, SEED, { habitId: 'walk', level: 'floor', day: TODAY }, newMemory());
     expect(moments).toContainEqual({ kind: 'rung', suit: 'spades', days: 150 });
     expect(kinds(moments)).not.toContain('face');
+  });
+});
+
+describe('finished weeks', () => {
+  const data = loaded([habit('read', 'clubs', '2026-09-01'), habit('walk', 'spades', '2026-09-01')], [...kept('read', '2026-09-20', 10), ...kept('walk', '2026-09-25', 5)]);
+  const key = (d: Loaded) => pastKey(d, gameInput(d, TODAY, SEED));
+
+  it('are dealt again when a past day changes level, even with the same number of rows', () => {
+    const upgraded: Loaded = { ...data, days: data.days.map((d) => (d.habitId === 'read' && d.day === '2026-09-22' ? { ...d, level: 'ceiling' } : d)) };
+    expect(key(upgraded)).not.toBe(key(data));
+  });
+
+  it('are dealt again when a past day moves to another card', () => {
+    const moved: Loaded = { ...data, days: data.days.map((d, i) => (i === 0 ? { ...d, habitId: 'walk' } : d)) };
+    expect(key(moved)).not.toBe(key(data));
+  });
+
+  it('are kept when only this week changes, or the rows arrive in another order', () => {
+    expect(key(plus(data, 'read', TODAY))).toBe(key(data));
+    expect(key(plus(data, 'walk', YESTERDAY, 'ceiling'))).toBe(key(data));
+    expect(key({ ...data, days: [...data.days].reverse() })).toBe(key(data));
+  });
+});
+
+describe('archived cards', () => {
+  it('leave the deck on the local day they were archived, wherever the phone is now', () => {
+    const encoded = habit('read', 'clubs', '2026-09-01', { archivedAt: '2026-10-12T00:00:00.000Z' });
+    expect(dealHabits([encoded], 'America/Los_Angeles')[0].archivedOn).toBe('2026-10-12');
+    expect(dealHabits([encoded], 'Pacific/Auckland')[0].archivedOn).toBe('2026-10-12');
+  });
+
+  it('archived before that keep the old reading of the real moment', () => {
+    const older = habit('read', 'clubs', '2026-09-01', { archivedAt: '2026-10-13T03:30:00.000Z' });
+    expect(dealHabits([older], 'America/New_York')[0].archivedOn).toBe('2026-10-12');
+    expect(dealHabits([older], 'Europe/London')[0].archivedOn).toBe('2026-10-13');
   });
 });

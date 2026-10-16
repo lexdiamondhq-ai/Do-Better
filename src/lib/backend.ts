@@ -17,6 +17,8 @@ export type Loaded = {
 export interface Backend {
   /** Seeds the deal, so the same person always gets the same cards. */
   seed: string;
+  /** A real account, whose rows are worth keeping on the phone, or the in-memory demo deck. */
+  kind: 'remote' | 'demo';
   load(timezone: string): Promise<Loaded>;
   saveDay(habitId: string, day: Day, level: Level): Promise<void>;
   deleteDay(habitId: string, day: Day): Promise<void>;
@@ -38,12 +40,18 @@ export interface Backend {
 
 const OUTDATED = new Set(['PGRST204', 'PGRST205', '42P01', '42703']);
 
-/** A missing column or table means the database is behind the app. Say what to do instead of quoting Postgres. */
+/**
+ * An error a player can read. A missing column or table means the database is behind the app: in a
+ * development build that says which migration to run, and in a release it says only that something on
+ * our side is out of date. Raw messages from Postgres or the network stay in development builds.
+ */
 function friendly(error: { code?: string; message: string }): Error {
   if (error.code && OUTDATED.has(error.code)) {
-    return new Error('Your Do Better database needs its latest update. Run the newest migration in Supabase (see the README), then try again.');
+    if (__DEV__) return new Error('Your Do Better database needs its latest update. Run the newest migration in Supabase (see the README), then try again.');
+    console.warn(`Do Better: the database is behind the app (${error.code}).`);
+    return new Error('Something on our side is out of date. Try again in a little while.', { cause: error });
   }
-  return new Error(error.message);
+  return __DEV__ ? new Error(error.message) : new Error('Check your connection and try again.', { cause: error });
 }
 
 /** Supabase caps a select at 1,000 rows, so page through check-ins, in an order with no ties so no row is skipped or repeated. */
@@ -67,6 +75,7 @@ async function fetchAllDays(userId: string): Promise<HabitDay[]> {
 export function supabaseBackend(userId: string): Backend {
   return {
     seed: userId,
+    kind: 'remote',
 
     async load(timezone) {
       const [profileRes, habitsRes, days, promptsRes, callsRes] = await Promise.all([
@@ -83,8 +92,12 @@ export function supabaseBackend(userId: string): Backend {
       if (callsRes.error && !OUTDATED.has(callsRes.error.code)) throw friendly(callsRes.error);
 
       const p = profileRes.data;
-      // The views use the stored timezone to agree with the device about "today".
-      if (!p || p.timezone !== timezone) await supabase.from('profiles').upsert({ id: userId, timezone });
+      // The views use the stored timezone to agree with the device about "today". If this fails the deck
+      // still loads, and the next load tries again because the stored zone still differs.
+      if (!p || p.timezone !== timezone) {
+        const { error } = await supabase.from('profiles').upsert({ id: userId, timezone });
+        if (error && __DEV__) console.warn(`Do Better: couldn't save the time zone (${error.message}).`);
+      }
       return {
         profile: { id: userId, displayName: p?.display_name ?? null, timezone, northStar: p?.north_star ?? null, onboardedAt: p?.onboarded_at ?? null },
         habits: (habitsRes.data ?? []).map(habitFromRow),

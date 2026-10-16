@@ -29,20 +29,47 @@ export function gameInput(data: Loaded, today: Day, seed: string): GameInput {
   };
 }
 
-// Finished weeks only change when past check-ins, habits or calls do, and check-ins are only ever
-// written for today, so the deal of every finished week is kept from one render to the next.
+// Finished weeks only change when past check-ins, habits or calls do. This device only writes today
+// and yesterday inside the live week, but a refresh can bring past rows from another device, so the
+// deal of every finished week is kept from one render to the next only while those rows are the same.
 let past: { key: string; weeks: Week[] } | null = null;
 
-function pastKey(data: Loaded, input: GameInput): string {
+/** Two 32-bit FNV-1a hashes of a string, with different starting points. */
+function hashes(text: string): [number, number] {
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x0100019d);
+  }
+  return [a >>> 0, b >>> 0];
+}
+
+/**
+ * A fingerprint of everything finished weeks are dealt from: the habits, every check-in before this week
+ * (habit, day and level, in any order) and the calls. A past Floor turning into a Ceiling changes it.
+ */
+export function pastKey(data: Loaded, input: GameInput): string {
   const thisWeek = weekStart(input.today);
   const habits = input.habits.map((h) => `${h.id}:${h.suit}:${h.startedOn}:${h.archivedOn}`).join(',');
-  const days = data.days.filter((d) => d.day < thisWeek).length;
+  // Summed per-row hashes don't depend on the order rows arrive in.
+  let count = 0;
+  let sumA = 0;
+  let sumB = 0;
+  for (const d of data.days) {
+    if (d.day >= thisWeek) continue;
+    const [a, b] = hashes(`${d.habitId}:${d.day}:${d.level}`);
+    count++;
+    sumA = (sumA + a) >>> 0;
+    sumB = (sumB + b) >>> 0;
+  }
   const calls = data.calls
     .filter((c) => c.weekStart < thisWeek)
     .map((c) => `${c.weekStart}:${c.hand}`)
     .sort()
     .join(',');
-  return `${input.seed}|${thisWeek}|${habits}|${days}|${calls}`;
+  return `${input.seed}|${thisWeek}|${habits}|${count}:${sumA.toString(36)}:${sumB.toString(36)}|${calls}`;
 }
 
 /** The whole game, reusing finished weeks when nothing behind them changed. */

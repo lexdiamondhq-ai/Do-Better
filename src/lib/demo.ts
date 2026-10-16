@@ -131,6 +131,7 @@ export function createDemoBackend(today: Day): Backend {
 
   return {
     seed: pickSeed(today, habits, days),
+    kind: 'demo',
     async load(timezone) {
       state.profile = { ...state.profile, timezone };
       return copy();

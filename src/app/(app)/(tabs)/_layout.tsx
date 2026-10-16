@@ -7,6 +7,7 @@ import { TabBar } from '@/components/TabBar';
 import { Body, Button, Centered, Display } from '@/components/ui';
 import { lastShowdown } from '@/engine/game';
 import { useAuth } from '@/lib/auth';
+import { hideSplash } from '@/lib/cache';
 import { useData } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
 import { usePrefs } from '@/lib/prefs';
@@ -27,12 +28,19 @@ export default function TabsLayout() {
   // Only a week later than the last one watched, so a clock moved back across a date line can't reopen a settled week.
   const seen = prefs.showdownSeen[seed];
   const pending = showdown && prefsReady && !needsOnboarding && (demo || !seen || showdown.start > seen) ? showdown.start : null;
+  // Everything needed to choose the first screen: the deck (or an error) and the saved prefs.
+  const settled = state.status === 'error' || (!!deck && prefsReady);
 
+  // The splash stays up until the first screen is decided. A waiting Showdown opens under it first, so
+  // Today never flashes before it.
   useEffect(() => {
-    if (!pending || opened.current === pending) return;
-    opened.current = pending;
-    router.push({ pathname: '/showdown', params: { week: pending } });
-  }, [pending, router]);
+    if (!settled) return;
+    if (pending && opened.current !== pending) {
+      opened.current = pending;
+      router.push({ pathname: '/showdown', params: { week: pending } });
+      setTimeout(hideSplash, 350);
+    } else hideSplash();
+  }, [settled, pending, router]);
 
   if (state.status === 'error') {
     return (
@@ -53,7 +61,8 @@ export default function TabsLayout() {
   if (needsOnboarding) return <Redirect href="/onboarding" />;
 
   return (
-    <Tabs tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: t.bg } }}>
+    // Hidden tabs stay frozen while another is in front, and switching slides between them.
+    <Tabs tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: t.bg }, freezeOnBlur: true, animation: 'shift' }}>
       <Tabs.Screen name="index" />
       <Tabs.Screen name="hands" />
       <Tabs.Screen name="you" />
