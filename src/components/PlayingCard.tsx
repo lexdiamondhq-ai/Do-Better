@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { cardName, rankLabel, SUIT_INFO, type Card, type Rank, type Suit } from '@/engine/cards';
+import { cardName, rankLabel, SUIT_INFO, type LooseCard, type Rank, type Suit } from '@/engine/cards';
 import type { FaceInfo } from '@/engine/court';
 import type { DayCard } from '@/engine/deal';
 import type { PlayedCard } from '@/engine/poker';
@@ -11,8 +11,8 @@ import { cardFace, chip, fonts, suitColors } from '@/theme/tokens';
 
 import { Star, SuitGlyph } from './Suit';
 
-/** What a card shows: a rank and suit, or a Joker (and, inside a hand, the card it stands for). */
-export type CardFace = { kind: 'card'; rank: Rank; suit: Suit; also?: readonly Suit[]; rescued?: boolean } | { kind: 'joker'; as?: Card };
+/** What a card shows: a rank and suit (none for a saved day or the river), or a Joker (and, inside a hand, the rank it stands for). */
+export type CardFace = { kind: 'card'; rank: Rank; suit: Suit | null; also?: readonly Suit[]; rescued?: boolean } | { kind: 'joker'; as?: LooseCard };
 
 export type CardSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
@@ -27,7 +27,7 @@ export const CARD_SIZES: Record<CardSize, { w: number; h: number; rank: number; 
 /** A day's card. `playAs` shows it in the suit it plays in this week's hand, when it carries more than one. */
 export function faceOfDay(card: DayCard, playAs?: Suit): CardFace {
   if (card.kind === 'joker') return { kind: 'joker' };
-  const suit = playAs && card.suits.includes(playAs) ? playAs : card.suits[0];
+  const suit = playAs && card.suits.includes(playAs) ? playAs : (card.suits[0] ?? null);
   return { kind: 'card', rank: card.rank, suit, also: card.suits.filter((s) => s !== suit), rescued: card.rescued };
 }
 
@@ -91,7 +91,7 @@ export function PlayingCard({ face, size = 'md', highlight, dim, style }: Props)
 
 function NumberFace({ face, size }: { face: Extract<CardFace, { kind: 'card' }>; size: CardSize }) {
   const s = CARD_SIZES[size];
-  const ink = suitColors[face.suit].glyph;
+  const ink = face.suit ? suitColors[face.suit].glyph : cardFace.ink;
   const label = rankLabel(face.rank);
   const court = face.rank >= 11 && face.rank <= 13;
   const rankStyle = { fontFamily: fonts.display, fontSize: s.rank, lineHeight: s.rank * 1.04, color: ink, letterSpacing: label === '10' ? -s.rank * 0.08 : 0 };
@@ -100,7 +100,7 @@ function NumberFace({ face, size }: { face: Extract<CardFace, { kind: 'card' }>;
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 1 }}>
         <Text style={rankStyle}>{label}</Text>
-        <SuitGlyph suit={face.suit} size={s.pip} />
+        {face.suit ? <SuitGlyph suit={face.suit} size={s.pip} /> : null}
         {face.rescued ? <Rescued size={size} /> : null}
       </View>
     );
@@ -112,16 +112,16 @@ function NumberFace({ face, size }: { face: Extract<CardFace, { kind: 'card' }>;
     <View style={{ flex: 1 }}>
       <View style={{ position: 'absolute', top: pad * 0.6, left: pad, alignItems: 'center' }}>
         <Text style={rankStyle}>{label}</Text>
-        <SuitGlyph suit={face.suit} size={s.index} />
+        {face.suit ? <SuitGlyph suit={face.suit} size={s.index} /> : null}
       </View>
       <View style={{ position: 'absolute', bottom: pad * 0.6, right: pad, alignItems: 'center', transform: [{ rotate: '180deg' }] }}>
         <Text style={rankStyle}>{label}</Text>
-        <SuitGlyph suit={face.suit} size={s.index} />
+        {face.suit ? <SuitGlyph suit={face.suit} size={s.index} /> : null}
       </View>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{ width: pip, height: pip }}>
-          <SuitGlyph suit={face.suit} size={pip} />
-          {court ? (
+        <View style={{ width: pip, height: pip, alignItems: 'center', justifyContent: 'center' }}>
+          {face.suit ? <SuitGlyph suit={face.suit} size={pip} /> : <Text style={{ ...rankStyle, fontSize: pip * 0.6, lineHeight: pip * 0.7 }}>{label}</Text>}
+          {court && face.suit ? (
             <Text
               style={{
                 position: 'absolute',
@@ -171,7 +171,7 @@ function Rescued({ size }: { size: CardSize }) {
   );
 }
 
-function JokerFace({ size, as }: { size: CardSize; as?: Card }) {
+function JokerFace({ size, as }: { size: CardSize; as?: LooseCard }) {
   const s = CARD_SIZES[size];
   const stripe = s.w / 4;
   return (
@@ -195,8 +195,8 @@ function JokerFace({ size, as }: { size: CardSize; as?: Card }) {
       ) : null}
       {as && size !== 'xs' && size !== 'sm' ? (
         <View style={{ position: 'absolute', bottom: s.h * 0.06, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: cardFace.bg, borderRadius: 99, paddingHorizontal: s.w * 0.08, paddingVertical: 1 }}>
-          <Text style={{ fontFamily: fonts.display, fontSize: s.index * 0.85, color: suitColors[as.suit].glyph }}>{`as ${rankLabel(as.rank)}`}</Text>
-          <SuitGlyph suit={as.suit} size={s.index * 0.8} />
+          <Text style={{ fontFamily: fonts.display, fontSize: s.index * 0.85, color: as.suit ? suitColors[as.suit].glyph : cardFace.ink }}>{`as ${rankLabel(as.rank)}`}</Text>
+          {as.suit ? <SuitGlyph suit={as.suit} size={s.index * 0.8} /> : null}
         </View>
       ) : null}
     </View>

@@ -1,13 +1,19 @@
 /**
- * Poker hands from a week of day cards. The best five of up to seven cards make the hand, ranked the
- * usual way, with Five of a kind above a Royal flush. Only a Joker, or a very lucky week, makes that.
+ * Poker hands from a week of day cards. The best five of the week's cards make the hand: up to seven days,
+ * plus the river card at the Showdown. Hands rank the usual way, with two changes. There is no Flush: every
+ * kept habit adds its suit to the day, so five days in one suit come too easily to be a hand. And Five of a
+ * kind sits above a Royal flush; only a Joker, or a very lucky week, makes that.
  *
- * Two things differ from a casino. A day card can carry more than one suit (a day you read and walked
- * is Clubs and Spades), and it plays as whichever suit makes the better hand. And every day is dealt
- * from a fresh deck, so the same card can turn up twice in one week.
+ * A day card can carry more than one suit (a day you read and walked is Clubs and Spades) and plays as
+ * whichever suit makes the better hand. Saved days, the river card and Jokers have no suit: they count for
+ * pairs and straights, never for a straight flush. Every day is dealt from a fresh deck, so the same card
+ * can turn up twice in one week.
+ *
+ * Suited is a line beside the hand, not a hand: five days in the week that reached a Ceiling in the same
+ * suit, five Ceiling days for one part of you.
  */
 
-import { RANKS, SUIT_INFO, SUITS, rankName, rankPlural, type Card, type Rank, type Suit } from './cards';
+import { RANKS, SUIT_INFO, SUITS, rankName, rankPlural, type Rank, type Suit } from './cards';
 import type { Day } from './day';
 import type { DayCard } from './deal';
 
@@ -17,6 +23,7 @@ export type HandKind =
   | 'two-pair'
   | 'three-of-a-kind'
   | 'straight'
+  /** Retired: no week is a Flush any more. Kept so calls made before the change still read. */
   | 'flush'
   | 'full-house'
   | 'four-of-a-kind'
@@ -24,20 +31,28 @@ export type HandKind =
   | 'royal-flush'
   | 'five-of-a-kind';
 
-/** Weakest first. */
-export const HAND_KINDS: readonly HandKind[] = [
+/** Every hand a week can make, weakest first. */
+export const HAND_LADDER: readonly HandKind[] = [
   'high-card',
   'pair',
   'two-pair',
   'three-of-a-kind',
   'straight',
-  'flush',
   'full-house',
   'four-of-a-kind',
   'straight-flush',
   'royal-flush',
   'five-of-a-kind',
 ];
+
+/** The same ladder, under its older name. */
+export const HAND_KINDS: readonly HandKind[] = HAND_LADDER;
+
+/** Chips a Suited week adds beside its hand. Suited is shown as a line about the week and pays nothing (see economy.test.ts). */
+export const SUITED_BONUS: number = 0;
+
+/** Ceiling days in one suit that make a week Suited. */
+export const SUITED_DAYS = 5;
 
 export type HandInfo = {
   name: string;
@@ -50,21 +65,24 @@ export type HandInfo = {
 };
 
 export const HANDS: Record<HandKind, HandInfo> = {
-  'high-card': { name: 'High card', chips: 10, how: 'Any week with a kept day. Your best card plays.', secret: false },
-  pair: { name: 'Pair', chips: 20, how: 'Two days dealt the same rank.', secret: false },
-  'two-pair': { name: 'Two pair', chips: 30, how: 'Two different pairs in one week.', secret: false },
-  'three-of-a-kind': { name: 'Three of a kind', chips: 40, how: 'Three days dealt the same rank.', secret: false },
-  straight: { name: 'Straight', chips: 60, how: 'Five ranks in a row, like 6 7 8 9 10. Every kept day is another card to build with.', secret: false },
-  flush: { name: 'Flush', chips: 80, how: 'Five days in one suit. Keep one part of you going all week.', secret: false },
-  'full-house': { name: 'Full house', chips: 120, how: 'Three of a kind and a pair. Ceiling days deal from a smaller, higher deck, so they match more often.', secret: false },
-  'four-of-a-kind': { name: 'Four of a kind', chips: 200, how: 'Four days dealt the same rank.', secret: false },
-  'straight-flush': { name: 'Straight flush', chips: 300, how: 'Five ranks in a row, all in one suit.', secret: false },
-  'royal-flush': { name: 'Royal flush', chips: 500, how: '10, J, Q, K and A in one suit. Only great days deal that high.', secret: false },
+  'high-card': { name: 'High card', chips: 10, how: 'Any week with a dealt day. Your best card plays.', secret: false },
+  pair: { name: 'Pair', chips: 30, how: 'Two days dealt the same rank.', secret: false },
+  'two-pair': { name: 'Two pair', chips: 50, how: 'Two different pairs in one week.', secret: false },
+  'three-of-a-kind': { name: 'Three of a kind', chips: 70, how: 'Three days dealt the same rank.', secret: false },
+  straight: { name: 'Straight', chips: 100, how: 'Five ranks in a row, like 6 7 8 9 10. Every day you keep something is another card to build with.', secret: false },
+  'full-house': { name: 'Full house', chips: 140, how: 'Three of a kind and a pair. Days with every habit kept deal from a smaller, higher deck, so they match more often.', secret: false },
+  'four-of-a-kind': { name: 'Four of a kind', chips: 250, how: 'Four days dealt the same rank.', secret: false },
+  'straight-flush': { name: 'Straight flush', chips: 350, how: 'Five ranks in a row, all in one suit. A day counts in the suit of every habit you kept.', secret: false },
+  'royal-flush': { name: 'Royal flush', chips: 500, how: '10, J, Q, K and A, all in one suit. Keep one part of you going through your best days.', secret: false },
   'five-of-a-kind': { name: 'Five of a kind', chips: 800, how: 'Five days dealt the same rank, or four of a kind and a Joker from a new face card in the Court. The rarest hand there is.', secret: true },
+  flush: { name: 'Suited', chips: 30, how: 'Five Ceiling days in one suit: one part of you, at its best, all week.', secret: false },
 };
 
+/** Where a retired kind sits on the ladder, for comparing old calls: a Flush sat above a Straight. */
+const RETIRED_INDEX: Partial<Record<HandKind, number>> = { flush: 4.5 };
+
 export function handIndex(kind: HandKind): number {
-  return HAND_KINDS.indexOf(kind);
+  return RETIRED_INDEX[kind] ?? HAND_LADDER.indexOf(kind);
 }
 
 /** `a` is at least as strong a kind of hand as `b`. */
@@ -73,7 +91,17 @@ export function atLeast(a: HandKind, b: HandKind): boolean {
 }
 
 /** A card as it plays in a hand: the day it came from, and the rank and suit it counts as. */
-export type PlayedCard = Card & { day: Day; joker: boolean };
+export type PlayedCard = {
+  rank: Rank;
+  /** Null for a saved day, the river card or a Joker. */
+  suit: Suit | null;
+  day: Day;
+  joker: boolean;
+  /** The river card, whose `day` is the Monday after its week. */
+  river?: boolean;
+};
+
+export type Suited = { suit: Suit; days: number };
 
 export type Hand = {
   kind: HandKind;
@@ -81,18 +109,20 @@ export type Hand = {
   cards: PlayedCard[];
   /** The ranks that break ties, most important first. */
   ranks: Rank[];
-  /** The suit of a flush, straight flush or royal flush. */
+  /** The suit of a straight flush or royal flush. */
   suit: Suit | null;
+  /** Five or more Ceiling days in one suit, or null. */
+  suited: Suited | null;
   /** Higher beats lower, across every kind of hand. */
   score: number;
   /** "Full house, Kings over Sevens". */
   title: string;
 };
 
-type Option = { day: Day; rank: Rank; suits: readonly Suit[]; joker: boolean };
+type Option = { day: Day; rank: Rank; suits: readonly Suit[]; joker: boolean; river: boolean };
 
-const play = (o: Option, suit: Suit): PlayedCard => ({ day: o.day, rank: o.rank, suit, joker: o.joker });
-const lead = (o: Option) => play(o, o.suits[0]);
+const play = (o: Option, suit: Suit | null): PlayedCard => ({ day: o.day, rank: o.rank, suit, joker: o.joker, ...(o.river ? { river: true } : {}) });
+const lead = (o: Option) => play(o, o.suits[0] ?? null);
 
 /** The top card of the best five-card run in `ranks`, with the Ace also playing low in 5-4-3-2-A, or 0. */
 export function straightHigh(ranks: ReadonlySet<number>): Rank | 0 {
@@ -108,11 +138,11 @@ function runOf(hi: Rank): Rank[] {
   return (hi === 5 ? [5, 4, 3, 2, 14] : [hi, hi - 1, hi - 2, hi - 3, hi - 4]) as Rank[];
 }
 
-/** One card per rank of the run, preferring real cards over a Joker standing in for the same one. */
+/** One card per rank of the run, preferring a real day over a Joker standing in for the same rank. */
 function pickRun(options: readonly Option[], hi: Rank, suit: Suit | null): PlayedCard[] {
   return runOf(hi).map((rank) => {
     const fits = options.filter((o) => o.rank === rank && (!suit || o.suits.includes(suit)));
-    const o = fits.find((x) => !x.joker) ?? fits[0];
+    const o = fits.find((x) => !x.joker && !x.river) ?? fits.find((x) => !x.joker) ?? fits[0];
     return suit ? play(o, suit) : lead(o);
   });
 }
@@ -137,8 +167,6 @@ export function handTitle(kind: HandKind, ranks: readonly Rank[], suit: Suit | n
       return `Three ${rankPlural(a)}`;
     case 'straight':
       return `Straight to the ${rankName(a)}`;
-    case 'flush':
-      return `Flush in ${suitName}`;
     case 'full-house':
       return `Full house, ${rankPlural(a)} over ${rankPlural(b)}`;
     case 'four-of-a-kind':
@@ -149,22 +177,26 @@ export function handTitle(kind: HandKind, ranks: readonly Rank[], suit: Suit | n
       return `Royal flush in ${suitName}`;
     case 'five-of-a-kind':
       return `Five ${rankPlural(a)}`;
+    default:
+      // The retired Flush, which only an old call still names.
+      return HANDS[kind].name;
   }
 }
 
-/** Compares two lists of ranks from the top, like comparing two flushes. */
-function compareRanks(a: readonly Option[], b: readonly Option[]): number {
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const d = (a[i]?.rank ?? 0) - (b[i]?.rank ?? 0);
-    if (d) return d;
-  }
-  return 0;
+/** The hand in a sentence: "a Pair of Jacks", "Two pair, Kings and Sevens", "Ace high". */
+export function handPhrase(hand: Pick<Hand, 'kind' | 'title'>): string {
+  const article = hand.kind === 'pair' || hand.kind === 'straight' || hand.kind === 'full-house' || hand.kind === 'straight-flush' || hand.kind === 'royal-flush';
+  return article ? `a ${hand.title}` : hand.title;
+}
+
+/** Best-first, with a real day before a Joker or the river at equal rank, so those only show when needed. */
+function sortOptions(options: readonly Option[]): Option[] {
+  return [...options].sort((a, b) => b.rank - a.rank || Number(a.joker) - Number(b.joker) || Number(a.river) - Number(b.river));
 }
 
 function evaluate(options: readonly Option[]): Hand | null {
   if (!options.length) return null;
-  // Highest first; at equal rank a real card comes before a Joker, so the Joker only shows when it is needed.
-  const sorted = [...options].sort((a, b) => b.rank - a.rank || Number(a.joker) - Number(b.joker));
+  const sorted = sortOptions(options);
   const groups = new Map<Rank, Option[]>();
   for (const o of sorted) {
     const g = groups.get(o.rank);
@@ -180,16 +212,16 @@ function evaluate(options: readonly Option[]): Hand | null {
     cards,
     ranks,
     suit,
+    suited: null,
     score: scoreOf(kind, ranks),
     title: handTitle(kind, ranks, suit),
   });
 
-  // On a tie between suits, the one that led more of the week's days wins: the part of you that carried the week.
-  const leads = (suit: Suit) => options.filter((o) => o.suits[0] === suit).length;
-
   const [five] = ranksWith(5);
   if (five) return make('five-of-a-kind', of(five, 5).map(lead), [five]);
 
+  // On a tie between suits, the one that led more of the week's days wins: the part of you that carried the week.
+  const leads = (suit: Suit) => options.filter((o) => o.suits[0] === suit).length;
   let run: { hi: Rank; suit: Suit } | null = null;
   for (const suit of SUITS) {
     const inSuit = options.filter((o) => o.suits.includes(suit));
@@ -209,18 +241,6 @@ function evaluate(options: readonly Option[]): Hand | null {
   const pairs = ranksWith(2);
   const over = pairs.find((r) => r !== trips);
   if (trips && over) return make('full-house', [...of(trips, 3), ...of(over, 2)].map(lead), [trips, over]);
-
-  let flush: { suit: Suit; cards: Option[] } | null = null;
-  for (const suit of SUITS) {
-    const top = sorted.filter((o) => o.suits.includes(suit)).slice(0, 5);
-    if (top.length < 5) continue;
-    const order = flush ? compareRanks(top, flush.cards) || leads(suit) - leads(flush.suit) : 1;
-    if (order > 0) flush = { suit, cards: top };
-  }
-  if (flush) {
-    const { suit, cards } = flush;
-    return make('flush', cards.map((o) => play(o, suit)), cards.map((o) => o.rank), suit);
-  }
 
   const hi = straightHigh(new Set(options.map((o) => o.rank)));
   if (hi) return make('straight', pickRun(options, hi, null), [hi]);
@@ -243,29 +263,96 @@ function evaluate(options: readonly Option[]): Hand | null {
   return make('high-card', top.map(lead), top.map((o) => o.rank));
 }
 
+/** Every Joker plays as whichever rank helps most. A Joker has no suit, so it never completes a straight flush. */
 function withJokers(real: Option[], jokers: readonly DayCard[]): Hand | null {
   if (!jokers.length) return evaluate(real);
   const [joker, ...rest] = jokers;
-  // A Joker can only help a flush in a suit the real cards already have, so other suits are never worth trying.
-  const present = SUITS.filter((s) => real.some((o) => o.suits.includes(s)));
-  const suits = present.length ? present : SUITS.slice(0, 1);
   let best: Hand | null = null;
   for (const rank of RANKS) {
-    for (const suit of suits) {
-      const hand = withJokers([...real, { day: joker.day, rank, suits: [suit], joker: true }], rest);
-      if (hand && (!best || hand.score > best.score)) best = hand;
-    }
+    const hand = withJokers([...real, { day: joker.day, rank, suits: [], joker: true, river: false }], rest);
+    if (hand && (!best || hand.score > best.score)) best = hand;
   }
   return best;
 }
 
-/** The best hand in a set of day cards, with each Joker playing as whatever card helps most. Null with no cards. */
-export function bestHand(cards: readonly DayCard[]): Hand | null {
+function split(cards: readonly DayCard[]): { real: Option[]; jokers: DayCard[] } {
   const real: Option[] = [];
   const jokers: DayCard[] = [];
   for (const c of cards) {
-    if (c.kind === 'card') real.push({ day: c.day, rank: c.rank, suits: c.suits, joker: false });
+    if (c.kind === 'card') real.push({ day: c.day, rank: c.rank, suits: c.suits, joker: false, river: !!c.river });
     else jokers.push(c);
   }
-  return withJokers(real, jokers);
+  return { real, jokers };
+}
+
+/**
+ * Suited: the suit with five or more days that reached a Ceiling in it. A Joker's day counts by its own
+ * Ceilings; saved days and the river never count. Ties go to deck order.
+ */
+export function suitedOf(cards: readonly DayCard[]): Suited | null {
+  let best: Suited | null = null;
+  for (const suit of SUITS) {
+    const days = cards.filter((c) => !(c.kind === 'card' && (c.rescued || c.river)) && c.ceilingSuits.includes(suit)).length;
+    if (days >= SUITED_DAYS && (!best || days > best.days)) best = { suit, days };
+  }
+  return best;
+}
+
+/** The best hand in a set of day cards, with each Joker playing as whatever rank helps most. Null with no cards. */
+export function bestHand(cards: readonly DayCard[]): Hand | null {
+  const { real, jokers } = split(cards);
+  const hand = withJokers(real, jokers);
+  return hand && { ...hand, suited: suitedOf(cards) };
+}
+
+/** The kinds a set of joker-free cards holds, whether or not the hand ends on them. */
+function heldBy(options: readonly Option[]): Set<HandKind> {
+  const held = new Set<HandKind>();
+  if (!options.length) return held;
+  held.add('high-card');
+  const counts = [...options.reduce((m, o) => m.set(o.rank, (m.get(o.rank) ?? 0) + 1), new Map<Rank, number>()).values()].sort((a, b) => b - a);
+  const [top = 0, second = 0] = counts;
+  if (top >= 2) held.add('pair');
+  if (second >= 2) held.add('two-pair');
+  if (top >= 3) held.add('three-of-a-kind');
+  if (top >= 3 && second >= 2) held.add('full-house');
+  if (top >= 4) held.add('four-of-a-kind');
+  if (top >= 5) held.add('five-of-a-kind');
+  if (straightHigh(new Set(options.map((o) => o.rank)))) held.add('straight');
+  for (const suit of SUITS) {
+    const inSuit = new Set<number>(options.filter((o) => o.suits.includes(suit)).map((o) => o.rank));
+    const hi = straightHigh(inSuit);
+    if (hi) held.add('straight-flush');
+    if ([10, 11, 12, 13, 14].every((r) => inSuit.has(r))) held.add('royal-flush');
+  }
+  return held;
+}
+
+/**
+ * Every kind of hand a week's cards hold, not only the one it ends on: a Full house week also holds a Pair,
+ * Two pair and Three of a kind. A Royal flush is also a Straight flush. Jokers play as any rank.
+ */
+export function handsIn(cards: readonly DayCard[]): Set<HandKind> {
+  const { real, jokers } = split(cards);
+  const out = new Set<HandKind>();
+  const walk = (opts: Option[], left: readonly DayCard[]) => {
+    if (!left.length) {
+      for (const k of heldBy(opts)) out.add(k);
+      return;
+    }
+    const [joker, ...rest] = left;
+    for (const rank of RANKS) walk([...opts, { day: joker.day, rank, suits: [], joker: true, river: false }], rest);
+  };
+  walk(real, jokers);
+  return out;
+}
+
+/**
+ * Whether a week's cards make a call: the called hand or any better one. A Flush call, from before Flush
+ * left the ladder, is made when the week is Suited.
+ */
+export function makesCall(hand: Hand | null, call: HandKind): boolean {
+  if (!hand) return false;
+  if (call === 'flush') return !!hand.suited;
+  return atLeast(hand.kind, call);
 }

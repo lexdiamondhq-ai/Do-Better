@@ -20,7 +20,7 @@ export type SuitInfo = {
 
 export const SUIT_INFO: Record<Suit, SuitInfo> = {
   spades: { glyph: '♠', name: 'Spades', part: 'Body', about: 'Moving, strength, food and sleep. Looking after the body you live in.' },
-  hearts: { glyph: '♥', name: 'Hearts', part: 'Heart', about: 'Family, friends, kindness and gratitude. The people you show up for.' },
+  hearts: { glyph: '♥', name: 'Hearts', part: 'People', about: 'Family, friends, kindness and gratitude. The people you show up for.' },
   diamonds: { glyph: '♦', name: 'Diamonds', part: 'Craft', about: 'Work, focus, money and making things. What you build.' },
   clubs: { glyph: '♣', name: 'Clubs', part: 'Mind', about: 'Reading, learning, calm and reflection. How you grow.' },
 };
@@ -52,12 +52,15 @@ export function isRank(n: number): n is Rank {
 /** A card in a hand: one rank and one suit. */
 export type Card = { rank: Rank; suit: Suit };
 
-/** "King of Clubs", for screen readers and captions. */
-export function cardName(c: Card): string {
-  return `${rankName(c.rank)} of ${SUIT_INFO[c.suit].name}`;
+/** A card that may have no suit: a saved day, the river card, or a Joker standing in for a rank. */
+export type LooseCard = { rank: Rank; suit: Suit | null };
+
+/** "King of Clubs", for screen readers and captions. A card with no suit is just its rank: "King". */
+export function cardName(c: LooseCard): string {
+  return c.suit ? `${rankName(c.rank)} of ${SUIT_INFO[c.suit].name}` : rankName(c.rank);
 }
 
-/** "K♣". */
-export function cardShort(c: Card): string {
-  return `${rankLabel(c.rank)}${SUIT_INFO[c.suit].glyph}`;
+/** "K♣", or "K" for a card with no suit. */
+export function cardShort(c: LooseCard): string {
+  return `${rankLabel(c.rank)}${c.suit ? SUIT_INFO[c.suit].glyph : ''}`;
 }

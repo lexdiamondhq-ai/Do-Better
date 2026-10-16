@@ -130,6 +130,9 @@ export const tables: Record<Exclude<TableKey, 'kitchen'>, Theme> = {
   'velvet-room': table('#2B0D2F', '#3B1541', '#4A1C52', '#FBEAF5', '#FF8FB1', '#1A061D'),
   midnight: table('#0A1330', '#111D45', '#182756', '#E9EEFF', '#8FB0FF', '#050A1C'),
   'gold-room': table('#0B0A08', '#18150F', '#231E15', '#F6E7C3', '#E8C15A', '#000000'),
+  library: table('#2A1C10', '#3A2716', '#47301B', '#F7ECD9', '#F0B45A', '#170E06'),
+  lighthouse: table('#0B2A3F', '#113A55', '#164764', '#EEF6FB', '#FFD36E', '#06192A'),
+  observatory: table('#0D0B1F', '#17143A', '#1F1B4A', '#ECE9FF', '#D8B26A', '#06051A'),
 };
 
 export function themeFor(key: TableKey, scheme: string | null | undefined): Theme {

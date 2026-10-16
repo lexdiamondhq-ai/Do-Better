@@ -29,7 +29,7 @@ function describe(slot: Slot, playAs: Suit | undefined, rescue: Day | null): str
 export function WeekStrip({ week, back, rescue, size = 'xs', onPress }: { week: Week; back: BackKey; rescue: Day | null; size?: CardSize; onPress?: () => void }) {
   const t = useTheme();
   // Cards in the hand show the suit they play as, so a Flush in Spades looks like one.
-  const played = new Map(week.hand?.cards.map((c): [Day, Suit] => [c.day, c.suit]) ?? []);
+  const played = new Map(week.hand?.cards.map((c): [Day, Suit | undefined] => [c.day, c.suit ?? undefined]) ?? []);
   return (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel="This week's cards" style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
       {week.slots.map((slot, i) => {
