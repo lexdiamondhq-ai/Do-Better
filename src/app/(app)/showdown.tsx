@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Image, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type View as ViewType } from 'react-native';
 import Animated, { Easing, useAnimatedReaction, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { CardBack } from '@/components/CardBack';
@@ -29,7 +29,7 @@ import { weekOf, weekRange } from '@/lib/format';
 import { courtHabits, dealHabits, gameInput } from '@/lib/play';
 import { usePrefs } from '@/lib/prefs';
 import { useReviewAsk } from '@/lib/review';
-import { callLine, feltFor, handLines, suitedLine, weekLine, type Felt } from '@/lib/share';
+import { callLine, feltFor, handLines, stampSize, suitedLine, weekLine, weekSuit, type Felt } from '@/lib/share';
 import { playSound } from '@/lib/sound';
 import type { Habit } from '@/lib/types';
 import { mix, withAlpha } from '@/theme/color';
@@ -69,9 +69,9 @@ type Empty = { key: string; day: string; arc: Spot };
  * Where everything sits: the week face down in a 4 + 3 arc with the river below it, and the fan the best
  * five fly into. Cards are drawn at fan size and scaled down in the arc, so they stay sharp as they grow.
  */
-function stageGeometry(width: number, lift = 0, count = 5) {
+function stageGeometry(width: number, lift = 0, count = 5, fanMax = 150) {
   const gutter = space.xl;
-  const fanW = fanCardWidth(width - gutter * 2);
+  const fanW = fanCardWidth(width - gutter * 2, fanMax);
   const ratio = CARD_SIZES.lg.h / CARD_SIZES.lg.w;
   const fanH = Math.round(fanW * ratio);
   // A week with fewer than five cards still fans them from the middle.
@@ -149,7 +149,7 @@ type Phase = 'turn' | 'gather' | 'result';
 export default function Showdown() {
   const base = useTheme();
   const router = useRouter();
-  const { week: start } = useLocalSearchParams<{ week?: string }>();
+  const { week: start, replay } = useLocalSearchParams<{ week?: string; replay?: string }>();
   const deck = useDeck();
   const week = deck?.game.weeks.find((w) => w.start === start) ?? null;
 
@@ -163,10 +163,13 @@ export default function Showdown() {
       </View>
     );
   }
-  return <Table key={week.start} week={week} game={deck.game} />;
+  return <Table key={week.start} week={week} game={deck.game} replay={replay === '1'} />;
 }
 
-function Table({ week, game }: { week: Week; game: Game }) {
+/** A phone this short gets a smaller fan and stamp, so the hand, its total and what it's made of all show above the buttons. */
+const SHORT_SCREEN = 700;
+
+function Table({ week, game, replay }: { week: Week; game: Game; replay: boolean }) {
   const base = useTheme();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -180,16 +183,26 @@ function Table({ week, game }: { week: Week; game: Game }) {
   const reduced = useReducedMotion();
 
   const review = state.status === 'ready' ? weekReview(week, gameInput(state, today, seed)) : null;
-  const felt = feltFor(base, review?.lead ?? null);
-  // The face-down week sits a little above the middle of the felt below the heading, wherever there's room.
+  // The felt takes the colour of the suit the week's words name: Suited, or else the one that led.
+  const felt = feltFor(base, weekSuit(review, week.hand));
+  const short = height < SHORT_SCREEN;
+  const fanMax = short ? 86 : 150;
+  // The face-down week sits low on the felt, with the river card to be held in easy reach of a thumb.
   const room = height - insets.top - insets.bottom - 170;
-  const geo = stageGeometry(width, Math.round(Math.min(110, Math.max(0, (room - stageGeometry(width).revealHeight) * 0.4))), week.hand?.cards.length ?? 5);
+  const lift = Math.round(Math.min(170, Math.max(0, (room - stageGeometry(width, 0, 5, fanMax).revealHeight) * 0.55)));
+  const geo = stageGeometry(width, lift, week.hand?.cards.length ?? 5, fanMax);
   const { items, empty } = stageItems(week, geo);
   const riverIndex = items.findIndex((i) => i.river);
   const playable = !!week.hand && !week.warmup;
   const latest = lastShowdown(game)?.start === week.start;
   const firstShowdown = game.weeks.find((w) => !w.warmup && w.hand) === week;
   const total = weekTotal(week);
+  // Played again: from the Hands tab, or a week whose Showdown was already watched. Its chips went into
+  // the stack the night it played, so the stack doesn't count up again and nothing offers to add them.
+  const [replayed] = useState(() => {
+    const watched = prefs.showdownSeen[seed];
+    return replay || (!!watched && watched >= week.start);
+  });
 
   // Reduce Motion starts at the result, with every card already turned.
   const startAtResult = reduced || !playable;
@@ -235,7 +248,8 @@ function Table({ week, game }: { week: Week; game: Game }) {
     let timer: ReturnType<typeof setTimeout>;
     if (next >= 0) timer = setTimeout(() => turn(next), turned.some(Boolean) ? IDLE_MS : IDLE_MS + 500);
     else if (riverIndex >= 0 && !turned[riverIndex]) timer = setTimeout(() => turn(riverIndex), RIVER_WAIT_MS);
-    else timer = setTimeout(startGather, 700);
+    // A turned river gets a moment on the table, settled back into its place, before the hand gathers.
+    else timer = setTimeout(startGather, riverIndex >= 0 ? 1050 : 700);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs again on every turn, which is the point
   }, [phase, turned]);
@@ -308,7 +322,8 @@ function Table({ week, game }: { week: Week; game: Game }) {
 
   const close = () => {
     if (latest && !demo) seeShowdown(seed, week.start);
-    askReview('showdown');
+    // Only the newest Showdown, the first time it plays, is ever a moment to ask for a review.
+    if (latest && !replayed) askReview('showdown');
     router.back();
   };
 
@@ -322,6 +337,9 @@ function Table({ week, game }: { week: Week; game: Game }) {
   const seen = prefs.showdownSeen[seed];
   const away = latest && seen ? game.weeks.filter((w) => w.hand && !w.warmup && w.start > seen && w.start < week.start).reverse() : [];
   const stageHeight = phase === 'result' ? geo.fanHeight + space.sm : geo.revealHeight;
+  // The chips are in the stack the moment the week ends, so the first time through this says where you go
+  // next rather than asking you to put them there. A replay just closes.
+  const doneLabel = latest && playable && !replayed ? 'On to this week' : 'Close';
   const hint = !playable ? null : riverReady ? 'Hold the river card to turn it.' : daysTurned ? null : 'Tap a card to turn it over.';
 
   return (
@@ -351,18 +369,18 @@ function Table({ week, game }: { week: Week; game: Game }) {
                   </Body>
                 </Pressable>
               ) : latest && playable ? (
-                <StackPill stack={game.stack} from={game.stack - total} run={step >= 1} instant={instant} />
+                <StackPill stack={game.stack} from={replayed ? game.stack : game.stack - total} run={step >= 1} instant={instant} />
               ) : null
             }
           />
-          <View style={{ gap: space.xs, marginTop: space.sm, marginBottom: space.lg, minHeight: 74 }}>
+          <View style={{ gap: space.xs, marginTop: space.sm, marginBottom: short ? space.sm : space.lg, minHeight: 74 }}>
             <Display size={30} header>
               {weekOf(week.start)}
             </Display>
             {phase === 'result' ? (
               review && playable ? (
                 <Body size={15} weight="bold" color={felt.theme.textSecondary} numberOfLines={2}>
-                  {weekLine(review)}
+                  {weekLine(review, week.hand)}
                 </Body>
               ) : null
             ) : (
@@ -412,20 +430,21 @@ function Table({ week, game }: { week: Week; game: Game }) {
               checkIns={state.status === 'ready' ? state.days : []}
               today={today}
               latest={latest}
+              short={short}
               step={step}
               instant={instant}
               felt={felt}
               mastered={deck?.cards.find((c) => c.mastered)?.habit ?? null}
               tune={latest && !prefs.music ? () => setPrefs({ music: true }) : null}
               away={away}
-              onReplay={(w) => router.push({ pathname: '/showdown', params: { week: w.start } })}
+              onReplay={(w) => router.push({ pathname: '/showdown', params: { week: w.start, replay: '1' } })}
               onEdit={(id, focus) => router.push({ pathname: '/habit/edit', params: { id, focus } })}
             />
           ) : null}
         </ScrollView>
 
         {phase === 'result' ? (
-          <Footer felt={felt} visible={step >= 2 || instant} onHeight={setFooterH} bottom={insets.bottom}>
+          <Footer felt={felt} visible={step >= 2 || instant} onHeight={setFooterH} bottom={insets.bottom} fade={phase === 'result'}>
             {playable && offerCall ? (
               <>
                 <View ref={primary} collapsable={false}>
@@ -433,14 +452,14 @@ function Table({ week, game }: { week: Week; game: Game }) {
                 </View>
                 <View style={{ flexDirection: 'row', gap: space.sm }}>
                   <ShareButton target={{ kind: 'hand', week }} label="Share" variant="quiet" style={{ flex: 1, paddingHorizontal: space.sm }} />
-                  <Button label="Add to my stack" variant="quiet" onPress={close} style={{ flex: 1.4, paddingHorizontal: space.sm }} />
+                  <Button label={doneLabel} variant="quiet" onPress={close} style={{ flex: 1.4, paddingHorizontal: space.sm }} />
                 </View>
               </>
             ) : (
               <View style={{ flexDirection: 'row', gap: space.sm }}>
                 {playable ? <ShareButton target={{ kind: 'hand', week }} label="Share" /> : null}
                 <View ref={primary} collapsable={false} style={{ flex: 1 }}>
-                  <Button label={latest && playable ? 'Add to my stack' : 'Close'} onPress={close} />
+                  <Button label={doneLabel} onPress={close} />
                 </View>
               </View>
             )}
@@ -546,6 +565,11 @@ function StageCard({
     if (!turned) return;
     flip.set(instant ? 1 : withTiming(1, { duration: river ? 560 : FLIP_MS, easing: Easing.inOut(Easing.quad) }));
   }, [flip, turned, instant, river]);
+
+  // Once the river has turned it settles back into its place, so it never sits lifted over the cards beside it.
+  useEffect(() => {
+    if (river && turned) peel.set(instant ? 0 : withDelay(240, withSpring(0, { damping: 16, stiffness: 220 })));
+  }, [peel, river, turned, instant]);
 
   // The river breathes while it waits to be held.
   useEffect(() => {
@@ -724,6 +748,7 @@ function Result({
   checkIns,
   today,
   latest,
+  short,
   step,
   instant,
   felt,
@@ -742,6 +767,7 @@ function Result({
   checkIns: readonly { habitId: string; day: Day; level: 'floor' | 'ceiling' }[];
   today: Day;
   latest: boolean;
+  short: boolean;
   step: number;
   instant: boolean;
   felt: Felt;
@@ -752,6 +778,7 @@ function Result({
   onEdit: (id: string, focus: 'floor' | 'ceiling') => void;
 }) {
   const t = useTheme();
+  const { width } = useWindowDimensions();
   const stamp = useSharedValue(instant ? 1 : 0);
   const rest = useSharedValue(instant ? 1 : 0);
   const call = callLine(week);
@@ -769,9 +796,9 @@ function Result({
   const restStyle = useAnimatedStyle(() => ({ opacity: rest.get(), transform: [{ translateY: (1 - rest.get()) * 16 }] }));
 
   return (
-    <View style={{ gap: space.xl, marginTop: space.md }}>
+    <View style={{ gap: short ? space.lg : space.xl, marginTop: short ? space.xs : space.md }}>
       <Animated.View style={[{ alignItems: 'center', gap: 2 }, stampStyle]} accessible accessibilityRole="header" accessibilityLabel={hand.title}>
-        <Display size={44} style={{ textAlign: 'center' }}>
+        <Display size={stampSize(lines.name, width - space.xl * 2, short ? 38 : 44)} numberOfLines={1} style={{ textAlign: 'center' }}>
           {lines.name}
         </Display>
         {lines.detail ? (
@@ -789,7 +816,7 @@ function Result({
         ) : null}
       </Animated.View>
 
-      <Payout week={week} call={call} step={step} instant={instant} />
+      <Payout week={week} call={call} step={step} instant={instant} short={short} />
 
       <Animated.View style={[{ gap: space.xl }, restStyle]} pointerEvents={step >= 3 ? 'auto' : 'none'}>
         <Unlocks game={game} week={week} />
@@ -816,14 +843,14 @@ function Result({
 }
 
 /** What the week pays: the hand, then the call, then the week's total, each counted in as it lands. */
-function Payout({ week, call, step, instant }: { week: Week; call: ReturnType<typeof callLine>; step: number; instant: boolean }) {
+function Payout({ week, call, step, instant, short }: { week: Week; call: ReturnType<typeof callLine>; step: number; instant: boolean; short: boolean }) {
   const t = useTheme();
   const total = weekTotal(week);
   const bonus = week.bonus > 0;
   const name = week.hand ? HANDS[week.hand.kind].name : '';
   return (
-    <View style={{ gap: space.md, alignItems: 'center' }}>
-      <CountUp to={total} run={step >= 1} instant={instant} size={40} sign />
+    <View style={{ gap: short ? space.sm : space.md, alignItems: 'center' }}>
+      <CountUp to={total} run={step >= 1} instant={instant} size={short ? 34 : 40} sign />
       {bonus ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap', justifyContent: 'center' }} accessible accessibilityLabel={`${name} pays ${week.chips}, the call pays ${week.bonus}`}>
           <Piece label={name} chips={week.chips} />
@@ -1054,20 +1081,7 @@ function BehindTheHand({
               </Body>
               <View style={{ flexDirection: 'row', gap: 3 }}>
                 {cells(hw.id).map((c, i) => (
-                  <View
-                    key={i}
-                    style={{
-                      width: 11,
-                      height: 18,
-                      borderRadius: 3,
-                      backgroundColor: c === 'ceiling' ? color.onDark : c === 'floor' ? withAlpha(color.onDark, 0.45) : 'transparent',
-                      borderWidth: c === 'none' ? 1.5 : 0,
-                      borderColor: t.onRaisedSecondary,
-                      opacity: c === 'off' ? 0.25 : 1,
-                    }}
-                  >
-                    {c === 'off' ? <View style={{ position: 'absolute', left: 4, top: 8, width: 3, height: 3, borderRadius: 2, backgroundColor: t.onRaised }} /> : null}
-                  </View>
+                  <DayCell key={i} cell={c} color={color.onDark} />
                 ))}
               </View>
               <Body size={14} weight="heavy" color={t.onRaised} style={{ width: 32, textAlign: 'right' }} maxFontSizeMultiplier={fontScale.chrome}>
@@ -1085,9 +1099,9 @@ function BehindTheHand({
         })}
       </View>
       <View aria-hidden style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: space.lg, rowGap: space.xs }}>
-        <Key label="Ceiling" fill={t.onRaised} />
-        <Key label="Floor" fill={withAlpha(t.onRaised, 0.45)} />
-        <Key label="Not kept" outline={t.onRaisedSecondary} />
+        <Key label="Ceiling" cell="ceiling" />
+        <Key label="Floor" cell="floor" />
+        <Key label="Not kept" cell="none" />
       </View>
       {fix && weakHabit && onEdit ? (
         <Nudge text={`${weakHabit.name} was kept ${fix.kept} of ${fix.days} days. Make its Floor smaller?`} onPress={() => onEdit(weakHabit.id, 'floor')} />
@@ -1105,11 +1119,45 @@ function BehindTheHand({
   );
 }
 
-function Key({ label, fill, outline }: { label: string; fill?: string; outline?: string }) {
+/**
+ * One day in Behind the hand, told apart by shape as well as colour: a Ceiling fills the cell, a Floor
+ * fills its lower half under an outline (the floor of the cell), a day not kept is an empty outline, and a
+ * day the card wasn't in the deck is a faint dot.
+ */
+function DayCell({ cell, color, w = 11, h = 18 }: { cell: Cell; color: string; w?: number; h?: number }) {
+  const t = useTheme();
+  if (cell === 'off') {
+    return (
+      <View style={{ width: w, height: h, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: t.onRaisedSecondary }} />
+      </View>
+    );
+  }
+  const filled = cell === 'ceiling';
+  return (
+    <View
+      style={{
+        width: w,
+        height: h,
+        borderRadius: 3,
+        overflow: 'hidden',
+        justifyContent: 'flex-end',
+        backgroundColor: filled ? color : 'transparent',
+        borderWidth: filled ? 0 : 1.5,
+        borderColor: cell === 'floor' ? color : t.onRaisedSecondary,
+      }}
+    >
+      {cell === 'floor' ? <View style={{ height: '50%', backgroundColor: color }} /> : null}
+    </View>
+  );
+}
+
+/** The key under Behind the hand, drawn with the same cells as the rows, in the panel's own ink. */
+function Key({ label, cell }: { label: string; cell: Cell }) {
   const t = useTheme();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-      <View style={{ width: 9, height: 14, borderRadius: 2, backgroundColor: fill ?? 'transparent', borderWidth: outline ? 1.5 : 0, borderColor: outline }} />
+      <DayCell cell={cell} color={t.onRaised} w={10} h={16} />
       <Body size={12} weight="bold" color={t.onRaisedSecondary}>
         {label}
       </Body>
@@ -1251,8 +1299,11 @@ function TuneRow({ onPress }: { onPress: () => void }) {
   );
 }
 
+const FADE_H = 28;
+
 /** The buttons, pinned above the home indicator on a solid strip of felt, so they never cover the list. */
-function Footer({ felt, visible, onHeight, bottom, children }: { felt: Felt; visible: boolean; onHeight: (h: number) => void; bottom: number; children: ReactNode }) {
+function Footer({ felt, visible, onHeight, bottom, fade, children }: { felt: Felt; visible: boolean; onHeight: (h: number) => void; bottom: number; fade: boolean; children: ReactNode }) {
+  const id = useId().replace(/[^a-zA-Z0-9]/g, '');
   const show = useSharedValue(visible ? 1 : 0);
   useEffect(() => {
     show.set(withTiming(visible ? 1 : 0, { duration: 260 }));
@@ -1264,6 +1315,20 @@ function Footer({ felt, visible, onHeight, bottom, children }: { felt: Felt; vis
       onLayout={(e) => onHeight(e.nativeEvent.layout.height)}
       style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingTop: space.lg, paddingBottom: bottom + space.md, paddingHorizontal: space.xl, gap: space.xs, backgroundColor: felt.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: felt.theme.border }, style]}
     >
+      {/* The felt fades into the strip above it, so whatever runs on below reads as more to scroll to. */}
+      {fade ? (
+        <View pointerEvents="none" aria-hidden style={{ position: 'absolute', left: 0, right: 0, top: -FADE_H - StyleSheet.hairlineWidth, height: FADE_H }}>
+          <Svg width="100%" height="100%">
+            <Defs>
+              <LinearGradient id={`fade${id}`} x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={felt.bg} stopOpacity={0} />
+                <Stop offset="1" stopColor={felt.bg} stopOpacity={0.92} />
+              </LinearGradient>
+            </Defs>
+            <Rect x={0} y={0} width="100%" height="100%" fill={`url(#fade${id})`} />
+          </Svg>
+        </View>
+      ) : null}
       {children}
     </Animated.View>
   );
