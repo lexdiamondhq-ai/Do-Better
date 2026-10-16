@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { SUIT_INFO } from './cards';
-import { cleanIdentity, faceDays, faceFor, newFaces, newRungs, nextFace, nextRung, rungFor, suitDays, summarizeCourt, type CourtHabit } from './court';
+import { cleanIdentity, faceDays, faceFor, knownOn, newFaces, newRungs, nextFace, nextRung, rungFor, suitDays, summarizeCourt, type CourtHabit } from './court';
 import { addDays } from './day';
 import type { CheckIns, Level } from './kept';
 
@@ -127,6 +127,24 @@ describe('faceDays', () => {
 
   it('ignores days after the given day', () => {
     expect(faceDays([{ id: 'walk', suit: 'spades' }], new Map([['walk', days(10)]]), addDays(TODAY, -1))).toEqual([]);
+  });
+
+  it('counts a day logged late from the day it was logged, so the face card is dated when it was earned', () => {
+    // Nine days before yesterday, then yesterday logged today: the Jack was earned today, not yesterday.
+    const walk = new Map([...days(9, 'floor', addDays(TODAY, -2)), [addDays(TODAY, -1), 'floor' as Level]]);
+    const late = new Map([['walk', new Map([[addDays(TODAY, -1), TODAY]])]]);
+    expect(faceDays([{ id: 'walk', suit: 'spades' }], new Map([['walk', walk]]), TODAY)[0].day).toBe(addDays(TODAY, -1));
+    expect(faceDays([{ id: 'walk', suit: 'spades' }], new Map([['walk', walk]]), TODAY, late)[0].day).toBe(TODAY);
+    // Not yet logged as of yesterday, so no face card then.
+    expect(faceDays([{ id: 'walk', suit: 'spades' }], new Map([['walk', walk]]), addDays(TODAY, -1), late)).toEqual([]);
+  });
+
+  it('counts a day kept on time by one habit from that day, even when another habit logged it late', () => {
+    const late = new Map([['learn', new Map([[TODAY, addDays(TODAY, 1)]])]]);
+    expect(faceDays(habits, new Map([['read', days(10)], ['learn', days(10)]]), TODAY, late)[0].day).toBe(TODAY);
+    expect(knownOn(late, 'learn', TODAY)).toBe(addDays(TODAY, 1));
+    expect(knownOn(late, 'read', TODAY)).toBe(TODAY);
+    expect(knownOn(undefined, 'learn', TODAY)).toBe(TODAY);
   });
 
   it('orders faces earned on the same day the same way whatever order the habits come in', () => {

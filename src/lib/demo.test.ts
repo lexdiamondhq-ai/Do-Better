@@ -37,6 +37,17 @@ describe.each(WEEK)('the demo deck on %s', (today) => {
     expect(moments).toEqual([expect.objectContaining({ kind: 'face', suit: 'hearts', face: expect.objectContaining({ face: 'queen' }), joker: true })]);
   });
 
+  it('keeps the Joker on today’s card when yesterday is then logged late', async () => {
+    if (weekday(today) === 0) return;
+    const { backend, data } = await open(today);
+    const yesterday = addDays(today, -1);
+    const withToday = keep(data, 'demo-reach-out', today);
+    const late: Loaded = { ...withToday, days: [...withToday.days, { habitId: 'demo-reach-out', day: yesterday, level: 'floor', loggedOn: today }] };
+    const jokerDay = (d: Loaded) => playGame(gameInput(d, today, backend.seed)).current.slots.find((s) => s.card?.kind === 'joker')?.day;
+    expect(jokerDay(withToday)).toBe(today);
+    expect(jokerDay(late)).toBe(today);
+  });
+
   it('deals plain cards for every other swipe today', async () => {
     const { backend, data } = await open(today);
     let state = keep(data, 'demo-reach-out', today);
@@ -80,6 +91,17 @@ describe('the demo deck', () => {
   it('has the same history every week', async () => {
     const [a, b] = await Promise.all([open('2026-10-14'), open('2026-10-21')]);
     expect(b.data.days.map((d) => ({ ...d, day: addDays(d.day, -7) }))).toEqual(a.data.days);
+  });
+
+  it('remembers a day logged late, so its Joker and face card stay where they were dealt', async () => {
+    const backend = createDemoBackend('2026-10-16');
+    await backend.saveDay('demo-reach-out', '2026-10-15', 'floor', '2026-10-16');
+    await backend.saveDay('demo-reach-out', '2026-10-16', 'floor');
+    const days = (await backend.load('UTC')).days.filter((d) => d.habitId === 'demo-reach-out' && d.day >= '2026-10-15');
+    expect(days).toEqual([
+      { habitId: 'demo-reach-out', day: '2026-10-15', level: 'floor', loggedOn: '2026-10-16' },
+      { habitId: 'demo-reach-out', day: '2026-10-16', level: 'floor' },
+    ]);
   });
 
   it('can delete the whole deck, leaving an account that starts again from onboarding', async () => {

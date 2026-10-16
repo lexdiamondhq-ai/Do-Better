@@ -211,8 +211,9 @@ export function createDemoBackend(today: Day, options: DemoOptions = { typical: 
       state.profile = { ...state.profile, timezone };
       return copy();
     },
-    async saveDay(habitId, day, level) {
-      state.days = [...state.days.filter((d) => !(d.habitId === habitId && d.day === day)), { habitId, day, level }];
+    async saveDay(habitId, day, level, loggedOn) {
+      const row: HabitDay = loggedOn && loggedOn > day ? { habitId, day, level, loggedOn } : { habitId, day, level };
+      state.days = [...state.days.filter((d) => !(d.habitId === habitId && d.day === day)), row];
     },
     async deleteDay(habitId, day) {
       state.days = state.days.filter((d) => !(d.habitId === habitId && d.day === day));

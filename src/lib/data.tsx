@@ -354,7 +354,9 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       if (late && levelIn(s.days, habitId, target) === level) return;
       const refusal = lateRefusal(s, habitId, target, today, 'add', loggedLate.current);
       if (refusal) throw new Error(refusal);
-      const started = begin(step(checkInLane<Loaded>(habitId, target), level), () => backend.saveDay(habitId, target, level));
+      // A day logged late remembers the day it was logged, so a Joker already dealt never moves to it.
+      const loggedOn = late ? today : undefined;
+      const started = begin(step(checkInLane<Loaded>(habitId, target, loggedOn), level), () => backend.saveDay(habitId, target, level, loggedOn));
       if (!started) return;
       if (late) loggedLate.current.add(lateKey(habitId, target));
       const token = announce(started.before, started.after, today, { habitId, level, day: target });

@@ -193,6 +193,72 @@ describe('Jokers', () => {
   });
 });
 
+describe('Jokers and days logged late', () => {
+  const call: DealHabit = { id: 'call', suit: 'hearts', startedOn: '2026-07-27', archivedOn: null, name: 'Call' };
+  const move: DealHabit = { id: 'move', suit: 'spades', startedOn: '2026-07-27', archivedOn: null, name: 'Move' };
+  const deck = [call, move];
+  // Friday 16 October. Hearts has 29 days before this week, one short of its Queen; Spades kept Monday to Thursday.
+  const today = '2026-10-16';
+  const yesterday = '2026-10-15';
+  const hearts = Object.fromEntries(Array.from({ length: 29 }, (_, i) => [addDays('2026-07-27', i * 2), 'floor' as Level]));
+  const spades = run('2026-10-12', 4);
+  const late = (habitId: string, day: Day, on: Day) => new Map([[habitId, new Map([[day, on]])]]);
+  const jokerDay = (game: { current: Week }) => game.current.slots.find((s) => s.card?.kind === 'joker')?.day ?? null;
+
+  it('keeps a Joker on the day it was dealt when yesterday is logged late, whatever the deal', () => {
+    let lower = 0;
+    for (let i = 0; i < 200; i++) {
+      const seed = `late-${i}`;
+      const before = input({ seed, today, habits: deck, days: { call: { ...hearts, [today]: 'floor' }, move: { ...spades, [today]: 'floor' } } });
+      const after = { ...before, checkIns: log({ call: { ...hearts, [today]: 'floor', [yesterday]: 'floor' }, move: { ...spades, [today]: 'floor' } }), late: late('call', yesterday, today) };
+      const was = playGame(before);
+      const now = playGame(after);
+      expect(jokerDay(was)).toBe(today);
+      expect(jokerDay(now)).toBe(today);
+      expect(now.faces.find((f) => f.face.face === 'queen')?.day).toBe(today);
+      // Yesterday's own card can only go up. A hand gets weaker only when that higher card breaks a match.
+      const card = (g: typeof was) => g.current.slots.find((s) => s.day === yesterday)?.card;
+      expect(rankOf(card(now))).toBeGreaterThanOrEqual(rankOf(card(was)));
+      if ((now.current.hand?.score ?? 0) < (was.current.hand?.score ?? 0)) {
+        lower++;
+        expect(rankOf(card(now))).toBeGreaterThan(rankOf(card(was)));
+      }
+    }
+    expect(lower).toBeLessThan(20);
+  });
+
+  it('without knowing a day was logged late, would have moved the Joker back to it', () => {
+    const days = { call: { ...hearts, [today]: 'floor' as Level, [yesterday]: 'floor' as Level }, move: { ...spades, [today]: 'floor' as Level } };
+    expect(jokerDay(playGame(input({ today, habits: deck, days })))).toBe(yesterday);
+    expect(jokerDay(playGame({ ...input({ today, habits: deck, days }), late: late('call', yesterday, today) }))).toBe(today);
+  });
+
+  it('deals the Joker of a face card earned with a day logged late on today’s card, never on yesterday’s', () => {
+    const days = { call: { ...hearts, [yesterday]: 'floor' as Level }, move: spades };
+    const game = playGame({ ...input({ today, habits: deck, days }), late: late('call', yesterday, today) });
+    expect(game.faces.at(-1)).toMatchObject({ day: today, suit: 'hearts', face: { face: 'queen' } });
+    expect(jokerDay(game)).toBeNull();
+    expect(game.pendingJoker).toBe('hearts');
+    expect(game.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today. Keep any habit today and it’s dealt as a Joker.' });
+    const kept = playGame({ ...input({ today, habits: deck, days: { ...days, move: { ...spades, [today]: 'floor' } } }), late: late('call', yesterday, today) });
+    expect(jokerDay(kept)).toBe(today);
+    expect(kept.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today, so today’s card is a Joker. It plays as any rank.' });
+  });
+
+  it('never lands a waiting Joker on a day that was only logged late', () => {
+    // Four Jacks on one day: the first lands that day and the rest wait for the weeks after.
+    const four: DealHabit[] = ['spades', 'hearts', 'diamonds', 'clubs'].map((suit) => ({ id: suit, suit: suit as DealHabit['suit'], startedOn: W1, archivedOn: null }));
+    const ten = Object.fromEntries(four.map((h) => [h.id, run(W1, 10)]));
+    const tue = '2026-10-06';
+    const wed = '2026-10-07';
+    const waiting = playGame({ ...input({ habits: four, today: wed, days: { ...ten, spades: { ...ten.spades, [tue]: 'floor' } } }), late: late('spades', tue, wed) });
+    expect(waiting.current.slots.some((s) => s.card?.kind === 'joker')).toBe(false);
+    expect(waiting.tips[0]).toEqual({ tone: 'joker', text: 'Keep any habit today and it’s dealt as a Joker.' });
+    const kept = playGame({ ...input({ habits: four, today: wed, days: { ...ten, spades: { ...ten.spades, [tue]: 'floor', [wed]: 'floor' } } }), late: late('spades', tue, wed) });
+    expect(jokerDay(kept)).toBe(wed);
+  });
+});
+
 describe('calls', () => {
   const hand = (kind: HandKind): Hand => ({ kind, cards: [], ranks: [], suit: null, suited: null, score: HAND_LADDER.indexOf(kind), title: '' });
   const week = (kind: HandKind | null, over: Partial<Week> = {}): Week => ({

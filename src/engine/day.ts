@@ -122,3 +122,23 @@ export function archivedDay(archivedAt: string, timeZone: string): Day {
   const encoded = ENCODED_DAY.exec(archivedAt);
   return encoded ? encoded[1] : localDay(new Date(archivedAt), timeZone);
 }
+
+/**
+ * The value written to `habit_days.logged_at`. A check-in made on its own day stores the real moment. One
+ * logged after its day ("Did it, forgot to log") stores the local day it was logged on, as midnight UTC
+ * like `archivedAtFor`, so it can be told apart from a day kept on the day whatever time zone the phone
+ * is in later. Read it back with `loggedLateOn`.
+ */
+export function loggedAtFor(day: Day, loggedOn: Day, now: Date): string {
+  return loggedOn > day ? archivedAtFor(loggedOn) : now.toISOString();
+}
+
+/**
+ * The day a check-in was logged on when that was after its own day, or null for one made on the day.
+ * Only a stored day (see `loggedAtFor`) later than the check-in's day counts, so a real moment read in
+ * another time zone can never turn an evening check-in into a late one.
+ */
+export function loggedLateOn(day: Day, loggedAt: string | null | undefined): Day | null {
+  const encoded = loggedAt ? ENCODED_DAY.exec(loggedAt) : null;
+  return encoded && encoded[1] > day ? encoded[1] : null;
+}
