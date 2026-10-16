@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { best30, bounceBacks, calendarWeeks, daysAway, dayStatus, indexCheckIns, keptBetween, masteryOf, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
+import { best30, bounceBacks, calendarWeeks, comebackAnswer, daysAway, dayStatus, indexCheckIns, keptBetween, masteryOf, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
 import { addDays, weekday, weekStart } from './day';
 import { dealWeek } from './deal';
 
@@ -222,5 +222,22 @@ describe('calendarWeeks', () => {
     const monday = '2026-10-12';
     const weeks = calendarWeeks(addDays(monday, 29), { days: 30 }, started, kept);
     expect(weeks[0][0]).toEqual({ day: monday, status: dayStatus(monday, started, addDays(monday, 29), kept) });
+  });
+});
+
+describe('comebackAnswer', () => {
+  const today = '2026-10-14';
+  const yesterday = '2026-10-13';
+  it('answers a waiting Comeback with the Floor for any keep today, wherever it happens', () => {
+    expect(comebackAnswer(yesterday, today, today)).toEqual({ missedDay: yesterday, response: 'floor_only' });
+  });
+
+  it('answers with the first move only when that was all that was done', () => {
+    expect(comebackAnswer(yesterday, today, today, true)).toEqual({ missedDay: yesterday, response: 'two_minute' });
+  });
+
+  it('says nothing when no Comeback is waiting or the keep is a late log for yesterday', () => {
+    expect(comebackAnswer(null, today, today)).toBeNull();
+    expect(comebackAnswer(yesterday, yesterday, today)).toBeNull();
   });
 });
