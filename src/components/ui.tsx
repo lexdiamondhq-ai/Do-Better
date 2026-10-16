@@ -23,7 +23,7 @@ import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-nat
 
 import * as feel from '@/lib/feel';
 import { useTheme } from '@/theme/ThemeProvider';
-import { DISPLAY_SEMI_AT, fontScale, fonts, radius, space, TAP, typeScale, type Theme } from '@/theme/tokens';
+import { DISPLAY_SEMI_AT, edgeBorder, fontScale, fonts, radius, space, TAP, typeScale, type Theme } from '@/theme/tokens';
 
 type TextProps = PropsWithChildren<{
   style?: StyleProp<TextStyle>;
@@ -302,8 +302,7 @@ export function Field({ label, hint, value, onChangeText, inputRef, multiline, .
 export function raisedStyle(t: Theme): ViewStyle {
   return {
     backgroundColor: t.raised,
-    borderWidth: t.edge === 'transparent' ? 0 : 1,
-    borderColor: t.edge,
+    ...edgeBorder(t),
     boxShadow: `inset 0 1px 0 ${t.highlight}`,
   };
 }

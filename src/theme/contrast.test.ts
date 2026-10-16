@@ -2,7 +2,7 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 import { contrast, faintestAlpha, luminance, mix, over, parseColor, withAlpha } from './color';
-import { CARD_COLORS, cardColors, cardFace, chip, INK, on, suitColors, tables, themeOn, themes, type Theme } from './tokens';
+import { CARD_COLORS, cardColors, cardFace, chip, edgeBorder, hasEdge, INK, on, suitColors, tables, themeOn, themes, type Theme } from './tokens';
 
 const ALL_THEMES: [string, Theme][] = [['light', themes.light], ['dark', themes.dark], ...Object.entries(tables)];
 const DARK_THEMES = ALL_THEMES.filter(([, t]) => t.scheme === 'dark');
@@ -165,6 +165,16 @@ describe('raised-surface text in the screens', () => {
       ),
     );
     expect(tooFaint).toEqual([]);
+  });
+});
+
+describe('edges', () => {
+  it('gives the see-through edge of the light table no border, and every dark table a 1px one', () => {
+    expect(hasEdge(themes.light)).toBe(false);
+    expect(edgeBorder(themes.light)).toEqual({ borderWidth: 0, borderColor: themes.light.edge });
+    for (const [, t] of DARK_THEMES) expect(edgeBorder(t)).toEqual({ borderWidth: 1, borderColor: t.edge });
+    expect(hasEdge({ edge: 'transparent' })).toBe(false);
+    expect(hasEdge({ edge: '#17121F00' })).toBe(false);
   });
 });
 
