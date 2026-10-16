@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { best30, bounceBacks, daysAway, dayStatus, indexCheckIns, masteryOf, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
-import { addDays, weekStart } from './day';
+import { best30, bounceBacks, calendarWeeks, daysAway, dayStatus, indexCheckIns, keptBetween, masteryOf, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
+import { addDays, weekday, weekStart } from './day';
 import { dealWeek } from './deal';
 
 const days = (entries: Record<string, Level>) => new Map(Object.entries(entries));
@@ -177,5 +177,50 @@ describe('best30', () => {
     for (let i = 0; i < 40; i++) if (i % 4 !== 0) checkIns.set(addDays('2026-09-01', i), 'floor');
     for (let i = 10; i < 40; i++) checkIns.set(addDays('2026-09-01', i), 'floor');
     expect(best30('2026-09-01', addDays('2026-09-01', 39), checkIns)).toBe(30);
+  });
+});
+
+describe('keptBetween', () => {
+  it('counts kept days inside the range, both ends included', () => {
+    const m = days({ '2026-10-11': 'floor', '2026-10-12': 'ceiling', '2026-10-14': 'floor', '2026-10-16': 'floor', '2026-10-17': 'floor' });
+    expect(keptBetween(m, '2026-10-12', '2026-10-16')).toBe(3);
+    expect(keptBetween(m, '2026-10-13', '2026-10-13')).toBe(0);
+  });
+});
+
+describe('calendarWeeks', () => {
+  const today = '2026-10-16'; // a Friday
+  const started = '2026-09-01';
+  const kept = days({ '2026-10-15': 'ceiling', '2026-10-14': 'floor', '2026-09-17': 'floor', '2026-09-16': 'floor' });
+
+  it('lays the last 30 days out in whole Monday-to-Sunday weeks, ending with this one', () => {
+    const weeks = calendarWeeks(today, { days: 30 }, started, kept);
+    for (const w of weeks) {
+      expect(w).toHaveLength(7);
+      expect(weekday(w[0].day)).toBe(0);
+    }
+    const flat = weeks.flat();
+    expect(weeks.at(-1)!.some((c) => c.day === today)).toBe(true);
+    expect(flat.filter((c) => c.status !== 'outside' && c.status !== 'later')).toHaveLength(30);
+    expect(flat.filter((c) => c.status === 'later').map((c) => c.day)).toEqual(['2026-10-17', '2026-10-18']);
+    expect(flat.find((c) => c.day === addDays(today, -29))!.status).not.toBe('outside');
+    expect(flat.find((c) => c.day === addDays(today, -30))?.status ?? 'outside').toBe('outside');
+    expect(flat.find((c) => c.day === '2026-10-15')!.status).toBe('ceiling');
+    expect(flat.find((c) => c.day === today)!.status).toBe('open');
+  });
+
+  it('gives twelve full weeks with the newest last, and leaves days before the habit blank', () => {
+    const weeks = calendarWeeks(today, { weeks: 12 }, '2026-09-16', kept);
+    expect(weeks).toHaveLength(12);
+    expect(weeks[0][0].day).toBe(addDays(weekStart(today), -77));
+    expect(weeks.flat().some((c) => c.status === 'outside')).toBe(false);
+    expect(weeks.flat().find((c) => c.day === '2026-09-15')!.status).toBe('before');
+    expect(weeks.flat().find((c) => c.day === '2026-09-16')!.status).toBe('floor');
+  });
+
+  it('starts a 30-day view on a Monday when the window does', () => {
+    const monday = '2026-10-12';
+    const weeks = calendarWeeks(addDays(monday, 29), { days: 30 }, started, kept);
+    expect(weeks[0][0]).toEqual({ day: monday, status: dayStatus(monday, started, addDays(monday, 29), kept) });
   });
 });

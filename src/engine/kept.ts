@@ -6,7 +6,7 @@
  * looks at runs of days; the app counts kept days, not runs.
  */
 
-import { addDays, daysBetween, type Day } from './day';
+import { addDays, daysBetween, weekStart, type Day } from './day';
 
 export type Level = 'floor' | 'ceiling';
 export type DayStatus = Level | 'missed' | 'open' | 'before';
@@ -69,6 +69,37 @@ export function summarizeWindow(today: Day, length: number, startedOn: Day, chec
     if (status === 'missed') summary.missedDays++;
   }
   return summary;
+}
+
+/** Kept days from `from` to `upTo`, both included, such as "kept this week". */
+export function keptBetween(checkIns: CheckIns, from: Day, upTo: Day): number {
+  let kept = 0;
+  for (const day of checkIns.keys()) if (daysBetween(from, day) >= 0 && daysBetween(day, upTo) >= 0) kept++;
+  return kept;
+}
+
+/** A day in a calendar: its status, or `later` after today, or `outside` before the stretch being shown. */
+export type CalendarDay = { day: Day; status: DayStatus | 'later' | 'outside' };
+
+/**
+ * Whole Monday-to-Sunday weeks, oldest first, the last one holding today, so a habit's history lines up
+ * with the weekly hands. With `days`, it covers the last `days` days and marks the days before them in
+ * the first week `outside`; otherwise it is `weeks` full weeks. The rest of this week is `later`.
+ */
+export function calendarWeeks(today: Day, span: { days: number } | { weeks: number }, startedOn: Day, checkIns: CheckIns): CalendarDay[][] {
+  const first = 'days' in span ? addDays(today, -(span.days - 1)) : addDays(weekStart(today), -7 * (span.weeks - 1));
+  const out: CalendarDay[][] = [];
+  for (let monday = weekStart(first); daysBetween(monday, today) >= 0; monday = addDays(monday, 7)) {
+    out.push(
+      Array.from({ length: 7 }, (_, i) => {
+        const day = addDays(monday, i);
+        if (daysBetween(day, today) < 0) return { day, status: 'later' as const };
+        if (daysBetween(first, day) < 0) return { day, status: 'outside' as const };
+        return { day, status: dayStatus(day, startedOn, today, checkIns) };
+      }),
+    );
+  }
+  return out;
 }
 
 /** All-time kept and Ceiling days up to and including `upTo`. */
