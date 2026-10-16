@@ -24,15 +24,26 @@ const SOURCES = {
 
 export type SoundName = keyof typeof SOURCES;
 
+/**
+ * The card-room tune: a 72 second loop. Phones play the AAC file, which loops without a gap; browsers
+ * play the MP3. Only the file for the platform being built is bundled.
+ */
+const MUSIC = Platform.OS === 'web' ? require('../../assets/sounds/music.mp3') : require('../../assets/sounds/music.m4a');
+
 const VOLUME: Record<SoundName, number> = { floor: 0.8, ceiling: 0.75, later: 0.6, flip: 0.7, cardUp: 0.7, joker: 0.8, face: 0.85, chips: 0.8, call: 0.6, tap: 0.4 };
+/** Sounds that can fire again before the last one ends get a second player, so the first isn't cut short. */
+const VOICES: Partial<Record<SoundName, number>> = { ceiling: 2, chips: 2, flip: 2 };
 const MUSIC_VOLUME = 0.32;
+const FADE_IN_MS = 1000;
+const FADE_OUT_MS = 400;
 
 let soundsOn = true;
 let musicWanted = false;
 let musicPlaying = false;
 let modeSet = false;
 let music: AudioPlayer | null = null;
-const players = new Map<SoundName, AudioPlayer>();
+let fade: ReturnType<typeof setInterval> | null = null;
+const pools = new Map<SoundName, { players: AudioPlayer[]; next: number }>();
 
 function ensureMode() {
   if (modeSet) return;
@@ -40,25 +51,42 @@ function ensureMode() {
   setAudioModeAsync({ playsInSilentMode: false, interruptionMode: 'mixWithOthers', shouldPlayInBackground: false }).catch(() => {});
 }
 
-function player(name: SoundName): AudioPlayer {
-  let p = players.get(name);
+function pool(name: SoundName) {
+  let p = pools.get(name);
   if (!p) {
-    p = createAudioPlayer(SOURCES[name]);
-    p.volume = VOLUME[name];
-    players.set(name, p);
+    const players = Array.from({ length: VOICES[name] ?? 1 }, () => {
+      const player = createAudioPlayer(SOURCES[name]);
+      player.volume = VOLUME[name];
+      return player;
+    });
+    p = { players, next: 0 };
+    pools.set(name, p);
   }
   return p;
+}
+
+/** Loads every effect up front once sounds are on, so the first flip of a Showdown isn't late. */
+function preload() {
+  try {
+    ensureMode();
+    for (const name of Object.keys(SOURCES) as SoundName[]) pool(name);
+  } catch {
+    // Effects load on first play instead.
+  }
 }
 
 /** Plays one effect from the start. Quietly does nothing if sound is off or the player fails. */
 export function playSound(name: SoundName, delayMs = 0) {
   if (!soundsOn) return;
   const go = () => {
+    if (!soundsOn) return;
     try {
       ensureMode();
-      const p = player(name);
-      p.seekTo(0).catch(() => {});
-      p.play();
+      const p = pool(name);
+      const player = p.players[p.next];
+      p.next = (p.next + 1) % p.players.length;
+      player.seekTo(0).catch(() => {});
+      player.play();
     } catch {
       // A sound that can't play is never worth an error on screen.
     }
@@ -69,16 +97,47 @@ export function playSound(name: SoundName, delayMs = 0) {
   else go();
 }
 
+/** Moves the music's volume to `to` over `ms`, then runs `done`. */
+function ramp(to: number, ms: number, done?: () => void) {
+  if (fade) clearInterval(fade);
+  fade = null;
+  const player = music;
+  if (!player) return;
+  const from = player.volume;
+  const steps = Math.max(1, Math.round(ms / 50));
+  let i = 0;
+  fade = setInterval(() => {
+    i++;
+    try {
+      player.volume = from + (to - from) * (i / steps);
+    } catch {
+      // The player went away; nothing left to fade.
+    }
+    if (i >= steps) {
+      if (fade) clearInterval(fade);
+      fade = null;
+      done?.();
+    }
+  }, 50);
+}
+
 function startMusic() {
   try {
     ensureMode();
     if (!music) {
-      music = createAudioPlayer(require('../../assets/sounds/music.mp3'));
+      music = createAudioPlayer(MUSIC);
       music.loop = true;
-      music.volume = MUSIC_VOLUME;
+      music.volume = 0;
+      // The player says when it is really playing: a browser can refuse until the first tap, and a
+      // phone call or another app can pause it.
+      music.addListener('playbackStatusUpdate', (status) => {
+        musicPlaying = status.playing;
+      });
     }
+    if (!music.playing) music.volume = 0;
     music.play();
     musicPlaying = Platform.OS !== 'web' || music.playing;
+    ramp(MUSIC_VOLUME, FADE_IN_MS);
   } catch {
     musicPlaying = false;
   }
@@ -86,16 +145,22 @@ function startMusic() {
 
 function stopMusic() {
   musicPlaying = false;
-  try {
-    music?.pause();
-  } catch {
-    // Nothing to stop.
-  }
+  const player = music;
+  if (!player) return;
+  ramp(0, FADE_OUT_MS, () => {
+    try {
+      if (!musicWanted) player.pause();
+    } catch {
+      // Nothing to stop.
+    }
+  });
 }
 
-/** Called whenever the settings or the signed-in state change. */
+/** Called whenever the settings or the signed-in state change. Music is on unless the player turns it off. */
 export function setSoundSettings({ sounds, music: wantMusic }: { sounds: boolean; music: boolean }) {
+  const was = soundsOn;
   soundsOn = sounds;
+  if (sounds && (!was || !pools.size)) preload();
   if (wantMusic === musicWanted) return;
   musicWanted = wantMusic;
   if (wantMusic) startMusic();

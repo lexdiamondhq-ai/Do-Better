@@ -1,13 +1,17 @@
 """
 Makes every sound in assets/sounds from scratch: the table music loop and one effect per action.
-Nothing is sampled, so there is nothing to license. Needs numpy and ffmpeg (with MP3). MP3 plays everywhere: iPhone, Android and every browser.
+Nothing is sampled, so there is nothing to license. Needs numpy and ffmpeg (with MP3 and AAC).
+Effects are MP3, which plays everywhere. The music is written twice: AAC in an .m4a for phones, which
+loops without a gap, and MP3 for browsers.
 
-    python3 scripts/make-sounds.py
+    python3 scripts/make-sounds.py            # everything
+    python3 scripts/make-sounds.py music      # only the named sounds
 """
 
 import math
 import os
 import subprocess
+import sys
 import tempfile
 import wave
 
@@ -120,60 +124,81 @@ def save(name, mono, fmt='mp3', bitrate='96k'):
         w.setsampwidth(2)
         w.setframerate(RATE)
         w.writeframes(data.tobytes())
-    dest = os.path.join(OUT, f'{name}.{fmt}')
-    subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', path, '-c:a', 'libmp3lame', '-b:a', bitrate, dest], check=True)
+    codec = {'mp3': ['-c:a', 'libmp3lame'], 'm4a': ['-c:a', 'aac', '-movflags', '+faststart']}
+    for f in fmt.split(','):
+        dest = os.path.join(OUT, f'{name}.{f}')
+        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', path, *codec[f], '-b:a', bitrate, dest], check=True)
+        print(dest, os.path.getsize(dest), 'bytes')
     os.remove(path)
-    print(dest, os.path.getsize(dest), 'bytes')
 
 
 def music():
     """
-    The card room after hours: a slow, warm loop in F. Eight bars at 80 beats a minute, four chords,
-    soft keys, a round bass, brushed drums and a little vinyl dust. About 24 seconds, seamless.
+    The card room after hours: a slow, warm loop in F at 80 beats a minute, 72 seconds long and seamless.
+    Three eight-bar parts: the home chords, a turn through G minor and C with lighter drums, then home
+    again with a soft melody on top. Soft keys, a round bass, brushed drums and a little vinyl dust.
+    Anything ringing past the end wraps to the start, so the loop never clicks.
     """
-    bpm = 80
-    beat = 60 / bpm
-    bars = 8
-    length = bars * 4 * beat
+    beat = 60 / 80
+    bar = 4 * beat
+    length = 24 * bar
     keys_track = np.zeros(int(length * RATE))
+    lead = np.zeros_like(keys_track)
     low = np.zeros_like(keys_track)
     drums = np.zeros_like(keys_track)
-    # Fmaj9, Dm9, Bbmaj7, C9 sus, two bars each.
-    chords = [
-        (41, [57, 60, 64, 67]),
-        (38, [57, 60, 62, 65]),
-        (46, [57, 62, 65, 69]),
-        (36, [58, 62, 64, 67]),
-    ]
+    home = [(41, [57, 60, 64, 67])] * 2 + [(38, [57, 60, 62, 65])] * 2 + [(46, [57, 62, 65, 69])] * 2 + [(36, [58, 62, 64, 67])] * 2
+    turn = [(43, [58, 62, 65, 69])] * 2 + [(36, [58, 64, 69, 74])] * 2 + [(45, [55, 60, 64, 67]), (38, [57, 60, 62, 65]), (46, [57, 62, 65, 69]), (36, [58, 62, 64, 67])]
+    chords = home + turn + home
     swing = beat * 0.08
-    for bar in range(bars):
-        root, voicing = chords[bar // 2]
-        start = bar * 4 * beat
+    for b in range(24):
+        root, voicing = chords[b]
+        light = 8 <= b < 16
+        start = b * bar
         # Keys: the chord on beat 1, a softer echo on the and of 2, a single top note on 4.
         for k, n in enumerate(voicing):
-            put(keys_track, keys(n, 3.2, 0.34), start + k * 0.012)
+            put(keys_track, keys(n, 3.2, 0.3 if light else 0.34), start + k * 0.012)
         for n in voicing[1:]:
-            put(keys_track, keys(n + 12 if bar % 2 else n, 1.6, 0.16), start + 1.5 * beat + swing)
+            put(keys_track, keys(n + 12 if b % 2 else n, 1.6, 0.16), start + 1.5 * beat + swing)
         put(keys_track, keys(voicing[-1] + 12, 1.2, 0.14), start + 3 * beat + swing)
-        # Bass: root, then the fifth, walking into the next chord.
+        # Bass: root, then the fifth, walking a half step into the next chord.
+        nxt = chords[(b + 1) % 24][0]
         put(low, bass(root, beat * 1.9, 0.55), start)
         put(low, bass(root + 7, beat * 0.9, 0.42), start + 2 * beat)
-        nxt = chords[((bar + 1) // 2) % len(chords)][0]
-        put(low, bass(nxt - 1 if nxt > root else nxt + 1, beat * 0.9, 0.36), start + 3 * beat + swing)
-        # Drums: kick on 1 and the and of 2, snare on 2 and 4, swung hats.
-        put(drums, kick(0.7), start)
-        put(drums, kick(0.45), start + 1.5 * beat + swing)
-        put(drums, snare(0.32), start + beat)
-        put(drums, snare(0.32), start + 3 * beat)
+        if nxt != root:
+            put(low, bass(nxt - 1 if nxt > root else nxt + 1, beat * 0.9, 0.36), start + 3 * beat + swing)
+        else:
+            put(low, bass(root + 12, beat * 0.9, 0.3), start + 3 * beat + swing)
+        # Drums: kick on 1 and the and of 2, snare on 2 and 4, swung hats. The middle part drops the second kick.
+        put(drums, kick(0.6 if light else 0.7), start)
+        if not light:
+            put(drums, kick(0.45), start + 1.5 * beat + swing)
+        put(drums, snare(0.22 if light else 0.32), start + beat)
+        put(drums, snare(0.22 if light else 0.32), start + 3 * beat)
         for e in range(8):
             put(drums, hat(0.16 if e % 2 else 0.24), start + e * beat / 2 + (swing if e % 2 else 0))
+    # The melody, over the last part: a phrase for each chord, as (beat, note, beats long).
+    phrases = [
+        [(0, 81, 1.5), (1.5, 79, 0.5), (2, 77, 1), (3, 76, 1), (4, 72, 2.5), (7, 74, 1)],
+        [(0, 77, 1.5), (1.5, 76, 0.5), (2, 74, 1), (3, 72, 1), (4, 69, 3)],
+        [(0, 74, 1), (1, 77, 1), (2, 81, 1.5), (3.5, 79, 0.5), (4, 77, 3)],
+        [(0, 76, 1), (1, 74, 1), (2, 72, 1), (3, 70, 1), (4, 72, 3.5)],
+    ]
+    for i, phrase in enumerate(phrases):
+        at = (16 + 2 * i) * bar
+        for when, n, beats in phrase:
+            note = keys(n, beats * beat + 0.8, 0.22)
+            t0 = at + when * beat + (swing if when % 1 else 0)
+            put(lead, note, t0)
+            # A soft echo, three eighths later.
+            put(lead, 0.3 * note, t0 + 1.5 * beat)
     keys_track = lowpass(keys_track, 3800)
+    lead = lowpass(lead, 4200)
     dust = np.zeros_like(keys_track)
-    for at in rng.uniform(0, length, 160):
+    for at in rng.uniform(0, length, 480):
         put(dust, hat(rng.uniform(0.02, 0.07), 0.012), at)
     hum = 0.004 * lowpass(rng.standard_normal(len(keys_track)), 400)
-    mix = keys_track + 0.9 * low + 0.55 * drums + dust + hum
-    save('music', normalize(mix, 0.7), bitrate='128k')
+    mix = keys_track + 0.8 * lead + 0.9 * low + 0.55 * drums + dust + hum
+    save('music', normalize(mix, 0.7), fmt='m4a,mp3', bitrate='80k')
 
 
 def floor():
@@ -281,15 +306,20 @@ def tap():
     save('tap', normalize(np.sin(2 * np.pi * 1600 * x) * np.exp(-x / 0.008), 0.35))
 
 
+SOUNDS = {
+    'music': music,
+    'floor': floor,
+    'ceiling': ceiling,
+    'later': later,
+    'flip': flip,
+    'card-up': card_up,
+    'joker': joker,
+    'face': face,
+    'chips': chips,
+    'call': call,
+    'tap': tap,
+}
+
 if __name__ == '__main__':
-    music()
-    floor()
-    ceiling()
-    later()
-    flip()
-    card_up()
-    joker()
-    face()
-    chips()
-    call()
-    tap()
+    for name in sys.argv[1:] or SOUNDS:
+        SOUNDS[name]()
