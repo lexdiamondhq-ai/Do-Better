@@ -13,6 +13,14 @@ export function ThemeProvider({ table = 'kitchen', children }: PropsWithChildren
   return <ThemeContext.Provider value={themeFor(table, scheme)}>{children}</ThemeContext.Provider>;
 }
 
+/**
+ * Gives everything inside a different theme, such as `themeOn(cardColour, t)` for chrome laid over a
+ * coloured background, so every `Body`, `Label` and `Button` inside picks colours that read on it.
+ */
+export function ThemeScope({ theme, children }: PropsWithChildren<{ theme: Theme }>) {
+  return <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>;
+}
+
 export function useTheme() {
   return useContext(ThemeContext);
 }
