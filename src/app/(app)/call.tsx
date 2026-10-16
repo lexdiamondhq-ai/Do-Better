@@ -528,7 +528,7 @@ function Closed({ game, back, today, onClose, onHands }: { game: Game; back: Bac
     <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentContainerStyle={{ flexGrow: 1, padding: space.xl, paddingTop: space.xl + space.sm, paddingBottom: insets.bottom + space.lg, gap: space.lg }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.md }}>
         <Label numberOfLines={1} style={{ flexShrink: 1 }}>
-          {call ? 'This week’s call' : 'Calls are closed'}
+          {call ? 'This week’s call' : warmup ? 'Warm-up week' : 'Calls are closed'}
         </Label>
         <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button" style={{ minHeight: TAP, justifyContent: 'center' }}>
           <Body weight="heavy" color={t.textSecondary}>

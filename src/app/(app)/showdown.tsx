@@ -14,6 +14,7 @@ import { SaveDeckCard } from '@/components/SaveDeckCard';
 import { ShareButton } from '@/components/ShareButton';
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Label, raisedStyle } from '@/components/ui';
+import { WeekStrip } from '@/components/WeekStrip';
 import { SUIT_INFO, type Suit } from '@/engine/cards';
 import { nextFace, suitDays } from '@/engine/court';
 import { addDays, weekday, type Day } from '@/engine/day';
@@ -202,7 +203,8 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   // the stack the night it played, so the stack doesn't count up again and nothing offers to add them.
   const [replayed] = useState(() => {
     const watched = prefs.showdownSeen[seed];
-    return replay || (!!watched && watched >= week.start);
+    // The demo's sample week is marked seen as it opens, so its first run is still a first run, not a replay.
+    return replay || (!sample && !!watched && watched >= week.start);
   });
 
   // Reduce Motion starts at the result, with every card already turned.
@@ -355,7 +357,7 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
           contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: (phase === 'result' ? footerH : insets.bottom) + space.lg, paddingHorizontal: space.xl }}
         >
           <TopBar
-            eyebrow={sample ? 'Sample week' : 'Showdown'}
+            eyebrow={sample ? 'Sample week' : week.warmup ? 'Warm-up week' : 'Showdown'}
             range={weekRange(week.start)}
             right={
               phase !== 'result' ? (
@@ -389,7 +391,7 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
               <Body size={15} weight="bold" color={felt.theme.textSecondary}>
                 {sample
                   ? `This is a sample week from the demo deck. ${hint ?? ''}`
-                  : firstShowdown
+                  : firstShowdown && !replayed
                     ? `Your week’s cards turn over. The best five make your hand, and it pays chips into your stack. ${hint ?? ''}`
                     : (hint ?? ' ')}
               </Body>
@@ -612,7 +614,8 @@ function StageCard({
   });
   const backFace = useAnimatedStyle(() => ({ transform: [{ perspective: 900 }, { rotateY: `${-flip.get() * 180}deg` }] }));
   const frontFace = useAnimatedStyle(() => ({ transform: [{ perspective: 900 }, { rotateY: `${180 - flip.get() * 180}deg` }] }));
-  const glow = useAnimatedStyle(() => ({ opacity: river ? Math.max(peel.get(), pulse.get() * 0.5) * (1 - flip.get()) : 0 }));
+  // The glow is gone before the card turns edge-on, so its hollow middle never shows behind the turning card.
+  const glow = useAnimatedStyle(() => ({ opacity: river ? Math.max(peel.get(), pulse.get() * 0.5) * Math.max(0, 1 - flip.get() * 5) : 0 }));
   const label = useAnimatedStyle(() => ({ opacity: Math.min(1, enter.get() * 2) * (1 - gather.get() * 3) }));
 
   const holdStart = () => {
@@ -661,8 +664,9 @@ function StageCard({
         </Animated.View>
       </Pressable>
       {showDay ? (
-        <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: 0, right: 0, top: h + 8 / arc.s, alignItems: 'center', transform: [{ scale: 1 / arc.s }] }, label]}>
-          <Label>{river ? (turned ? 'River' : ready ? 'Hold to turn' : 'Turns last') : item.day}</Label>
+        // Twice the card's width and centred on it, so "Hold to turn" stays on one line under a small card.
+        <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: -w / 2, right: -w / 2, top: h + 8 / arc.s, alignItems: 'center', transform: [{ scale: 1 / arc.s }] }, label]}>
+          <Label style={{ textAlign: 'center' }}>{river ? (turned ? 'River' : ready ? 'Hold to turn' : 'Turns last') : item.day}</Label>
         </Animated.View>
       ) : null}
     </Animated.View>
@@ -680,11 +684,11 @@ function RiverMark({ w, h }: { w: number; h: number }) {
 
 /** A finished week with nothing to turn: the warm-up week. Its cards face up, in a row. */
 function StaticWeek({ week, back }: { week: Week; back: BackKey }) {
-  const t = useTheme();
   return (
     <View style={{ gap: space.lg, alignItems: 'center', paddingVertical: space.xl }}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 6 }}>
-        {week.slots.map((slot) => (slot.card ? <PlayingCard key={slot.day} face={faceOfDay(slot.card)} size="sm" /> : <CardSlot key={slot.day} size="sm" color={t.dashed} />))}
+      {/* The same seven-day strip as Today: one row with day letters, days before the deck began solid, missed days dashed. */}
+      <View style={{ alignSelf: 'stretch' }}>
+        <WeekStrip week={week} back={back} rescue={null} />
       </View>
       <Body weight="bold" style={{ textAlign: 'center' }}>
         {week.warmup

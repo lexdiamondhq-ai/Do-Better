@@ -110,8 +110,9 @@ export default function Hands() {
           </Body>
         ) : (
           <View style={{ gap: space.sm }}>
+            {/* A warm-up week has no Showdown to replay and nothing to share, so it gets its own line. */}
             <Body size={13} weight="bold" color={t.textSecondary}>
-              Tap a week to replay its Showdown. Press and hold to share it.
+              {weeks.some((w) => w.hand && !w.warmup) ? 'Tap a week to replay its Showdown. Press and hold to share it.' : 'Tap your warm-up week to see its cards.'}
             </Body>
             {weeks.map((w) => (
               <WeekRow key={w.start} week={w} onPress={() => replay(w)} onShare={w.hand && !w.warmup ? () => setSharing(w) : undefined} />
@@ -281,15 +282,16 @@ function CallPanel({ game, onCall }: { game: Game; onCall: () => void }) {
         <Label color={t.onRaisedSecondary}>Your call</Label>
         {pays > 0 ? <Chips value={pays} size={14} pill sign /> : null}
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+      {/* The fan sits a little tighter and closer, so "Three of a kind" keeps to one line on a small phone and every card's corner still reads. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         {/* The check means made: it waits until this week's hand makes the call. */}
-        <HandRow faces={EXAMPLES[call]} size="xs" overlap={0.4} highlight={onTrack ? 'called' : undefined} />
+        <HandRow faces={EXAMPLES[call]} size="xs" overlap={0.48} highlight={onTrack ? 'called' : undefined} />
         <View style={{ flex: 1, gap: 2 }}>
           <Display size={24} color={t.onRaised}>
             {HANDS[call].name}
           </Display>
           <Body size={14} weight="bold" color={t.onRaisedSecondary}>
-            {callMultiplier > 1 ? `Pays ×${callMultiplier} if you make it` : callMultiplier === 1 ? 'Pays again if you make it' : 'A sure thing, so it pays nothing extra'}
+            {callMultiplier > 1 ? `Pays ×${callMultiplier} if you make${NBSP}it` : callMultiplier === 1 ? `Pays again if you make${NBSP}it` : 'A sure thing, so it pays nothing extra'}
           </Body>
         </View>
       </View>
