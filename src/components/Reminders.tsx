@@ -153,8 +153,10 @@ export function TimeChooser({
                   onChange(p);
                 }}
                 style={({ pressed }) => ({
+                  // Four fit in one row on the smallest phone; with larger text they wrap.
+                  flexGrow: 1,
                   minHeight: 36,
-                  paddingHorizontal: space.md,
+                  paddingHorizontal: 6,
                   borderRadius: radius.pill,
                   borderWidth: 1.5,
                   borderColor: active ? t.text : t.border,
