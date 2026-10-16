@@ -6,7 +6,7 @@ import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { CardBack } from '@/components/CardBack';
 import { Chips } from '@/components/Chips';
 import { EXAMPLES, fanCardWidth, HandFan, HandRow, playedFaces, type FanItem } from '@/components/HandFan';
-import { CardSlot } from '@/components/PlayingCard';
+import { CARD_SIZES, CardSlot } from '@/components/PlayingCard';
 import { RulesButton } from '@/components/RulesSheet';
 import { SharePreview } from '@/components/ShareButton';
 import { SuitGlyph } from '@/components/Suit';
@@ -20,7 +20,7 @@ import { useDeck, useLook } from '@/lib/deck';
 import { shortDate, weekOf, weekRange } from '@/lib/format';
 import { gameInput } from '@/lib/play';
 import { usePrefs } from '@/lib/prefs';
-import { feltFor, handLines, type Felt } from '@/lib/share';
+import { feltFor, handLines, riverLine, type Felt } from '@/lib/share';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
 import { fontScale, radius, space, suitColors } from '@/theme/tokens';
 
@@ -63,6 +63,11 @@ export default function Hands() {
   const latest = lastShowdown(game);
   const away = seen && latest ? finished.filter((w) => w.hand && !w.warmup && w.start > seen && w.start < latest.start) : [];
   const replay = (w: Week) => router.push({ pathname: '/showdown', params: { week: w.start } });
+  // Holding a Hall row shares the best week that ended on that hand.
+  const shareBest = (entry: HallEntry) => {
+    const best = entry.best && game.weeks.find((w) => w.start === entry.best?.week && w.hand && !w.warmup);
+    return best ? () => setSharing(best) : undefined;
+  };
 
   return (
     <Page header={<PageTitle eyebrow={weekOf(current.start)} title="Your hand" right={<RulesButton topic="week" />} />}>
@@ -85,11 +90,11 @@ export default function Hands() {
 
       <Section title="Hall of Hands" action={<Label>{`${spotted} of ${game.hall.length} spotted`}</Label>}>
         <Body size={14} color={t.textSecondary}>
-          Every kind of hand your weeks have dealt. New card backs open as your best hand climbs.
+          Every kind of hand your weeks have dealt. New card backs open as your best hand climbs. Hold one to share your best week of it.
         </Body>
         <View style={{ gap: space.sm }}>
           {[...game.hall].reverse().map((entry) => (
-            <HallRow key={entry.kind} entry={entry} back={back} />
+            <HallRow key={entry.kind} entry={entry} back={back} onShare={shareBest(entry)} />
           ))}
           <SuitedRow weeks={game.weeks.filter((w) => !w.warmup && w.hand?.suited).length} />
         </View>
@@ -97,7 +102,11 @@ export default function Hands() {
 
       <Section title="Past weeks" action={<Chips value={game.stack} size={16} pill />}>
         {weeks.length === 0 ? (
-          <Body color={t.textSecondary}>Your first Showdown is Sunday at midnight. Every week you finish waits here, to replay or share.</Body>
+          <Body color={t.textSecondary}>
+            {current.warmup
+              ? 'Your first Showdown is next Sunday night, when your first full week ends. Every week you finish waits here, to replay or share.'
+              : 'Your first Showdown is Sunday at midnight. Every week you finish waits here, to replay or share.'}
+          </Body>
         ) : (
           <View style={{ gap: space.sm }}>
             <Body size={13} weight="bold" color={t.textSecondary}>
@@ -186,7 +195,7 @@ function ThisWeek({ game, back, felt, today }: { game: Game; back: BackKey; felt
               </Body>
             </View>
           )}
-          {!current.warmup ? <River week={current} back={back} /> : null}
+          {!current.warmup ? <River week={current} back={back} today={today} /> : null}
           {draw ? (
             <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center', backgroundColor: felt.theme.raised, borderRadius: radius.md, paddingVertical: space.sm, paddingHorizontal: space.md }}>
               <Display size={16}>◆</Display>
@@ -205,9 +214,10 @@ function ThisWeek({ game, back, felt, today }: { game: Game; back: BackKey; felt
 }
 
 /** The river card: earned by five days you kept something, and turned last at the Showdown. */
-function River({ week, back }: { week: Week; back: BackKey }) {
+function River({ week, back, today }: { week: Week; back: BackKey; today: string }) {
   const t = useTheme();
-  const { earned, need } = week.river;
+  const { earned } = week.river;
+  const line = riverLine(week, today);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border }}>
       {earned ? (
@@ -219,9 +229,9 @@ function River({ week, back }: { week: Week; back: BackKey }) {
         <CardSlot size="xs" color={t.dashed} />
       )}
       <View style={{ flex: 1, gap: 2 }}>
-        <Body weight="heavy">{earned ? 'River card earned' : 'The river card'}</Body>
+        <Body weight="heavy">{line.title}</Body>
         <Body size={14} color={t.textSecondary}>
-          {earned ? 'It stays face down until the Showdown, then joins your seven days.' : `${need} more ${need === 1 ? 'day' : 'days'} you keep something ${need === 1 ? 'earns' : 'earn'} an eighth card, turned on Sunday.`}
+          {line.detail}
         </Body>
       </View>
     </View>
@@ -296,7 +306,7 @@ function CallPanel({ game, onCall }: { game: Game; onCall: () => void }) {
   );
 }
 
-function HallRow({ entry, back }: { entry: HallEntry; back: BackKey }) {
+function HallRow({ entry, back, onShare }: { entry: HallEntry; back: BackKey; onShare?: () => void }) {
   const t = useTheme();
   const info = HANDS[entry.kind];
   const spotted = entry.count > 0;
@@ -308,11 +318,16 @@ function HallRow({ entry, back }: { entry: HallEntry; back: BackKey }) {
       : 'Not spotted yet';
   const since = spotted && entry.first ? `. First spotted ${shortDate(entry.first)}` : '';
   return (
-    <View
+    <Pressable
       accessible
       accessibilityLabel={`${hidden ? 'A secret hand' : info.name}. ${said}${since}. Pays ${info.chips} chips.`}
-      style={[
-        { flexDirection: 'row', alignItems: 'center', gap: space.md, borderRadius: radius.md, padding: space.sm, paddingRight: space.md },
+      onLongPress={onShare}
+      accessibilityActions={onShare ? [{ name: 'longpress', label: 'Share your best week of it' }] : undefined}
+      onAccessibilityAction={(e) => {
+        if (e.nativeEvent.actionName === 'longpress') onShare?.();
+      }}
+      style={({ pressed }) => [
+        { flexDirection: 'row', alignItems: 'center', gap: space.md, borderRadius: radius.md, padding: space.sm, paddingRight: space.md, opacity: pressed ? 0.85 : 1 },
         spotted ? { backgroundColor: t.bgRaised } : { borderWidth: 1, borderColor: t.border },
       ]}
     >
@@ -320,11 +335,11 @@ function HallRow({ entry, back }: { entry: HallEntry; back: BackKey }) {
         {hidden ? (
           <View style={{ flexDirection: 'row' }}>
             {[0, 1, 2, 3, 4].map((i) => (
-              <CardBack key={i} back={back} size="xs" width={28} style={{ marginLeft: i ? -8 : 0 }} />
+              <CardBack key={i} back={back} size="xs" style={{ marginLeft: i ? -CARD_SIZES.xs.w * 0.4 : 0 }} />
             ))}
           </View>
         ) : (
-          <HandRow faces={entry.best ? playedFaces(entry.best.hand.cards) : EXAMPLES[entry.kind]} size="xs" overlap={0.5} />
+          <HandRow faces={entry.best ? playedFaces(entry.best.hand.cards) : EXAMPLES[entry.kind]} size="xs" overlap={0.4} />
         )}
       </View>
       <View style={{ flex: 1, gap: 2 }}>
@@ -338,7 +353,7 @@ function HallRow({ entry, back }: { entry: HallEntry; back: BackKey }) {
           {said}
         </Body>
       </View>
-    </View>
+    </Pressable>
   );
 }
 

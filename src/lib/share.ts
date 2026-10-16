@@ -5,6 +5,7 @@ import { captureRef } from 'react-native-view-shot';
 
 import { rankName, rankPlural, SUIT_INFO, type Rank, type Suit } from '@/engine/cards';
 import type { FaceInfo } from '@/engine/court';
+import { weekday, type Day } from '@/engine/day';
 import type { Week, WeekReview } from '@/engine/game';
 import { HANDS, type Hand } from '@/engine/poker';
 import { faintestAlpha, mix, withAlpha } from '@/theme/color';
@@ -98,6 +99,20 @@ export function callLine(week: Pick<Week, 'hand' | 'call' | 'madeCall' | 'bonus'
   // A no-break space keeps "paid ×2" together when the line wraps.
   const title = ['', 'Called it. The safe call, paid\u00A0×1.', 'Called it. A stretch, paid\u00A0×2.', 'Called it. A long shot, paid\u00A0×3.'][week.callMultiplier];
   return { kind: 'made', title, detail: called, chips: week.bonus };
+}
+
+/**
+ * The live week's river card, said on the Hands tab: earned, how many more days you keep something would
+ * earn it, or, once too few days are left, that it waits for next week. Never a count the week can't reach.
+ */
+export function riverLine(week: Pick<Week, 'river' | 'slots'>, today: Day): { title: string; detail: string } {
+  if (week.river.earned) return { title: 'River card earned', detail: 'It stays face down until the Showdown, then joins your seven days.' };
+  const { need } = week.river;
+  // Today still counts while nothing has been kept today.
+  const keptToday = week.slots.some((s) => s.day === today && s.card);
+  const left = 6 - weekday(today) + (keptToday ? 0 : 1);
+  if (need > left) return { title: 'The river card', detail: 'Five days you keep something earn an eighth card. Too few days are left this week, so it’s back in play on Monday.' };
+  return { title: 'The river card', detail: `${need} more ${need === 1 ? 'day' : 'days'} you keep something ${need === 1 ? 'earns' : 'earn'} an eighth card, turned on Sunday.` };
 }
 
 /** A habit's week: "Read 6/7". */

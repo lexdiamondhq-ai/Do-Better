@@ -201,6 +201,18 @@ function Table({ week, game }: { week: Week; game: Game }) {
   const gather = useSharedValue(startAtResult ? 1 : 0);
   const quiet = useRef(startAtResult);
   const primary = useRef<ViewType>(null);
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The stage is fixed while cards are being turned, unless large text pushes it past the screen.
+  const [viewH, setViewH] = useState(0);
+  const [contentH, setContentH] = useState(0);
+  const overflows = viewH > 0 && contentH > viewH + 1;
+
+  useEffect(
+    () => () => {
+      if (focusTimer.current) clearTimeout(focusTimer.current);
+    },
+    [],
+  );
 
   const daysTurned = items.every((item, i) => item.river || turned[i]);
   const riverReady = phase === 'turn' && daysTurned && riverIndex >= 0 && !turned[riverIndex];
@@ -263,7 +275,7 @@ function Table({ week, game }: { week: Week; game: Game }) {
     const call = callLine(week);
     const said = [week.hand ? `${week.hand.title}. Pays ${formatChips(week.chips)} chips.` : '', call?.title ?? '', latest ? `Your stack: ${formatChips(game.stack)} chips.` : ''];
     AccessibilityInfo.announceForAccessibility(said.filter(Boolean).join(' '));
-    setTimeout(() => {
+    focusTimer.current = setTimeout(() => {
       if (primary.current && typeof AccessibilityInfo.sendAccessibilityEvent === 'function') AccessibilityInfo.sendAccessibilityEvent(primary.current, 'focus');
     }, 600);
   };
@@ -317,9 +329,11 @@ function Table({ week, game }: { week: Week; game: Game }) {
       <View style={{ flex: 1, backgroundColor: felt.bg }}>
         <FeltBackground felt={felt} />
         <ScrollView
-          scrollEnabled={phase === 'result'}
+          scrollEnabled={phase === 'result' || overflows}
+          onLayout={(e) => setViewH(e.nativeEvent.layout.height)}
+          onContentSizeChange={(_w, h) => setContentH(h)}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: footerH + space.lg, paddingHorizontal: space.xl }}
+          contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: (phase === 'result' ? footerH : insets.bottom) + space.lg, paddingHorizontal: space.xl }}
         >
           <TopBar
             range={weekRange(week.start)}
@@ -352,7 +366,7 @@ function Table({ week, game }: { week: Week; game: Game }) {
                 </Body>
               ) : null
             ) : (
-              <Body size={15} weight="bold" color={felt.theme.textSecondary} numberOfLines={3}>
+              <Body size={15} weight="bold" color={felt.theme.textSecondary}>
                 {firstShowdown ? `Your week’s cards turn over. The best five make your hand, and it pays chips into your stack. ${hint ?? ''}` : (hint ?? ' ')}
               </Body>
             )}
@@ -371,7 +385,7 @@ function Table({ week, game }: { week: Week; game: Game }) {
                     geo={geo}
                     back={back}
                     felt={felt}
-                    turned={turned[i]}
+                    turned={phase !== 'turn' || !!turned[i]}
                     instant={instant}
                     gather={gather}
                     ready={item.river ? riverReady : phase === 'turn'}
@@ -595,6 +609,11 @@ function StageCard({
         accessibilityLabel={turned ? item.label : name}
         accessibilityHint={turned ? undefined : river ? 'Hold to turn it over' : 'Turns it over'}
         accessibilityState={{ disabled: !tappable }}
+        // Holding is the gesture; a screen reader, Switch Control or a keyboard turns the river with one action.
+        accessibilityActions={river && tappable ? [{ name: 'activate', label: 'Turn it over' }] : undefined}
+        onAccessibilityAction={(e) => {
+          if (river && tappable && e.nativeEvent.actionName === 'activate') onTurn();
+        }}
         onPress={river ? undefined : onTurn}
         onPressIn={river ? holdStart : undefined}
         onPressOut={river ? holdEnd : undefined}
@@ -639,7 +658,7 @@ function StaticWeek({ week, back }: { week: Week; back: BackKey }) {
       </View>
       <Body weight="bold" style={{ textAlign: 'center' }}>
         {week.warmup
-          ? 'Your warm-up week. Its cards count in your Court and your kept days. Your first full hand dealt the Monday after.'
+          ? 'Your warm-up week. Its cards count in your Court and your kept days. Your first full hand was dealt the Monday after.'
           : 'No cards this week. A new hand starts every Monday.'}
       </Body>
       {!week.slots.some((s) => s.card) ? <CardBack back={back} size="md" /> : null}
@@ -667,9 +686,11 @@ function useCountUp(to: number, run: boolean, instant: boolean, duration = 900):
     if (!run || instant || to <= 0) return;
     let frame = 0;
     let decile = 0;
-    const began = Date.now();
-    const tick = () => {
-      const p = Math.min(1, (Date.now() - began) / duration);
+    let began: number | null = null;
+    // Timed by the frames themselves, not the wall clock, so a clock change mid-count can't stall or skip it.
+    const tick = (now: number) => {
+      began ??= now;
+      const p = Math.min(1, (now - began) / duration);
       setValue(Math.round(to * (1 - (1 - p) ** 3)));
       const d = Math.floor(p * 10);
       if (d > decile) {
@@ -987,8 +1008,10 @@ function BehindTheHand({
       return h && inDeck(h, d) && d <= today ? 'none' : 'off';
     });
   const weakest = review.habits.find((h) => h.id === review.weakest);
+  // An archived card can't be edited, so it never gets the nudge.
   const weakHabit = weakest ? byId.get(weakest.id) : null;
-  const fix = weakest && weakHabit && weakest.days >= 3 && weakest.kept / weakest.days <= 0.5 ? weakest : null;
+  const fixable = !!weakHabit && !weakHabit.archivedAt;
+  const fix = weakest && fixable && weakest.days >= 3 && weakest.kept / weakest.days <= 0.5 ? weakest : null;
   const court = courtLine(week, review, habits, checkIns, game);
 
   return (
@@ -1195,14 +1218,14 @@ function Away({ weeks, onReplay }: { weeks: readonly Week[]; onReplay: (week: We
           accessibilityHint="Replays this week’s Showdown"
           style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border, opacity: pressed ? 0.7 : 1 })}
         >
-          {w.hand ? <HandRow faces={playedFaces(w.hand.cards)} size="xs" overlap={0.5} /> : null}
-          <View style={{ flex: 1, gap: 2 }}>
+          {w.hand ? <HandRow faces={playedFaces(w.hand.cards)} size="xs" overlap={0.4} /> : null}
+          <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
             <Label color={t.onRaisedSecondary}>{weekRange(w.start)}</Label>
             <Body size={14} weight="heavy" color={t.onRaised} numberOfLines={2}>
               {w.hand?.title}
             </Body>
+            <Chips value={weekTotal(w)} size={13} sign color={t.onRaised} />
           </View>
-          <Chips value={weekTotal(w)} size={13} sign color={t.onRaised} />
         </Pressable>
       ))}
     </View>

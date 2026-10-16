@@ -40,7 +40,7 @@ vi.mock('react-native-view-shot', () => ({
   },
 }));
 
-const { callLine, feltFor, FOOTER, handLines, share, shareCaption, suitedLine, weekLine } = await import('./share');
+const { callLine, feltFor, FOOTER, handLines, riverLine, share, shareCaption, suitedLine, weekLine } = await import('./share');
 
 const card = (day: string, rank: number, suits: DayCard['suits'] = ['clubs'], ceilingSuits: DayCard['suits'] = []): DayCard =>
   ({ kind: 'card', day, rank, suits, ceilingSuits, tier: 'kept-all', lo: 5, rescued: false }) as DayCard;
@@ -132,6 +132,38 @@ describe('the call line', () => {
     const lines = [0, 1, 2, 3].map((m) => callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: m as Week['callMultiplier'] }))!);
     lines.push(callLine(week(twoPair, { call: 'pair' }))!, callLine(week(twoPair))!);
     for (const l of lines) expect(`${l.title} ${l.detail}`).not.toMatch(/\b(odds|bet|wager|jackpot|rake|high-roller)\b/i);
+  });
+});
+
+describe('the river line', () => {
+  // The week of Monday 12 October 2026: Thursday is the 15th, Sunday the 18th.
+  const live = (need: number, keptOn: string[] = []) =>
+    week([], {
+      start: '2026-10-12',
+      live: true,
+      river: { earned: need === 0, need, card: null },
+      slots: keptOn.map((day) => ({ day, state: 'dealt', card: card(day, 9), isToday: false })) as Week['slots'],
+    });
+
+  it('says the river is earned once it is', () => {
+    expect(riverLine(live(0), '2026-10-15').title).toBe('River card earned');
+  });
+
+  it('counts the days still needed while the week can reach them', () => {
+    // Thursday with nothing kept yet: Thursday to Sunday is four days, and two are needed.
+    expect(riverLine(live(2), '2026-10-15').detail).toBe('2 more days you keep something earn an eighth card, turned on Sunday.');
+    expect(riverLine(live(1), '2026-10-18').detail).toBe('1 more day you keep something earns an eighth card, turned on Sunday.');
+    // Four needed on Thursday, today still open: just reachable.
+    expect(riverLine(live(4), '2026-10-15').detail).toMatch(/^4 more days/);
+  });
+
+  it('never asks for more days than the week has left', () => {
+    // Thursday, four days left, five needed.
+    expect(riverLine(live(5), '2026-10-15').detail).toBe('Five days you keep something earn an eighth card. Too few days are left this week, so it’s back in play on Monday.');
+    // Sunday with today already kept: no days left to add, one still needed.
+    expect(riverLine(live(1, ['2026-10-18']), '2026-10-18').detail).toMatch(/Too few days are left/);
+    // Saturday, today kept: Sunday is the one day left, and two are needed.
+    expect(riverLine(live(2, ['2026-10-17']), '2026-10-17').detail).toMatch(/Too few days are left/);
   });
 });
 

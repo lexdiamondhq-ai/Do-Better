@@ -17,11 +17,14 @@ import { useData } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { playSound } from '@/lib/sound';
+import { faintestAlpha, withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardFace, chip, fontScale, radius, space, TAP } from '@/theme/tokens';
 
 const LABELS: Record<1 | 2 | 3, CallChoice['label']> = { 1: 'Safe', 2: 'Stretch', 3: 'Long shot' };
 const SWIPE = 90;
+/** The quieter ink on a cream call card, as faint as it can be and still read at 4.5:1. */
+const CARD_QUIET = withAlpha(cardFace.ink, faintestAlpha(cardFace.ink, cardFace.bg, 4.5, 0.6));
 
 /** A call on offer: one of the three dealt choices, or any other hand that pays at least once over. */
 type Offer = { kind: HandKind; label: string; multiplier: 0 | 1 | 2 | 3; payout: number; line: string };
@@ -56,6 +59,8 @@ export default function Call() {
   const [picked, setPicked] = useState<HandKind | null>(null);
   const [busy, setBusy] = useState(false);
   const [others, setOthers] = useState(false);
+  // The pinned footer, measured, so large text never lets it cover the end of the list.
+  const [measured, setMeasured] = useState(0);
   if (!deck) return null;
 
   const { game } = deck;
@@ -63,10 +68,15 @@ export default function Call() {
   const dealt = callChoices(game);
   const choices = [dealt.safe, dealt.stretch, dealt.longShot].flatMap((c) => (c ? [offerOf(game, c.kind, c.label)!] : []));
   // Your call if you made one, otherwise the Safe one: the first call should feel like a promise you can keep.
-  const fallback = current ?? choices[0]?.kind ?? null;
-  const kind = picked ?? fallback ?? current;
+  // A call with no price on offer (a sure thing, or one from the old rules) can't be shown as a card, so the
+  // Safe one is shown instead, under a line naming the call you have.
+  const currentOffer = current ? offerOf(game, current, 'Your call') : null;
+  const fallback = (currentOffer ? current : null) ?? choices[0]?.kind ?? null;
+  const kind = picked ?? fallback;
   const offer = kind ? (choices.find((c) => c.kind === kind) ?? offerOf(game, kind, current === kind ? 'Your call' : 'Your pick')) : null;
   const index = choices.findIndex((c) => c.kind === kind);
+  // Somewhere for a sideways swipe to go: another dealt call, or back to them from one of the other hands.
+  const canStep = choices.length > 1 || (choices.length === 1 && index < 0);
   const rest = CALLABLE.filter((k) => offerOf(game, k)).reverse();
 
   const choose = (k: HandKind) => {
@@ -100,7 +110,7 @@ export default function Call() {
     }
   }
 
-  const footer = 132 + insets.bottom;
+  const footer = measured || 132 + insets.bottom;
   const cardH = Math.round(Math.max(250, Math.min(380, height - insets.top - footer - 330)));
 
   if (!game.callOpen) return <Closed game={game} onClose={() => router.back()} />;
@@ -124,6 +134,7 @@ export default function Call() {
             Call this week’s hand
           </Display>
           <Body color={t.textSecondary}>Pick the hand you think this week will make. Make it or better by Sunday midnight and it pays again. Miss and you lose nothing.</Body>
+          {current && !currentOffer ? <Body weight="bold">{`Your call: ${HANDS[current].name}. Pick another to change it.`}</Body> : null}
         </View>
 
         {choices.length > 1 ? (
@@ -149,7 +160,7 @@ export default function Call() {
         ) : null}
 
         {offer ? (
-          <Stack key={offer.kind} offer={offer} behind={Math.min(2, Math.max(0, choices.length - 1))} height={cardH} onUp={confirm} onSide={step} mine={offer.kind === current} />
+          <Stack key={offer.kind} offer={offer} behind={Math.min(2, Math.max(0, choices.length - 1))} height={cardH} onUp={confirm} onSide={step} canSide={canStep} mine={offer.kind === current} />
         ) : (
           <Body weight="bold" color={t.textSecondary}>
             Nothing can be called this week yet. Keep a habit and check back.
@@ -192,13 +203,15 @@ export default function Call() {
                         opacity: pressed ? 0.8 : 1,
                       })}
                     >
-                      <HandRow faces={EXAMPLES[k]} size="xs" overlap={0.5} />
+                      <HandRow faces={EXAMPLES[k]} size="xs" overlap={0.4} />
                       <View style={{ flex: 1, gap: 2 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm }}>
-                          <Display size={17} numberOfLines={1} style={{ flexShrink: 1 }}>
-                            {HANDS[k].name}
-                          </Display>
-                          <Body size={13} weight="heavy" color={t.textSecondary}>{`×${o.multiplier} · +${formatChips(o.payout)}`}</Body>
+                        <Display size={17} numberOfLines={1}>
+                          {HANDS[k].name}
+                        </Display>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Body size={13} weight="heavy">{`×${o.multiplier} ·`}</Body>
+                          <ChipIcon size={13} />
+                          <Body size={13} weight="heavy">{`+${formatChips(o.payout)}`}</Body>
                         </View>
                         <Body size={12} weight="bold" color={t.textSecondary} numberOfLines={2}>
                           {o.line}
@@ -213,7 +226,9 @@ export default function Call() {
       </ScrollView>
 
       {offer ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.lg, gap: space.xs, backgroundColor: t.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border }}>
+        <View
+          onLayout={(e) => setMeasured(Math.ceil(e.nativeEvent.layout.height))}
+          style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.lg, gap: space.xs, backgroundColor: t.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border }}>
           <Button label={offer.kind === current ? `Keep my call: ${HANDS[offer.kind].name}` : `Call it: ${HANDS[offer.kind].name}`} busy={busy} onPress={() => void confirm()} />
           <Body size={12} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
             {offer.kind === current ? 'You can change it until calls close.' : 'Or swipe the card up. You can change it until calls close.'}
@@ -228,7 +243,23 @@ export default function Call() {
  * The dealt call, as a card on top of a small stack. Swipe it up to call it; swipe it sideways for the
  * next choice. A screen reader adjusts it up and down and activates it to call.
  */
-function Stack({ offer, behind, height, onUp, onSide, mine }: { offer: Offer; behind: number; height: number; onUp: () => Promise<boolean>; onSide: (by: 1 | -1) => void; mine: boolean }) {
+function Stack({
+  offer,
+  behind,
+  height,
+  onUp,
+  onSide,
+  canSide,
+  mine,
+}: {
+  offer: Offer;
+  behind: number;
+  height: number;
+  onUp: () => Promise<boolean>;
+  onSide: (by: 1 | -1) => void;
+  canSide: boolean;
+  mine: boolean;
+}) {
   const x = useSharedValue(0);
   const y = useSharedValue(0);
   const enter = useSharedValue(0.94);
@@ -261,7 +292,7 @@ function Stack({ offer, behind, height, onUp, onSide, mine }: { offer: Offer; be
         }));
         return;
       }
-      if (!vertical && (Math.abs(dx) > SWIPE || Math.abs(e.velocityX) > 900)) {
+      if (canSide && !vertical && (Math.abs(dx) > SWIPE || Math.abs(e.velocityX) > 900)) {
         const by = dx < 0 ? 1 : -1;
         x.set(withTiming(dx < 0 ? -500 : 500, { duration: 200 }, (done) => {
           if (done) scheduleOnRN(onSide, by);
@@ -356,7 +387,7 @@ function ChoiceCard({ offer, height, mine }: { offer: Offer; height: number; min
             </Body>
           </View>
         ) : null}
-        <Body size={13} weight="bold" color={cardFace.faint} maxFontSizeMultiplier={fontScale.graphic} numberOfLines={2} style={{ textAlign: 'center' }}>
+        <Body size={13} weight="bold" color={CARD_QUIET} maxFontSizeMultiplier={fontScale.graphic} numberOfLines={2} style={{ textAlign: 'center' }}>
           {offer.line}
         </Body>
       </View>
@@ -368,31 +399,44 @@ function ChoiceCard({ offer, height, mine }: { offer: Offer; height: number; min
 function Closed({ game, onClose }: { game: Game; onClose: () => void }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const call = game.current.call;
-  const offer = call ? (offerOf(game, call) ?? { kind: call, label: 'A sure thing', multiplier: 0 as const, payout: 0, line: 'A sure thing, so it pays nothing extra.' }) : null;
+  const { height } = useWindowDimensions();
+  const { call, callMultiplier } = game.current;
+  // Priced by what this week's call pays, so a sure thing or a call from the old rules still reads true.
+  const offer: Offer | null = call
+    ? (offerOf(game, call) ??
+      (callMultiplier
+        ? { kind: call, label: LABELS[callMultiplier], multiplier: callMultiplier, payout: HANDS[call].chips * callMultiplier, line: 'Your call for this week.' }
+        : { kind: call, label: 'A sure thing', multiplier: 0, payout: 0, line: 'A sure thing, so it pays nothing extra.' }))
+    : null;
   const made = call ? makesCall(game.current.hand, call) : false;
+  const cardH = Math.round(Math.max(240, Math.min(320, height - insets.top - insets.bottom - 380)));
   return (
-    <View style={{ flex: 1, backgroundColor: t.bg, padding: space.xl, paddingTop: space.xxl, paddingBottom: insets.bottom + space.lg, gap: space.lg }}>
-      <Label>Your call</Label>
-      <Display size={30} header>
-        {call ? `This week’s call: ${HANDS[call].name}` : 'No call this week.'}
-      </Display>
-      <Body color={t.textSecondary}>
-        {call
-          ? made
-            ? 'Your hand already makes it. Hold on to it through Sunday and it pays again.'
-            : 'Make it or better by Sunday midnight and it pays again. Miss and you lose nothing.'
-          : game.current.warmup
-            ? 'Calls start with your first full week.'
-            : 'Calls open again on Monday.'}
-      </Body>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: t.bg }}
+      contentContainerStyle={{ flexGrow: 1, padding: space.xl, paddingTop: space.xxl, paddingBottom: insets.bottom + space.lg, gap: space.lg }}
+    >
+      <View style={{ gap: space.sm }}>
+        <Label>{call ? 'This week’s call' : 'Your call'}</Label>
+        <Display size={30} header>
+          {call ? HANDS[call].name : 'No call this week.'}
+        </Display>
+        <Body color={t.textSecondary}>
+          {call
+            ? made
+              ? 'Your hand already makes it. Hold on to it through Sunday and it pays again.'
+              : 'Make it or better by Sunday midnight and it pays again. Miss and you lose nothing.'
+            : game.current.warmup
+              ? 'Calls start with your first full week.'
+              : 'Calls open again on Monday.'}
+        </Body>
+      </View>
       {offer ? (
-        <View style={{ height: 320 }}>
-          <ChoiceCard offer={offer} height={320} mine={false} />
+        <View style={{ height: cardH }}>
+          <ChoiceCard offer={offer} height={cardH} mine={false} />
         </View>
       ) : null}
       <View style={{ flex: 1 }} />
       <Button label="Close" variant="ghost" onPress={onClose} />
-    </View>
+    </ScrollView>
   );
 }

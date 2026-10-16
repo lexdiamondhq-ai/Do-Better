@@ -104,7 +104,7 @@ export function SharePreview({ target, visible, onClose }: { target: ShareTarget
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.md, paddingHorizontal: space.xl }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8, 6, 12, 0.95)' }]} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8, 6, 12, 0.985)' }]} />
         <View role="dialog" aria-modal aria-label={target.kind === 'hand' ? 'Share this hand' : 'Share this card'} accessibilityViewIsModal style={{ alignItems: 'center', gap: space.lg, width: '100%', maxWidth: 420 }}>
           <View style={{ width: w, height: h, borderRadius: 12 * scale + 4, overflow: 'hidden', boxShadow: '0px 18px 48px rgba(0, 0, 0, 0.5)' }}>
             <View style={{ width: SHARE_LAYOUT.w, height: SHARE_LAYOUT.h, transform: [{ translateX: -(SHARE_LAYOUT.w * (1 - scale)) / 2 }, { translateY: -(SHARE_LAYOUT.h * (1 - scale)) / 2 }, { scale }] }}>
