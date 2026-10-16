@@ -1,10 +1,12 @@
 import type { Session, User } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 
+import { ask } from '@/components/Ask';
 import { localDay } from '@/engine/day';
 
 import type { Backend } from './backend';
 import { createDemoBackend } from './demo';
+import { dealMeIn, friendlyAuthError } from './signIn';
 import { supabase } from './supabase';
 
 type AuthState = {
@@ -17,9 +19,18 @@ type AuthState = {
 };
 
 type AuthApi = AuthState & {
+  /**
+   * Playing a guest deck: started with "Deal me in", not yet saved to Sign in with Apple or an email.
+   * The deck lives with this phone's guest user, so signing out or deleting the app loses it.
+   */
+  guest: boolean;
   startDemo: () => void;
   endDemo: () => void;
-  /** Leaves the demo (if any) and starts the player's own deck as a guest. Stub until workstream G. */
+  /**
+   * Leaves the demo and starts the player's own deck as a guest, straight into the first-run tour. If
+   * a guest deck can't start (anonymous sign-ins switched off, no connection), it says so and offers
+   * to sign in instead, keeping the demo open meanwhile. Never rejects.
+   */
   startOwnDeck: () => Promise<void>;
 };
 
@@ -50,7 +61,7 @@ function signedOut(who: SignedOut) {
   }
 }
 
-const AuthContext = createContext<AuthApi>({ session: null, user: null, ready: false, demo: null, startDemo: () => {}, endDemo: () => {}, startOwnDeck: async () => {} });
+const AuthContext = createContext<AuthApi>({ session: null, user: null, ready: false, demo: null, guest: false, startDemo: () => {}, endDemo: () => {}, startOwnDeck: async () => {} });
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<Omit<AuthState, 'demo'>>({ session: null, user: null, ready: false });
@@ -70,24 +81,32 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  const api = useMemo<AuthApi>(
-    () => ({
+  const api = useMemo<AuthApi>(() => {
+    const endDemo = () => {
+      signedOut({ userId: null, demo: true });
+      setDemo(null);
+    };
+    return {
       ...state,
       demo,
+      guest: state.user?.is_anonymous === true,
       startDemo: () => setDemo(createDemoBackend(localDay(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'))),
-      endDemo: () => {
-        signedOut({ userId: null, demo: true });
-        setDemo(null);
-      },
+      endDemo,
       startOwnDeck: async () => {
-        if (demo) {
-          signedOut({ userId: null, demo: true });
-          setDemo(null);
+        try {
+          // The guest deck starts first and the demo closes after, so a failure leaves the visitor where they were.
+          if (!state.session) await dealMeIn();
+          if (demo) endDemo();
+        } catch (e) {
+          const problem = friendlyAuthError(e, 'guest');
+          ask(problem.problem === 'guest-off' ? 'Sign in to start your deck' : 'Your deck didn’t start', problem.message, [
+            { text: 'Keep exploring', style: 'cancel' },
+            { text: 'Sign in instead', onPress: endDemo },
+          ]);
         }
       },
-    }),
-    [state, demo],
-  );
+    };
+  }, [state, demo]);
 
   return <AuthContext.Provider value={api}>{children}</AuthContext.Provider>;
 }
