@@ -432,7 +432,8 @@ function Table({ deck }: { deck: Deck }) {
     const h = view.habit;
     const c = cardColors[h.color];
     const dark = item.kind === 'comeback';
-    const ink = dark ? base.onRaised : c.ink;
+    // The Comeback's stamp is inked in its accent, like its headline, so it reads on the dark side.
+    const ink = dark ? c.onDark : c.ink;
     const wash = withAlpha(dark ? base.raised : c.bg, 0.94);
     if (item.kind === 'reach')
       return { labels: { up: 'CEILING', left: 'NOT TODAY', right: 'NOT TODAY' }, actions: { up: `Reach the Ceiling: ${h.ceilingLabel}`, left: 'Not today', right: '' }, ink, wash, label: `${h.name}, Floor kept. Ceiling: ${h.ceilingLabel}` };
