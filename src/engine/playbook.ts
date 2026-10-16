@@ -13,8 +13,8 @@ export type PrincipleKey =
   | 'identity'
   | 'first-move'
   | 'comeback'
+  | 'return'
   | 'when-it-plays'
-  | 'when-where'
   | 'celebrate'
   | 'swap'
   | 'lead-card'
@@ -57,19 +57,19 @@ export const PRINCIPLES: Record<PrincipleKey, Principle> = {
     key: 'comeback',
     title: 'The comeback',
     idea: 'One missed day is not a pattern. What you do the next morning is what counts, so that is the morning the app makes easiest.',
-    tryThis: 'When a card comes back turned over, swipe down for the Floor. If yesterday was empty, that still deals it a card.',
+    tryThis: 'When a card comes back dark, swipe it down for the Floor or do just its first move. Either keeps today.',
+  },
+  return: {
+    key: 'return',
+    title: 'Start with one card',
+    idea: 'After time away, the whole deck can feel like a debt. It isn’t. Nothing you kept has gone anywhere, and one card today is a real day.',
+    tryThis: 'Start with one card. The rest can wait.',
   },
   'when-it-plays': {
     key: 'when-it-plays',
     title: 'Play it after something you already do',
     idea: 'A new card is easy to forget. Tie it to a moment that already happens every day, and that moment becomes the reminder.',
-    tryThis: 'Fill in "When it plays" on each card, like "after my first coffee".',
-  },
-  'when-where': {
-    key: 'when-where',
-    title: 'Give it a time and a place',
-    idea: 'A plan with a time and a place gets done far more often than a good intention.',
-    tryThis: 'Give the card a time and a place, like "7 am, kitchen table".',
+    tryThis: 'Fill in "When it plays" on each card, like "after my first coffee". Give it a time too, and the card can come and find you.',
   },
   celebrate: {
     key: 'celebrate',
@@ -93,7 +93,7 @@ export const PRINCIPLES: Record<PrincipleKey, Principle> = {
     key: 'environment',
     title: 'Let the room do the work',
     idea: 'What you can see and reach is what you end up doing. Put the good thing where you will trip over it.',
-    tryThis: 'Leave the book on your pillow, the shoes by the door, the bottle on the desk.',
+    tryThis: 'Leave the book on your pillow, the shoes by the door, the bottle where you can see it.',
   },
   friction: {
     key: 'friction',
@@ -159,9 +159,12 @@ export const PRINCIPLES: Record<PrincipleKey, Principle> = {
     key: 'commitment',
     title: 'Make a promise to future you',
     idea: 'A plan you have said out loud is harder to drop, especially with a little on the line.',
-    tryThis: 'Call your hand on Monday. Make it by Sunday and its chips pay twice.',
+    tryThis: 'Call this week’s hand before your first kept day is over. Make it by Sunday and it pays extra: twice for a Stretch, three times for a Long shot.',
   },
 };
+
+/** When in the day a card usually plays. `any` when nothing says. */
+export type PartOfDay = 'morning' | 'midday' | 'evening' | 'any';
 
 export type Category = 'body' | 'mind' | 'focus' | 'connection' | 'money' | 'rest' | 'growth';
 
@@ -188,52 +191,182 @@ export type Recipe = {
   category: Category;
   /** The part of you it builds, which is the suit its days are dealt in. */
   suit: Suit;
+  /** The idea behind this card, in the app's voice. Never put in the player's own "why". */
   why: string;
+  /** A first-person example for "Why it matters to you", shown as the empty field's placeholder. */
+  prompt: string;
+  /** When in the day its anchor falls. */
+  part: Exclude<PartOfDay, 'any'>;
   principle: PrincipleKey;
 };
 
+/**
+ * Ready-made cards. Every anchor and every Floor holds on any day of the week: nothing waits for a
+ * payday, a commute, a desk or a school run, so a sensible pick never fails on a Saturday.
+ */
 export const RECIPES: readonly Recipe[] = [
-  { key: 'read', name: 'Read', identity: 'a reader', floor: '1 page', ceiling: '20 pages', twoMinute: 'Open the book to your bookmark', anchor: 'after getting into bed', category: 'growth', suit: 'clubs', why: 'A page a day still adds up to whole books over a year.', principle: 'pile' },
-  { key: 'write', name: 'Write', identity: 'a writer', floor: '50 words', ceiling: '1,000 words', twoMinute: 'Write one sentence', anchor: 'after my first coffee', category: 'growth', suit: 'diamonds', why: 'Writers are people who write, a little, often.', principle: 'identity' },
-  { key: 'language', name: 'Language', identity: 'a language learner', floor: '1 lesson card', ceiling: '20-minute lesson', twoMinute: 'Say one new word out loud', anchor: 'after brushing my teeth', category: 'growth', suit: 'clubs', why: 'Short daily practice beats long weekly sessions for memory.', principle: 'first-move' },
-  { key: 'practice', name: 'Practise music', identity: 'a musician', floor: 'Play one song', ceiling: '30 minutes of practice', twoMinute: 'Pick up the instrument', anchor: 'after getting home', category: 'growth', suit: 'diamonds', why: 'Keeping the instrument out on its stand makes practice the default.', principle: 'environment' },
-  { key: 'walk', name: 'Walk', identity: 'someone who moves every day', floor: 'Walk to the corner', ceiling: '30-minute walk', twoMinute: 'Put on your shoes', anchor: 'after lunch', category: 'body', suit: 'spades', why: 'A walk lifts mood, sleep and focus, so other cards get easier.', principle: 'lead-card' },
-  { key: 'strength', name: 'Strength', identity: 'strong', floor: '5 push-ups', ceiling: '30-minute workout', twoMinute: 'Get down on the floor', anchor: 'after waking up', category: 'body', suit: 'spades', why: 'Five push-ups on a bad day keeps the door open for great days.', principle: 'first-move' },
-  { key: 'run', name: 'Run', identity: 'a runner', floor: 'Run for 1 minute', ceiling: 'Run 5 km', twoMinute: 'Put on your running kit', anchor: 'after dropping the kids off', category: 'body', suit: 'spades', why: 'A runner is someone who runs, even for a minute.', principle: 'identity' },
-  { key: 'stretch', name: 'Stretch', identity: 'flexible', floor: 'One stretch', ceiling: '10-minute routine', twoMinute: 'Touch your toes', anchor: 'after finishing work', category: 'body', suit: 'spades', why: 'Played at the end of the workday, it becomes the switch into evening.', principle: 'when-it-plays' },
-  { key: 'water', name: 'Water', identity: 'someone who looks after their body', floor: 'One glass', ceiling: '2 litres', twoMinute: 'Fill a glass', anchor: 'after waking up', category: 'body', suit: 'spades', why: 'A full bottle on the desk is a reminder you cannot miss.', principle: 'environment' },
-  { key: 'veg', name: 'Eat well', identity: 'a healthy eater', floor: 'One vegetable', ceiling: 'Home-cooked meals all day', twoMinute: 'Wash one piece of fruit', anchor: 'when planning dinner', category: 'body', suit: 'spades', why: 'Adding one good thing is easier than banning many.', principle: 'add-first' },
-  { key: 'meditate', name: 'Meditate', identity: 'a calm person', floor: '1 mindful breath', ceiling: '10 minutes', twoMinute: 'Sit down and close your eyes', anchor: 'after pouring my coffee', category: 'mind', suit: 'clubs', why: 'One breath is a real practice. Ten minutes is a great day.', principle: 'first-move' },
-  { key: 'journal', name: 'Journal', identity: 'someone who reflects', floor: 'One line', ceiling: 'A full page', twoMinute: 'Open the notebook', anchor: 'after dinner', category: 'mind', suit: 'clubs', why: 'Writing things down turns a blur of days into lessons.', principle: 'when-it-plays' },
-  { key: 'gratitude', name: 'Gratitude', identity: 'grateful', floor: 'Name one good thing', ceiling: 'Write three good things', twoMinute: 'Think of one person you are glad of', anchor: 'after getting into bed', category: 'mind', suit: 'hearts', why: 'Noticing what went well trains your attention toward it.', principle: 'celebrate' },
-  { key: 'deep-work', name: 'Focus block', identity: 'focused', floor: '10 focused minutes', ceiling: '90-minute block', twoMinute: 'Close every tab but one', anchor: 'at 9 am, at my desk', category: 'focus', suit: 'diamonds', why: 'Focus has to be booked like a meeting, or it gets eaten.', principle: 'focus-block' },
-  { key: 'plan', name: 'Plan tomorrow', identity: 'organised', floor: 'Write one priority', ceiling: 'Plan the whole day', twoMinute: 'Open tomorrow in your calendar', anchor: 'before shutting the laptop', category: 'focus', suit: 'diamonds', why: 'Knowing your one thing before the day starts protects it.', principle: 'focus' },
-  { key: 'phone-free', name: 'Phone-free morning', identity: 'in charge of my attention', floor: '10 minutes without the phone', ceiling: 'First hour phone-free', twoMinute: 'Leave the phone in another room', anchor: 'on waking up', category: 'focus', suit: 'clubs', why: 'A phone charging in the kitchen is extra effort that works for you.', principle: 'friction' },
-  { key: 'morning-light', name: 'Morning light', identity: 'a morning person', floor: 'Step outside for a minute', ceiling: '10 minutes outside', twoMinute: 'Open the curtains', anchor: 'after my first glass of water', category: 'rest', suit: 'spades', why: 'Daylight early in the day helps set your body clock for the night.', principle: 'sleep' },
-  { key: 'lights-out', name: 'Lights out', identity: 'well rested', floor: 'In bed by midnight', ceiling: 'In bed by 10:30, no screens', twoMinute: 'Plug the phone in outside the bedroom', anchor: 'after brushing my teeth', category: 'rest', suit: 'spades', why: 'A steady bedtime does more for energy and mood than almost anything.', principle: 'sleep' },
-  { key: 'tidy', name: 'Reset the space', identity: 'tidy', floor: 'Put away 5 things', ceiling: '15-minute tidy', twoMinute: 'Clear one surface', anchor: 'after dinner', category: 'rest', suit: 'clubs', why: 'A clear room makes tomorrow\'s good habits easier to start.', principle: 'environment' },
-  { key: 'reach-out', name: 'Reach out', identity: 'a good friend', floor: 'Send one message', ceiling: 'Call someone you love', twoMinute: 'Open your last chat', anchor: 'on my commute home', category: 'connection', suit: 'hearts', why: 'Relationships are kept up the same way as habits: a little, often.', principle: 'pile' },
-  { key: 'kindness', name: 'One kind act', identity: 'kind', floor: 'Say one thank-you', ceiling: 'Do something thoughtful for someone', twoMinute: 'Smile at the next person you see', anchor: 'on getting to work', category: 'connection', suit: 'hearts', why: 'Kindness is a habit like any other, and it is contagious.', principle: 'identity' },
-  { key: 'listen', name: 'Really listen', identity: 'a good listener', floor: 'Ask one real question', ceiling: 'A long talk, phone away', twoMinute: 'Put the phone face down', anchor: 'when we sit down to eat', category: 'connection', suit: 'hearts', why: 'Attention is the simplest gift there is, and the one people remember.', principle: 'when-it-plays' },
-  { key: 'partner', name: 'Partner time', identity: 'a loving partner', floor: 'Ask about their day', ceiling: 'An evening together, phones away', twoMinute: 'Send them a kind message', anchor: 'after dinner', category: 'connection', suit: 'hearts', why: 'Small daily moments do more for a relationship than rare big gestures.', principle: 'pile' },
-  { key: 'family', name: 'Present at home', identity: 'a present parent', floor: '5 minutes, phone away', ceiling: 'An hour of real time together', twoMinute: 'Put the phone face down', anchor: 'on walking in the door', category: 'connection', suit: 'hearts', why: 'The doorway is a reliable moment to switch from work to people.', principle: 'when-it-plays' },
-  { key: 'save', name: 'Save', identity: 'good with money', floor: 'Move $1 to savings', ceiling: 'Review the week\'s spending', twoMinute: 'Open your banking app', anchor: 'after getting paid', category: 'money', suit: 'diamonds', why: 'The amount matters less than becoming someone who saves.', principle: 'identity' },
-  { key: 'no-spend', name: 'Spend on purpose', identity: 'intentional with money', floor: 'Wait 24 hours on one purchase', ceiling: 'A no-spend day', twoMinute: 'Remove one saved card from a shop', anchor: 'before checking out', category: 'money', suit: 'diamonds', why: 'A small delay is enough to stop most impulse buys.', principle: 'friction' },
+  { key: 'read', name: 'Read', identity: 'a reader', floor: '1 page', ceiling: '20 pages', twoMinute: 'Open the book to your bookmark', anchor: 'after getting into bed', part: 'evening', category: 'growth', suit: 'clubs', why: 'A page a day still adds up to whole books over a year.', prompt: 'I want to finish whole books again.', principle: 'pile' },
+  { key: 'write', name: 'Write', identity: 'a writer', floor: '50 words', ceiling: '1,000 words', twoMinute: 'Write one sentence', anchor: 'after my first coffee', part: 'morning', category: 'growth', suit: 'diamonds', why: 'Writers are people who write, a little, often.', prompt: 'I have things I want to say.', principle: 'identity' },
+  { key: 'language', name: 'Language', identity: 'a language learner', floor: '1 lesson card', ceiling: '20-minute lesson', twoMinute: 'Say one new word out loud', anchor: 'after breakfast', part: 'morning', category: 'growth', suit: 'clubs', why: 'Short daily practice beats long weekly sessions for memory.', prompt: 'I want to talk with people in their own language.', principle: 'first-move' },
+  { key: 'practice', name: 'Practise music', identity: 'a musician', floor: 'Play one song', ceiling: '30 minutes of practice', twoMinute: 'Pick up the instrument', anchor: 'after dinner', part: 'evening', category: 'growth', suit: 'diamonds', why: 'Keeping the instrument out on its stand makes practice the default.', prompt: 'Playing makes me feel like myself.', principle: 'environment' },
+  { key: 'walk', name: 'Walk', identity: 'someone who moves every day', floor: 'Walk to the corner', ceiling: '30-minute walk', twoMinute: 'Put on your shoes', anchor: 'after lunch', part: 'midday', category: 'body', suit: 'spades', why: 'A walk lifts mood, sleep and focus, so other cards get easier.', prompt: 'I think and sleep better when I move.', principle: 'lead-card' },
+  { key: 'strength', name: 'Strength', identity: 'strong', floor: '5 push-ups', ceiling: '30-minute workout', twoMinute: 'Get down on the floor', anchor: 'after waking up', part: 'morning', category: 'body', suit: 'spades', why: 'Five push-ups on a bad day keeps the door open for great days.', prompt: 'I want to stay strong as I get older.', principle: 'first-move' },
+  { key: 'run', name: 'Run', identity: 'a runner', floor: 'Run for 1 minute', ceiling: 'Run 5 km', twoMinute: 'Put on your running kit', anchor: 'after waking up', part: 'morning', category: 'body', suit: 'spades', why: 'A runner is someone who runs, even for a minute.', prompt: 'I love how I feel after a run.', principle: 'identity' },
+  { key: 'stretch', name: 'Stretch', identity: 'flexible', floor: 'One stretch', ceiling: '10-minute routine', twoMinute: 'Touch your toes', anchor: 'before dinner', part: 'evening', category: 'body', suit: 'spades', why: 'Played before dinner, it becomes the switch into evening.', prompt: 'I want to move without aches.', principle: 'when-it-plays' },
+  { key: 'water', name: 'Water', identity: 'someone who looks after their body', floor: 'One glass', ceiling: '2 litres', twoMinute: 'Fill a glass', anchor: 'after waking up', part: 'morning', category: 'body', suit: 'spades', why: 'A full glass in sight is a reminder you cannot miss.', prompt: 'I feel better when I’m not running on empty.', principle: 'environment' },
+  { key: 'veg', name: 'Eat well', identity: 'a healthy eater', floor: 'One vegetable', ceiling: 'Home-cooked meals all day', twoMinute: 'Wash one piece of fruit', anchor: 'when planning dinner', part: 'evening', category: 'body', suit: 'spades', why: 'Adding one good thing is easier than banning many.', prompt: 'I want food that gives me energy.', principle: 'add-first' },
+  { key: 'meditate', name: 'Meditate', identity: 'a calm person', floor: '1 mindful breath', ceiling: '10 minutes', twoMinute: 'Sit down and close your eyes', anchor: 'after pouring my coffee', part: 'morning', category: 'mind', suit: 'clubs', why: 'One breath is a real practice. Ten minutes is a great day.', prompt: 'I want a calmer head.', principle: 'first-move' },
+  { key: 'journal', name: 'Journal', identity: 'someone who reflects', floor: 'One line', ceiling: 'A full page', twoMinute: 'Open the notebook', anchor: 'after dinner', part: 'evening', category: 'mind', suit: 'clubs', why: 'Writing things down turns a blur of days into lessons.', prompt: 'Writing it down helps me make sense of things.', principle: 'when-it-plays' },
+  { key: 'gratitude', name: 'Gratitude', identity: 'grateful', floor: 'Name one good thing', ceiling: 'Write three good things', twoMinute: 'Think of one person you are glad of', anchor: 'when I turn off the light', part: 'evening', category: 'mind', suit: 'hearts', why: 'Noticing what went well trains your attention toward it.', prompt: 'I want to notice the good stuff.', principle: 'celebrate' },
+  { key: 'deep-work', name: 'Focus block', identity: 'focused', floor: '10 focused minutes', ceiling: '90-minute block', twoMinute: 'Close every tab but one', anchor: 'after my first coffee', part: 'morning', category: 'focus', suit: 'diamonds', why: 'Focus has to be booked like a meeting, or it gets eaten.', prompt: 'The things I care about need time without interruptions.', principle: 'focus-block' },
+  { key: 'plan', name: 'Plan tomorrow', identity: 'organised', floor: 'Write one priority', ceiling: 'Plan the whole day', twoMinute: 'Open tomorrow in your calendar', anchor: 'after dinner', part: 'evening', category: 'focus', suit: 'diamonds', why: 'Knowing your one thing before the day starts protects it.', prompt: 'I want my days to go where I mean them to.', principle: 'focus' },
+  { key: 'phone-free', name: 'Phone-free morning', identity: 'in charge of my attention', floor: '10 minutes without the phone', ceiling: 'First hour phone-free', twoMinute: 'Leave the phone in another room', anchor: 'on waking up', part: 'morning', category: 'focus', suit: 'clubs', why: 'A phone charging in the kitchen is extra effort that works for you.', prompt: 'I want my mornings back.', principle: 'friction' },
+  { key: 'morning-light', name: 'Morning light', identity: 'a morning person', floor: 'Step outside for a minute', ceiling: '10 minutes outside', twoMinute: 'Open the curtains', anchor: 'after my first glass of water', part: 'morning', category: 'rest', suit: 'spades', why: 'Daylight early in the day helps set your body clock for the night.', prompt: 'I want to wake up properly.', principle: 'sleep' },
+  { key: 'lights-out', name: 'Lights out', identity: 'well rested', floor: 'In bed by midnight', ceiling: 'In bed by 10:30, no screens', twoMinute: 'Plug the phone in outside the bedroom', anchor: 'after brushing my teeth at night', part: 'evening', category: 'rest', suit: 'spades', why: 'A steady bedtime does more for energy and mood than almost anything.', prompt: 'I’m better at everything when I’ve slept.', principle: 'sleep' },
+  { key: 'tidy', name: 'Reset the space', identity: 'tidy', floor: 'Put away 5 things', ceiling: '15-minute tidy', twoMinute: 'Clear one surface', anchor: 'before I sit down for the evening', part: 'evening', category: 'rest', suit: 'clubs', why: 'A clear room makes tomorrow\'s good habits easier to start.', prompt: 'A clear room clears my head.', principle: 'environment' },
+  { key: 'reach-out', name: 'Reach out', identity: 'a good friend', floor: 'Send one message', ceiling: 'Call someone you love', twoMinute: 'Open your last chat', anchor: 'after lunch', part: 'midday', category: 'connection', suit: 'hearts', why: 'Relationships are kept up the same way as habits: a little, often.', prompt: 'I don’t want to drift from the people I love.', principle: 'pile' },
+  { key: 'kindness', name: 'One kind act', identity: 'kind', floor: 'Say one thank-you', ceiling: 'Do something thoughtful for someone', twoMinute: 'Smile at the next person you see', anchor: 'at lunch', part: 'midday', category: 'connection', suit: 'hearts', why: 'Kindness is a habit like any other, and it is contagious.', prompt: 'I want to be someone who makes a day better.', principle: 'identity' },
+  { key: 'listen', name: 'Really listen', identity: 'a good listener', floor: 'Ask one real question', ceiling: 'A long talk, phone away', twoMinute: 'Put the phone face down', anchor: 'when we sit down to eat', part: 'evening', category: 'connection', suit: 'hearts', why: 'Attention is the simplest gift there is, and the one people remember.', prompt: 'I want the people I love to feel heard.', principle: 'when-it-plays' },
+  { key: 'partner', name: 'Partner time', identity: 'a loving partner', floor: 'Ask about their day', ceiling: 'An evening together, phones away', twoMinute: 'Send them a kind message', anchor: 'after dinner', part: 'evening', category: 'connection', suit: 'hearts', why: 'Small daily moments do more for a relationship than rare big gestures.', prompt: 'I want us to stay close.', principle: 'pile' },
+  { key: 'family', name: 'Present at home', identity: 'a present parent', floor: '5 minutes, phone away', ceiling: 'An hour of real time together', twoMinute: 'Put the phone face down', anchor: 'when everyone is home', part: 'evening', category: 'connection', suit: 'hearts', why: 'The moment everyone is home is a reliable switch from the day to people.', prompt: 'I want them to remember me being there.', principle: 'when-it-plays' },
+  { key: 'save', name: 'Save', identity: 'good with money', floor: 'Check your balance', ceiling: 'Review the week\'s spending', twoMinute: 'Open your banking app', anchor: 'after my morning coffee', part: 'morning', category: 'money', suit: 'diamonds', why: 'The amount matters less than becoming someone who saves.', prompt: 'I want to stop worrying about money.', principle: 'identity' },
+  { key: 'no-spend', name: 'Spend on purpose', identity: 'intentional with money', floor: 'Skip one thing I don’t need', ceiling: 'A no-spend day', twoMinute: 'Remove one saved card from a shop', anchor: 'before lunch', part: 'midday', category: 'money', suit: 'diamonds', why: 'A small delay is enough to stop most impulse buys.', prompt: 'I want my money to go on what matters.', principle: 'friction' },
 ];
 
-/** A card's "when it plays" line, such as "Plays after lunch". */
+/** Earlier wording of ready-made anchors and app lines, so cards made from them are still recognised. */
+const FORMER: Record<string, { anchors?: string[]; whys?: string[] }> = {
+  language: { anchors: ['after brushing my teeth'] },
+  practice: { anchors: ['after getting home'] },
+  run: { anchors: ['after dropping the kids off'] },
+  stretch: { anchors: ['after finishing work'], whys: ['Played at the end of the workday, it becomes the switch into evening.'] },
+  water: { whys: ['A full bottle on the desk is a reminder you cannot miss.'] },
+  gratitude: { anchors: ['after getting into bed'] },
+  'deep-work': { anchors: ['at 9 am, at my desk'] },
+  plan: { anchors: ['before shutting the laptop'] },
+  'lights-out': { anchors: ['after brushing my teeth'] },
+  tidy: { anchors: ['after dinner'] },
+  'reach-out': { anchors: ['on my commute home'] },
+  kindness: { anchors: ['on getting to work'] },
+  family: { anchors: ['on walking in the door'], whys: ['The doorway is a reliable moment to switch from work to people.'] },
+  save: { anchors: ['after getting paid'] },
+  'no-spend': { anchors: ['before checking out'] },
+};
+
+const same = (a: string | null | undefined, b: string) => (a ?? '').trim().toLowerCase() === b.trim().toLowerCase();
+
+export function recipeFor(key: string | null | undefined): Recipe | undefined {
+  return key ? RECIPES.find((r) => r.key === key) : undefined;
+}
+
+/**
+ * The player's own "why", or null. Ready-made cards used to fill the field with the app's own line (and
+ * may still arrive with it, or with the placeholder): that is the app talking, not the player, so it
+ * counts as empty and the screens ask for their own line instead.
+ */
+export function ownWhy(habit: { why: string | null; recipeKey: string | null }): string | null {
+  const why = habit.why?.trim();
+  if (!why) return null;
+  const r = recipeFor(habit.recipeKey);
+  if (r && [r.why, r.prompt, ...(FORMER[r.key]?.whys ?? [])].some((line) => same(why, line))) return null;
+  return why;
+}
+
+/** Whether an anchor is still the ready-made one (current or earlier wording) for its recipe. */
+function stockAnchor(r: Recipe, anchor: string | null): boolean {
+  if (!anchor?.trim()) return true;
+  return [r.anchor, ...(FORMER[r.key]?.anchors ?? [])].some((a) => same(anchor, a));
+}
+
+/** Minutes after midnight for a clock time written anywhere in `text`: "7 am", "7:30pm", "19:00", "noon". */
+export function clockIn(text: string): number | null {
+  const t = text.toLowerCase();
+  if (/\bnoon\b|\bmidday\b/.test(t)) return 12 * 60;
+  if (/\bmidnight\b/.test(t)) return 0;
+  const twelve = /\b(1[0-2]|0?[1-9])(?:[:.]([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])/.exec(t);
+  if (twelve) {
+    const h = Number(twelve[1]) % 12;
+    const pm = twelve[3].startsWith('p');
+    return (h + (pm ? 12 : 0)) * 60 + Number(twelve[2] ?? 0);
+  }
+  const day = /\b([01]?\d|2[0-3])[:.h]([0-5]\d)\b/.exec(t);
+  if (day) return Number(day[1]) * 60 + Number(day[2]);
+  return null;
+}
+
+/** The part of the day a clock time falls in: morning from 4 am, midday from 11, evening from 5 pm. */
+export function partAt(minutes: number): Exclude<PartOfDay, 'any'> {
+  const h = Math.floor(minutes / 60) % 24;
+  if (h >= 4 && h < 11) return 'morning';
+  if (h >= 11 && h < 17) return 'midday';
+  return 'evening';
+}
+
+/** Words that place a moment in the day. The earliest one in the text wins. */
+const PART_WORDS: readonly [Exclude<PartOfDay, 'any'>, RegExp][] = [
+  ['evening', /finish(?:ing)? work|after work|leav(?:e|ing) work|end of the (?:work)?day|teeth at night|turn(?:ing)? off the light|lights? out/g],
+  ['morning', /get(?:ting)? to work|start(?:ing)? work|wak(?:e|es|ing)|woke|morning|breakfast|coffee|sunrise|alarm|get(?:ting)? up|out of bed|first glass/g],
+  ['midday', /lunch|noon|midday|afternoon/g],
+  ['evening', /dinner|supper|evening|night|bed\b|bedtime|sleep|get(?:ting)? home|walk(?:ing)? in the door|everyone is home|sit down to eat|sunset|tonight/g],
+];
+
+function partFromWords(text: string): Exclude<PartOfDay, 'any'> | null {
+  const t = text.toLowerCase();
+  let best: { part: Exclude<PartOfDay, 'any'>; at: number } | null = null;
+  for (const [part, words] of PART_WORDS) {
+    words.lastIndex = 0;
+    for (let m = words.exec(t); m; m = words.exec(t)) {
+      if (!best || m.index < best.at) best = { part, at: m.index };
+    }
+  }
+  return best?.part ?? null;
+}
+
+/**
+ * When in the day a card plays, so the deck can lead with the card whose moment is now. In order: the
+ * reminder time the player set for it, a clock time written in When it plays, the ready-made card's own
+ * moment while its anchor is still the stock one, words in the anchor, then the ready-made moment anyway.
+ */
+export function partOfDay(habit: { anchor: string | null; whenWhere?: string | null; recipeKey: string | null }, reminder?: string | null): PartOfDay {
+  const set = reminder ? clockIn(reminder) : null;
+  if (set !== null) return partAt(set);
+  const text = [habit.anchor, habit.whenWhere].filter(Boolean).join(' ');
+  const clock = clockIn(text);
+  if (clock !== null) return partAt(clock);
+  const r = recipeFor(habit.recipeKey);
+  if (r && stockAnchor(r, habit.anchor) && !habit.whenWhere?.trim()) return r.part;
+  return partFromWords(text) ?? r?.part ?? 'any';
+}
+
+
+/** A card's "when it plays" line, such as "Plays after lunch", or "Plays at 7 am" for a bare time. */
 export function playsLine(when: string): string {
   const text = when.trim();
   const lowered = /^I\b/.test(text) ? text : text.charAt(0).toLowerCase() + text.slice(1);
-  return `Plays ${lowered}`;
+  return /^\d/.test(lowered) ? `Plays at ${lowered}` : `Plays ${lowered}`;
 }
+
+/** One card's last 30 days and what it's missing, so advice can name the card it's about. */
+export type HabitFacts = {
+  id: string;
+  name: string;
+  /** Kept days, Ceiling days and days that counted, over the 30 days ending yesterday. */
+  kept30: number;
+  ceilings30: number;
+  days30: number;
+  hasFirstMove: boolean;
+  hasAnchor: boolean;
+  hasIdentity: boolean;
+  /** Its Comeback card is waiting today. */
+  comeback: boolean;
+  /** Kept nearly every day for a month with plenty of Ceilings (`masteryOf`). */
+  mastered: boolean;
+};
 
 export type RecommendationContext = {
   today: Day;
   habitCount: number;
   habitsWithoutTwoMinute: number;
   habitsWithoutAnchor: number;
-  habitsWithoutWhenWhere: number;
   habitsWithoutIdentity: number;
   /** Habits with a missed yesterday and nothing yet today. */
   neverTwiceCount: number;
@@ -241,40 +374,135 @@ export type RecommendationContext = {
   keptRate30: number | null;
   /** Ceiling days ÷ kept days over the last 30 days. Null when nothing was kept. */
   ceilingShare30: number | null;
-  /** It is Monday and this week's hand hasn't been called yet. */
+  /** Calls are open and this week's hand hasn't been called yet. */
   callPending?: boolean;
+  /** Something is kept today, so calls close at midnight. */
+  callClosesTonight?: boolean;
+  /** Back after three or more days with nothing kept. */
+  away?: boolean;
+  /** Every card in the deck, in deck order. With them, advice names the card and opens the right field. */
+  habits?: readonly HabitFacts[];
 };
 
-export type Recommendation = { principle: Principle; reason: string };
+/** A field on the edit screen a recommendation can open, ready to type in. */
+export type EditField = 'name' | 'identity' | 'floorLabel' | 'ceilingLabel' | 'twoMinuteLabel' | 'anchor' | 'why';
 
-/** Ideas that fit this person right now, most useful first. */
+/** Where a recommendation goes when it isn't about one card's field. */
+export type RecommendationHref = '/' | '/call' | '/habit/edit' | '/you?sheet=arrange';
+
+export type Recommendation = {
+  principle: Principle;
+  /** Why it's showing now, short enough for an eyebrow, with no full stop. */
+  reason: string;
+  /** The line under the title. The principle's own `tryThis` when left out. */
+  text?: string;
+  /** The card it's about. With `field`, tapping opens that card's edit screen on that field. */
+  habitId?: string;
+  field?: EditField;
+  /** What tapping does, in a few words, without the arrow. Advice with nothing to tap has none. */
+  cta?: string;
+  href?: RecommendationHref;
+};
+
+/** Days of data a card needs before its rate means anything. */
+const MIN_DAYS = 7;
+
+const rate = (h: HabitFacts) => (h.days30 >= MIN_DAYS ? h.kept30 / h.days30 : null);
+const share = (h: HabitFacts) => (h.kept30 > 0 ? h.ceilings30 / h.kept30 : null);
+
+/**
+ * Ideas that fit this person right now, most useful first. Each one that can be acted on says how
+ * (`cta`) and where (`habitId` and `field`, or `href`), naming the card it's about when it knows. It
+ * never counts missed days: it talks about days kept.
+ */
 export function recommend(ctx: RecommendationContext): Recommendation[] {
   const out: Recommendation[] = [];
-  const add = (key: PrincipleKey, reason: string) => {
-    if (!out.some((r) => r.principle.key === key)) out.push({ principle: PRINCIPLES[key], reason });
+  const add = (key: PrincipleKey, reason: string, extra: Omit<Recommendation, 'principle' | 'reason'> = {}) => {
+    if (!out.some((r) => r.principle.key === key)) out.push({ principle: PRINCIPLES[key], reason, ...extra });
   };
+  const habits = ctx.habits ?? [];
+  const named = habits.length > 0;
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many.replace('#', String(n)));
 
-  if (ctx.neverTwiceCount > 0) add('comeback', plural(ctx.neverTwiceCount, 'One card slipped yesterday.', '# cards slipped yesterday.'));
+  if (ctx.away && ctx.habitCount > 0) add('return', 'Welcome back', { cta: 'Pick one card', href: '/' });
+
+  if (ctx.neverTwiceCount > 0) {
+    const first = habits.find((h) => h.comeback);
+    const reason = ctx.neverTwiceCount === 1 && first ? `${first.name} is ready for a comeback` : 'Comebacks are waiting';
+    add('comeback', reason, { cta: 'Go to today’s cards', href: '/' });
+  }
+
   if (ctx.habitCount === 0) {
-    add('identity', 'You are building your first deck.');
-    add('lead-card', 'A good first card pulls others along.');
+    add('identity', 'You are building your first deck', { cta: 'Make a card', href: '/habit/edit' });
+    add('lead-card', 'A good first card pulls others along');
   }
-  if (ctx.keptRate30 !== null && ctx.keptRate30 < 0.5) {
-    add('first-move', 'Fewer than half your days were kept this month. A smaller Floor fixes that.');
-    add('environment', 'Make the habits easier to start where you are.');
+
+  // The card kept least, when it's kept on fewer than half its days: a smaller Floor keeps more of them.
+  const struggling = habits
+    .map((h) => ({ h, r: rate(h) }))
+    .filter((x): x is { h: HabitFacts; r: number } => x.r !== null && x.r < 0.5)
+    .reduce<{ h: HabitFacts; r: number } | null>((low, x) => (!low || x.r < low.r ? x : low), null);
+  if (struggling) {
+    const { h } = struggling;
+    add('first-move', `${h.name} was kept ${h.kept30} of ${h.days30} days`, {
+      text: 'A Floor so small it takes no courage keeps far more days. You can raise it again whenever you like.',
+      cta: 'Try a smaller Floor',
+      habitId: h.id,
+      field: 'floorLabel',
+    });
+  } else if (!named && ctx.keptRate30 !== null && ctx.keptRate30 < 0.5) {
+    add('first-move', 'Fewer than half your days were kept lately', { text: 'A Floor so small it takes no courage keeps far more days.' });
   }
-  if (ctx.habitsWithoutTwoMinute > 0) add('first-move', plural(ctx.habitsWithoutTwoMinute, 'One card has no first move.', '# cards have no first move.'));
-  if (ctx.habitsWithoutIdentity > 0 && ctx.habitCount > 0) add('identity', plural(ctx.habitsWithoutIdentity, 'One card does not say who it makes you yet.', '# cards do not say who they make you yet.'));
-  if (ctx.habitsWithoutAnchor > 0) add('when-it-plays', plural(ctx.habitsWithoutAnchor, 'One card does not say when it plays.', '# cards do not say when they play.'));
-  if (ctx.habitsWithoutWhenWhere > 0) add('when-where', plural(ctx.habitsWithoutWhenWhere, 'One card has no time or place.', '# cards have no time or place.'));
-  if (ctx.habitCount > 6) add('focus', `You have ${ctx.habitCount} cards in your deck.`);
-  if (ctx.keptRate30 !== null && ctx.keptRate30 >= 0.7 && ctx.ceilingShare30 !== null) {
-    if (ctx.ceilingShare30 >= 0.7) add('stretch', 'You hit the Ceiling most days. It might be time to raise it.');
-    else if (ctx.ceilingShare30 < 0.1) add('stretch', 'You keep the Floor well but rarely reach the Ceiling. Try bringing it closer.');
+
+  if (ctx.callPending) add('commitment', ctx.callClosesTonight ? 'Calls close at midnight' : 'Calls are open', { cta: 'Call your hand', href: '/call' });
+
+  const missing = (n: number, has: (h: HabitFacts) => boolean) => (n > 0 ? (habits.find((h) => !has(h)) ?? null) : null);
+  const noMove = missing(ctx.habitsWithoutTwoMinute, (h) => h.hasFirstMove);
+  if (ctx.habitsWithoutTwoMinute > 0) {
+    add('first-move', noMove && ctx.habitsWithoutTwoMinute === 1 ? `${noMove.name} has no first move yet` : plural(ctx.habitsWithoutTwoMinute, 'One card has no first move yet', '# cards have no first move yet'), {
+      ...(noMove ? { cta: `Add a first move to ${noMove.name}`, habitId: noMove.id, field: 'twoMinuteLabel' as const } : {}),
+    });
   }
-  if (ctx.callPending) add('commitment', 'Calls for this week close at midnight.');
-  if (isCleanPage(ctx.today)) add('clean-page', isFirstOfMonth(ctx.today) ? 'A new month just started.' : 'It is Monday.');
+  const noWho = missing(ctx.habitsWithoutIdentity, (h) => h.hasIdentity);
+  if (ctx.habitsWithoutIdentity > 0 && ctx.habitCount > 0) {
+    add('identity', noWho && ctx.habitsWithoutIdentity === 1 ? `${noWho.name} doesn’t say who it makes you yet` : plural(ctx.habitsWithoutIdentity, 'One card doesn’t say who it makes you yet', '# cards don’t say who they make you yet'), {
+      ...(noWho ? { cta: `Name who ${noWho.name} makes you`, habitId: noWho.id, field: 'identity' as const } : {}),
+    });
+  }
+  const noWhen = missing(ctx.habitsWithoutAnchor, (h) => h.hasAnchor);
+  if (ctx.habitsWithoutAnchor > 0) {
+    add('when-it-plays', noWhen && ctx.habitsWithoutAnchor === 1 ? `${noWhen.name} doesn’t say when it plays` : plural(ctx.habitsWithoutAnchor, 'One card doesn’t say when it plays', '# cards don’t say when they play'), {
+      ...(noWhen ? { cta: `Say when ${noWhen.name} plays`, habitId: noWhen.id, field: 'anchor' as const } : {}),
+    });
+  }
+
+  // Growing: a card that has become part of you, then a Ceiling that is too easy or too far.
+  const master = habits.find((h) => h.mastered);
+  if (master) {
+    add('stretch', `${master.name} is part of you now`, {
+      text: `Kept ${master.kept30} of the last 30 days. The Floor stays where it is; a higher Ceiling gives your best days somewhere to go.`,
+      cta: 'Raise the Ceiling',
+      habitId: master.id,
+      field: 'ceilingLabel',
+    });
+  }
+  for (const h of habits) {
+    const r = rate(h);
+    const s = share(h);
+    if (r === null || r < 0.7 || s === null) continue;
+    if (s >= 0.7) add('stretch', `${h.name}’s Ceiling is reached most days`, { cta: `Raise ${h.name}’s Ceiling`, habitId: h.id, field: 'ceilingLabel' });
+    else if (s < 0.1) add('stretch', `${h.name}’s Ceiling is rarely reached`, { cta: `Bring ${h.name}’s Ceiling closer`, habitId: h.id, field: 'ceilingLabel' });
+  }
+  if (!named && ctx.keptRate30 !== null && ctx.keptRate30 >= 0.7 && ctx.ceilingShare30 !== null) {
+    if (ctx.ceilingShare30 >= 0.7) add('stretch', 'You hit the Ceiling most days');
+    else if (ctx.ceilingShare30 < 0.1) add('stretch', 'The Ceiling is rarely reached');
+  }
+
+  // A big deck that isn't being kept: rest a card. A small deck kept well: a clean page for one more.
+  if (ctx.habitCount > 4 && ctx.keptRate30 !== null && ctx.keptRate30 < 0.7) add('focus', `${ctx.habitCount} cards in your deck`, { cta: 'Pick a card to rest', href: '/you?sheet=arrange' });
+  if (ctx.habitCount > 0 && ctx.habitCount < 3 && (ctx.keptRate30 === null || ctx.keptRate30 >= 0.7) && isCleanPage(ctx.today)) {
+    add('clean-page', isFirstOfMonth(ctx.today) ? 'A new month just started' : 'It’s Monday', { cta: 'Add a card', href: '/habit/edit' });
+  }
   return out;
 }
 
@@ -285,7 +513,7 @@ export function ideaOfTheDay(ctx: RecommendationContext): Recommendation {
   const [top] = recommend(ctx);
   if (top) return top;
   const index = ((daysBetween('2026-01-01', ctx.today) % EVERGREEN.length) + EVERGREEN.length) % EVERGREEN.length;
-  return { principle: PRINCIPLES[EVERGREEN[index]], reason: 'Today\'s idea.' };
+  return { principle: PRINCIPLES[EVERGREEN[index]], reason: 'Today’s idea' };
 }
 
 /** Recipes for the given identities first, then the rest, skipping cards already in the deck. */
