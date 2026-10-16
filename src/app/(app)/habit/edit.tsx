@@ -1,52 +1,95 @@
-import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { usePreventRemove } from 'expo-router/react-navigation';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Platform, Pressable, ScrollView, View, type TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HabitCard } from '@/components/HabitCard';
 import { ask } from '@/components/Ask';
+import { HabitCard } from '@/components/HabitCard';
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Field, Label } from '@/components/ui';
 import { SUIT_INFO, SUITS } from '@/engine/cards';
-import { inferSuit, PRINCIPLES, RECIPES } from '@/engine/playbook';
+import { inferSuit, ownWhy, PRINCIPLES, recipeFor, type EditField } from '@/engine/playbook';
 import { useData } from '@/lib/data';
+import * as feel from '@/lib/feel';
 import { draftFromHabit, draftProblem, type Habit, type HabitDraft } from '@/lib/types';
 import { useTheme } from '@/theme/ThemeProvider';
-import { CARD_COLORS, cardColors, radius, space, suitColors } from '@/theme/tokens';
+import { CARD_COLORS, cardColors, fontScale, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
 const BLANK: HabitDraft = { name: '', identity: '', floorLabel: '', ceilingLabel: '', twoMinuteLabel: '', color: 'lilac', suit: 'clubs', anchor: '', whenWhere: '', why: '', recipeKey: null };
 
-function Tip({ principle }: { principle: keyof typeof PRINCIPLES }) {
+/** Moments that happen every day, for "When it plays". None waits for a workday or a payday. */
+const MOMENTS = ['after waking up', 'after my first coffee', 'after lunch', 'after dinner', 'before bed'] as const;
+
+const FIELDS: readonly EditField[] = ['name', 'ceilingLabel', 'floorLabel', 'identity', 'anchor', 'twoMinuteLabel', 'why'];
+const isField = (v: unknown): v is EditField => typeof v === 'string' && (FIELDS as readonly string[]).includes(v);
+
+type TipText = { title: string; body: string };
+
+const TIPS: Partial<Record<EditField, TipText>> = {
+  ceilingLabel: { title: PRINCIPLES.stretch.title, body: PRINCIPLES.stretch.idea },
+  floorLabel: { title: 'Small enough for your worst day', body: 'On a bad day the Floor is the whole habit, and it still keeps the day. If it takes courage, make it smaller.' },
+  identity: { title: PRINCIPLES.identity.title, body: PRINCIPLES.identity.idea },
+  anchor: { title: PRINCIPLES['when-it-plays'].title, body: PRINCIPLES['when-it-plays'].idea },
+  twoMinuteLabel: { title: PRINCIPLES['first-move'].title, body: PRINCIPLES['first-move'].idea },
+};
+
+/** One idea, folded to its title until tapped. */
+function Tip({ tip }: { tip: TipText }) {
   const t = useTheme();
-  const p = PRINCIPLES[principle];
+  const [open, setOpen] = useState(false);
   return (
-    <Body size={13} color={t.textSecondary}>
-      <Body size={13} weight="heavy" color={t.text}>{`${p.title}. `}</Body>
-      {p.idea}
-    </Body>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      accessibilityLabel={open ? `${tip.title}. ${tip.body}` : tip.title}
+      onPress={() => {
+        feel.tick();
+        setOpen((o) => !o);
+      }}
+      hitSlop={6}
+      style={({ pressed }) => ({ flexDirection: 'row', gap: space.sm, paddingHorizontal: space.xs, paddingVertical: 6, opacity: pressed ? 0.6 : 1 })}
+    >
+      <View aria-hidden style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: t.textSecondary, alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+        <Body weight="heavy" size={12} color={t.textSecondary} maxFontSizeMultiplier={fontScale.graphic} style={{ lineHeight: 14 }}>
+          {open ? '–' : '+'}
+        </Body>
+      </View>
+      <Body size={typeScale.text.sm} color={t.textSecondary} style={{ flex: 1 }}>
+        <Body size={typeScale.text.sm} weight="heavy" color={t.text}>
+          {tip.title}
+        </Body>
+        {open ? `. ${tip.body}` : ''}
+      </Body>
+    </Pressable>
   );
 }
 
 /**
  * Make or edit a card. You write on the card itself: the preview at the top updates as you type. A new
  * card guesses its suit from its name until you pick one, and takes its suit's colour until you pick one.
+ * Opened with `focus`, it scrolls to that field and puts the cursor in it, ready to change.
  */
 export default function EditHabit() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { id, recipe } = useLocalSearchParams<{ id?: string; recipe?: string }>();
+  const navigation = useNavigation();
+  const { id, recipe, focus } = useLocalSearchParams<{ id?: string; recipe?: string; focus?: string }>();
   const { state, today, createHabit, updateHabit, archiveHabit } = useData();
   const existing = state.status === 'ready' && id ? state.habits.find((h) => h.id === id) : undefined;
-  const fromRecipe = existing ? undefined : RECIPES.find((x) => x.key === recipe);
+  const fromRecipe = existing ? undefined : recipeFor(recipe);
+  const hint = recipeFor(existing?.recipeKey ?? recipe);
+  const target = isField(focus) ? focus : null;
 
-  const [draft, setDraft] = useState<HabitDraft>(() => {
-    if (existing) return draftFromHabit(existing);
+  const [start] = useState<HabitDraft>(() => {
+    // A ready-made card's own line is the app talking, not the player: their "why" starts empty.
+    if (existing) return { ...draftFromHabit(existing), why: ownWhy(existing) ?? '' };
     const r = fromRecipe;
-    if (r) return { name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color: suitColors[r.suit].habit, suit: r.suit, anchor: r.anchor, whenWhere: '', why: r.why, recipeKey: r.key };
+    if (r) return { name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color: suitColors[r.suit].habit, suit: r.suit, anchor: r.anchor, whenWhere: '', why: '', recipeKey: r.key };
     return BLANK;
   });
+  const [draft, setDraft] = useState<HabitDraft>(start);
   const [suitPicked, setSuitPicked] = useState(!!existing || !!fromRecipe);
   const [colorPicked, setColorPicked] = useState(!!existing);
   const [busy, setBusy] = useState(false);
@@ -56,18 +99,66 @@ export default function EditHabit() {
   const color = colorPicked ? draft.color : suitColors[suit].habit;
   const final: HabitDraft = { ...draft, suit, color };
   const problem = draftProblem(final);
+  // Changed from how it opened, with the same guesses it opened with.
+  const startSuit = existing || fromRecipe ? start.suit : inferSuit(start.name, start.identity);
+  const dirty = JSON.stringify(final) !== JSON.stringify({ ...start, suit: startSuit, color: existing ? start.color : suitColors[startSuit].habit });
+  // Save stands out once there is something to save.
+  const ready = !problem && (dirty || !existing);
+
   // Once a day before today has been dealt, a new suit would change hands already played. Only a suit
   // that was guessed, on a card made before suits existed, can still be picked, and then only once.
   const played = !!existing && state.status === 'ready' && state.days.some((d) => d.habitId === existing.id && d.day < today);
   const suitLocked = played && !!existing?.suitSet;
   const guessed = played && existing?.suitSet === false;
   const suitLabel = suitLocked
-    ? 'Suit · set once its days were dealt'
+    ? 'Suit · locked, its days are already dealt'
     : guessed
       ? 'Suit · guessed, pick the one that fits'
       : suitPicked
         ? 'Suit · the part of you it builds'
         : 'Suit · guessed from the name, tap to choose';
+
+  // One input per field, so the return key can move on and a Playbook tip can open the right one.
+  const name = useRef<TextInput>(null);
+  const ceiling = useRef<TextInput>(null);
+  const floor = useRef<TextInput>(null);
+  const identity = useRef<TextInput>(null);
+  const anchor = useRef<TextInput>(null);
+  const firstMove = useRef<TextInput>(null);
+  const why = useRef<TextInput>(null);
+  const scroll = useRef<ScrollView>(null);
+  const tops = useRef<Partial<Record<EditField, number>>>({});
+  // Leaving after a save, or after "Discard", goes straight through.
+  const leaving = useRef(false);
+
+  useEffect(() => {
+    if (!target) return;
+    const input: Record<EditField, RefObject<TextInput | null>> = { name, ceilingLabel: ceiling, floorLabel: floor, identity, anchor, twoMinuteLabel: firstMove, why };
+    const timer = setTimeout(() => {
+      const y = tops.current[target];
+      if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.xxxl), animated: true });
+      input[target].current?.focus();
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [target]);
+
+  usePreventRemove(dirty && !busy, ({ data }) => {
+    if (leaving.current) {
+      navigation.dispatch(data.action);
+      return;
+    }
+    ask(existing ? 'Discard your changes?' : 'Discard this card?', existing ? 'The card stays as it was.' : 'Nothing has been added to your deck yet.', [
+      { text: 'Keep editing', style: 'cancel' },
+      {
+        text: 'Discard',
+        style: 'destructive',
+        onPress: () => {
+          leaving.current = true;
+          navigation.dispatch(data.action);
+        },
+      },
+    ]);
+  });
 
   const preview: Habit = {
     id: 'preview',
@@ -97,7 +188,8 @@ export default function EditHabit() {
     try {
       if (existing) await updateHabit(existing.id, final);
       else await createHabit(final);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      feel.ceiling();
+      leaving.current = true;
       router.back();
     } catch (e) {
       ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
@@ -113,121 +205,237 @@ export default function EditHabit() {
       {
         text: 'Archive',
         style: 'destructive',
-        onPress: () =>
+        onPress: () => {
+          leaving.current = true;
           archiveHabit(existing.id)
             .then(() => router.dismissAll())
-            .catch((e: unknown) => ask('That didn’t save', e instanceof Error ? e.message : 'Try again.')),
+            .catch((e: unknown) => {
+              leaving.current = false;
+              ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
+            });
+        },
       },
     ]);
   }
 
+  /** A field's wrapper: remembers where it sits, and rings the field a Playbook tip opened. */
+  const spot = (field: EditField, children: ReactNode) => (
+    <View
+      key={field}
+      onLayout={(e) => {
+        tops.current[field] = e.nativeEvent.layout.y;
+      }}
+      style={[{ gap: 2 }, target === field ? { borderRadius: radius.md + 4, borderWidth: 2.5, borderColor: t.text, padding: 2, margin: -4.5 } : null]}
+    >
+      {children}
+      {TIPS[field] ? <Tip tip={TIPS[field]} /> : null}
+    </View>
+  );
+
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.xl, paddingTop: space.lg, paddingBottom: insets.bottom + space.xxxl, gap: space.lg }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
-            <Body weight="bold" color={t.textSecondary}>Cancel</Body>
-          </Pressable>
-          <Display size={22}>{existing ? 'Edit card' : 'New card'}</Display>
-          <Pressable onPress={save} hitSlop={12} disabled={busy}>
-            <Body weight="heavy" color={problem ? t.textFaint : t.text}>Save</Body>
-          </Pressable>
+    <ScrollView
+      ref={scroll}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      automaticallyAdjustKeyboardInsets
+      style={{ flex: 1, backgroundColor: t.bg }}
+      contentContainerStyle={{ padding: space.xl, paddingTop: space.lg, paddingBottom: insets.bottom + space.xxxl, gap: space.lg }}
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: TAP }}>
+        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Cancel" style={{ minHeight: TAP, justifyContent: 'center' }}>
+          <Body weight="bold" color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+            Cancel
+          </Body>
+        </Pressable>
+        <Display size={typeScale.display.sm} header>
+          {existing ? 'Edit card' : 'New card'}
+        </Display>
+        <Pressable
+          onPress={save}
+          hitSlop={12}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={existing ? 'Save card' : 'Add to deck'}
+          accessibilityState={{ disabled: busy }}
+          style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: ready ? t.text : 'transparent', borderWidth: 1.5, borderColor: ready ? t.text : t.border, justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
+        >
+          <Body weight="heavy" color={ready ? t.bg : t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+            Save
+          </Body>
+        </Pressable>
+      </View>
+
+      <View style={{ height: 360, transform: [{ rotate: '-1.5deg' }], marginHorizontal: space.sm }} aria-hidden>
+        <HabitCard habit={preview} />
+      </View>
+
+      <Label style={{ marginTop: space.sm }}>The card</Label>
+      {spot('name', <Field label="Name" value={draft.name} onChangeText={(v) => set({ name: v })} placeholder="Read" autoFocus={!existing && !recipe && !target} inputRef={name} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => ceiling.current?.focus()} />)}
+
+      <View style={{ gap: space.sm }}>
+        <Label>{suitLabel}</Label>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }} accessibilityRole="radiogroup" accessibilityLabel="Suit">
+          {SUITS.map((s) => {
+            const on = suit === s;
+            const info = SUIT_INFO[s];
+            return (
+              <Pressable
+                key={s}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on, disabled: suitLocked }}
+                accessibilityLabel={`${info.name}, ${info.part}. ${info.about}`}
+                disabled={suitLocked}
+                onPress={() => {
+                  feel.tick();
+                  setSuitPicked(true);
+                  set({ suit: s });
+                }}
+                style={({ pressed }) => ({
+                  width: '48.5%',
+                  borderRadius: radius.md,
+                  padding: space.md,
+                  gap: 4,
+                  backgroundColor: on ? suitColors[s].glyph : t.bgRaised,
+                  opacity: suitLocked && !on ? 0.4 : pressed ? 0.8 : 1,
+                  transform: [{ rotate: on ? (SUITS.indexOf(s) % 2 ? '1deg' : '-1deg') : '0deg' }],
+                })}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                  <SuitGlyph suit={s} size={20} color={on ? WHITE : undefined} />
+                  <Body weight="heavy" color={on ? WHITE : t.text}>
+                    {info.part}
+                  </Body>
+                </View>
+                <Body size={12} color={on ? WHITE : t.textSecondary}>
+                  {info.about.slice(0, info.about.indexOf('.') + 1)}
+                </Body>
+              </Pressable>
+            );
+          })}
         </View>
+        {suitLocked ? (
+          <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
+            A suit is set once its days are dealt, so your past hands never change. To build another part of you, archive this card and start a new one.
+          </Body>
+        ) : guessed ? (
+          <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
+            This card was made before suits, so its suit is a guess. When you save, its past days are dealt in the suit you pick, and the suit is set for good.
+          </Body>
+        ) : null}
+      </View>
 
-        <View style={{ height: 380, transform: [{ rotate: '-1.5deg' }] }}>
-          <HabitCard habit={preview} />
-        </View>
+      {spot('ceilingLabel', <Field label="Ceiling · a great day" value={draft.ceilingLabel} onChangeText={(v) => set({ ceilingLabel: v })} placeholder="20 pages" inputRef={ceiling} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => floor.current?.focus()} />)}
+      {spot(
+        'floorLabel',
+        <Field label="Floor · still counts" value={draft.floorLabel} onChangeText={(v) => set({ floorLabel: v })} placeholder="1 page" hint="Small enough to do on your worst day. Keeping it keeps the day and deals its card." inputRef={floor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => identity.current?.focus()} />,
+      )}
 
-        <Field label="Name" value={draft.name} onChangeText={(name) => set({ name })} placeholder="Read" autoFocus={!existing && !recipe} />
-
+      <Label style={{ marginTop: space.md }}>Make it stick</Label>
+      {spot(
+        'identity',
+        <Field label="I’m…" value={draft.identity} onChangeText={(v) => set({ identity: v })} placeholder="a reader" hint="Every time you keep this card, it counts for this person in your Court." autoCapitalize="none" inputRef={identity} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => anchor.current?.focus()} />,
+      )}
+      {spot(
+        'anchor',
         <View style={{ gap: space.sm }}>
-          <Label>{suitLabel}</Label>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }} accessibilityRole="radiogroup" accessibilityLabel="Suit">
-            {SUITS.map((s) => {
-              const on = suit === s;
-              const info = SUIT_INFO[s];
+          <Field label="When it plays" value={draft.anchor} onChangeText={(v) => set({ anchor: v })} placeholder={hint?.anchor ?? 'after my first coffee'} hint="A moment that already happens every day. Add a time, like 7 am, if it has one." autoCapitalize="none" inputRef={anchor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => firstMove.current?.focus()} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginHorizontal: -space.xl }} contentContainerStyle={{ paddingHorizontal: space.xl, gap: space.sm }}>
+            {MOMENTS.map((m) => {
+              const on = draft.anchor.trim().toLowerCase() === m;
               return (
                 <Pressable
-                  key={s}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: on, disabled: suitLocked }}
-                  accessibilityLabel={`${info.name}, ${info.part}. ${info.about}`}
-                  disabled={suitLocked}
+                  key={m}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Plays ${m}`}
+                  accessibilityState={{ selected: on }}
                   onPress={() => {
-                    Haptics.selectionAsync();
-                    setSuitPicked(true);
-                    set({ suit: s });
+                    feel.tick();
+                    set({ anchor: m });
                   }}
-                  style={{ width: '48.5%', borderRadius: radius.md, padding: space.md, gap: 4, backgroundColor: on ? suitColors[s].glyph : t.bgRaised, opacity: suitLocked && !on ? 0.4 : 1 }}
+                  style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? t.text : t.border, backgroundColor: on ? t.text : 'transparent', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
                 >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-                    <SuitGlyph suit={s} size={20} color={on ? '#FFFFFF' : undefined} />
-                    <Body weight="heavy" color={on ? '#FFFFFF' : t.text}>{`${info.part}`}</Body>
-                  </View>
-                  <Body size={12} color={on ? 'rgba(255,255,255,0.85)' : t.textSecondary}>{info.about.slice(0, info.about.indexOf('.') + 1)}</Body>
+                  <Body weight="heavy" size={typeScale.text.sm} color={on ? t.bg : t.text} maxFontSizeMultiplier={fontScale.chrome}>
+                    {m}
+                  </Body>
                 </Pressable>
               );
             })}
-          </View>
-          {suitLocked ? (
-            <Body size={13} weight="bold" color={t.textSecondary}>
-              A suit is set once its days are dealt, so your past hands never change. To build another part of you, archive this card and start a new one.
-            </Body>
-          ) : guessed ? (
-            <Body size={13} weight="bold" color={t.textSecondary}>
-              This card was made before suits, so its suit is a guess. When you save, its past days are dealt in the suit you pick, and the suit is set for good.
-            </Body>
+          </ScrollView>
+          {draft.whenWhere.trim() ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.xs }}>
+              <Body size={typeScale.text.sm} color={t.textSecondary} style={{ flex: 1 }}>
+                <Body size={typeScale.text.sm} weight="heavy" color={t.text}>
+                  {'Also noted: '}
+                </Body>
+                {draft.whenWhere.trim()}
+              </Body>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Remove the note ${draft.whenWhere.trim()}`} onPress={() => set({ whenWhere: '' })} hitSlop={8} style={{ minHeight: TAP, justifyContent: 'center' }}>
+                <Body weight="heavy" size={typeScale.text.sm} color={t.textSecondary} style={{ textDecorationLine: 'underline' }}>
+                  Remove
+                </Body>
+              </Pressable>
+            </View>
           ) : null}
-        </View>
+        </View>,
+      )}
+      {spot(
+        'twoMinuteLabel',
+        <Field
+          label="First move"
+          value={draft.twoMinuteLabel}
+          onChangeText={(v) => set({ twoMinuteLabel: v })}
+          placeholder={hint?.twoMinute ?? 'Open the book to your bookmark'}
+          hint="Offered the morning after a miss. On that morning, doing just this keeps the day."
+          inputRef={firstMove}
+          returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => why.current?.focus()}
+        />,
+      )}
+      {spot(
+        'why',
+        <Field
+          label="Why it matters to you"
+          value={draft.why}
+          onChangeText={(v) => set({ why: v })}
+          placeholder={hint?.prompt ?? 'I want to finish whole books again.'}
+          hint="In your own words. The card shows it back on the hard days."
+          multiline
+          inputRef={why}
+        />,
+      )}
 
-        <Field label="Ceiling · a great day" value={draft.ceilingLabel} onChangeText={(ceilingLabel) => set({ ceilingLabel })} placeholder="20 pages" />
-        <View style={{ gap: space.sm }}>
-          <Field label="Floor · still counts" value={draft.floorLabel} onChangeText={(floorLabel) => set({ floorLabel })} placeholder="1 page" hint="Small enough to do on your worst day. Hitting it keeps the day and deals its card." />
-          <Tip principle="first-move" />
-        </View>
-
-        <Label style={{ marginTop: space.md }}>Make it stick</Label>
-        <View style={{ gap: space.sm }}>
-          <Field label="Who this makes you" value={draft.identity} onChangeText={(identity) => set({ identity })} placeholder="a reader" hint="Every kept day counts for this person in your Court." />
-          <Tip principle="identity" />
-        </View>
-        <View style={{ gap: space.sm }}>
-          <Field label="When it plays" value={draft.anchor} onChangeText={(anchor) => set({ anchor })} placeholder="after getting into bed" />
-          <Tip principle="when-it-plays" />
-        </View>
-        <View style={{ gap: space.sm }}>
-          <Field label="When and where" value={draft.whenWhere} onChangeText={(whenWhere) => set({ whenWhere })} placeholder="10 pm, in bed" />
-          
-        </View>
-        <View style={{ gap: space.sm }}>
-          <Field label="First move" value={draft.twoMinuteLabel} onChangeText={(twoMinuteLabel) => set({ twoMinuteLabel })} placeholder="Open the book to your bookmark" hint="Offered the morning after a miss." />
-          <Tip principle="comeback" />
-        </View>
-        <Field label="Why it matters to you" value={draft.why} onChangeText={(why) => set({ why })} placeholder="I want to finish a book a month again." multiline />
-
-        <View style={{ gap: space.sm }}>
-          <Label>Card colour</Label>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }} accessibilityRole="radiogroup" accessibilityLabel="Card colour">
-            {CARD_COLORS.map((c) => (
+      <View style={{ gap: space.sm }}>
+        <Label>Card colour</Label>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }} accessibilityRole="radiogroup" accessibilityLabel="Card colour">
+          {CARD_COLORS.map((c) => {
+            const on = color === c;
+            return (
               <Pressable
                 key={c}
                 accessibilityRole="radio"
-                accessibilityState={{ selected: color === c }}
+                accessibilityState={{ selected: on }}
                 accessibilityLabel={c}
                 onPress={() => {
-                  Haptics.selectionAsync();
+                  feel.tick();
                   setColorPicked(true);
                   set({ color: c });
                 }}
-                style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: cardColors[c].bg, borderWidth: color === c ? 3 : 0, borderColor: t.text }}
-              />
-            ))}
-          </View>
+                style={{ width: TAP + 4, height: TAP + 4, borderRadius: (TAP + 4) / 2, borderWidth: on ? 3 : 0, borderColor: t.text, padding: 3 }}
+              >
+                <View style={{ flex: 1, borderRadius: TAP / 2, backgroundColor: cardColors[c].bg, alignItems: 'center', justifyContent: 'center' }}>
+                  {on ? (
+                    <Body weight="heavy" color={cardColors[c].ink} maxFontSizeMultiplier={fontScale.graphic}>
+                      ✓
+                    </Body>
+                  ) : null}
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
+      </View>
 
-        <Button label={existing ? 'Save card' : 'Add to deck'} busy={busy} onPress={save} style={{ marginTop: space.md }} />
-        {existing ? <Button label="Archive card" variant="quiet" onPress={archive} /> : null}
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <Button label={existing ? 'Save card' : 'Add to deck'} busy={busy} onPress={save} style={{ marginTop: space.md }} />
+      {existing ? <Button label="Archive card" variant="quiet" onPress={archive} /> : null}
+    </ScrollView>
   );
 }
