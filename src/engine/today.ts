@@ -11,6 +11,7 @@ import { contrast, mix } from '@/theme/color';
 import { addDays, type Day } from './day';
 import type { Tip, TipTone } from './game';
 import { dayStatus, type CheckIns, type Level } from './kept';
+import { playsLine } from './playbook';
 import { handPhrase, type Hand } from './poker';
 
 // Time of day -------------------------------------------------------------------------------------------
@@ -38,6 +39,19 @@ export function timing(part: PartOfDay, now: DayPart): 'now' | 'upcoming' | 'ear
 export function laterTag(part: PartOfDay, now: DayPart): string | null {
   if (timing(part, now) !== 'upcoming') return null;
   return part === 'evening' ? 'Plays tonight' : 'Plays later today';
+}
+
+/**
+ * The card's When it plays line. Beside a "Plays tonight" tag it carries on from the tag ("after getting
+ * into bed") instead of saying "Plays" twice. Null when the card has no anchor.
+ */
+export function whenLine(anchor: string | null | undefined, whenWhere: string | null | undefined, tag: string | null): string | null {
+  const text = anchor?.trim();
+  if (!text) return null;
+  const plays = playsLine(text);
+  const line = tag ? plays.replace(/^Plays\s+/, '') : plays;
+  const where = whenWhere?.trim();
+  return where ? `${line} · ${where}` : line;
 }
 
 // The queue ---------------------------------------------------------------------------------------------
@@ -82,9 +96,9 @@ const GROUP = { now: 0, upcoming: 1, earlier: 2 } as const;
  * The cards still to play today, front first.
  *
  * A focused card comes first. Then cards nobody pushed back: Comeback cards, then the cards whose moment
- * is now, then those still to come today, then those whose moment has passed, each in deck order. Cards
- * pushed back come last in the order they were pushed, and a Comeback card keeps its Comeback side.
- * The Welcome back header, when asked for, goes in front of everything.
+ * is now, then those still to come today (the soonest first, so midday comes before tonight), then those
+ * whose moment has passed, each in deck order. Cards pushed back come last in the order they were pushed,
+ * and a Comeback card keeps its Comeback side. The Welcome back header, when asked for, goes in front.
  */
 export function buildQueue({ cards, deferred, focused = null, now, welcome = false, reach = null }: QueueInput): QueueItem[] {
   const order = new Map(cards.map((c, i) => [c.id, i]));
@@ -96,8 +110,10 @@ export function buildQueue({ cards, deferred, focused = null, now, welcome = fal
   const pending = cards.filter((c) => c.level === null);
   const rank = (c: TodayCard): number[] => {
     const back = pushed(c.id);
-    if (back >= 0) return [1, back, 0, 0];
-    return [0, c.comeback ? 0 : 1, GROUP[timing(c.part, now)], order.get(c.id) ?? 0];
+    if (back >= 0) return [1, back, 0, 0, 0];
+    const when = timing(c.part, now);
+    const soon = when === 'upcoming' && c.part !== 'any' ? PARTS.indexOf(c.part) : 0;
+    return [0, c.comeback ? 0 : 1, GROUP[when], soon, order.get(c.id) ?? 0];
   };
   const sorted = [...pending].sort((a, b) => {
     const ra = rank(a);
@@ -157,6 +173,10 @@ export const COMEBACK_LOG_FROM = 400;
 export const COMEBACK_LEAN_BELOW = 340;
 /** Below this the folded Comeback drops its evidence line too, keeping only who you are and the way in. */
 export const COMEBACK_TIGHT_BELOW = 305;
+/** Below this the folded Comeback's first move gives up its label line, so who you are still fits whole above it. */
+export const COMEBACK_TINY_BELOW = 250;
+/** From this height the folded Comeback has spare room, and gives it to its words: "Yesterday got away", a bigger headline, more of the why. */
+export const COMEBACK_ROOMY_FROM = 430;
 /** At this text size or larger, cards become a list with buttons. */
 export const LIST_FONT_SCALE = 1.35;
 /** Only screens at least this tall give the tip its own band; on the rest it joins the hand line, leaving the room to the card. */
@@ -173,13 +193,19 @@ export function densityFor({ cardHeight, windowHeight, fontScale, screenReader }
   leanComeback: boolean;
   /** Fold it further, to who you are and the way in. */
   tightComeback: boolean;
+  /** Shorter still: the first move loses its label line. */
+  tinyComeback: boolean;
+  /** Folded, but with room to spare for the words. */
+  roomyComeback: boolean;
 } {
   const mergeTip = windowHeight < TALL_SCREEN;
   const foldComeback = cardHeight < COMEBACK_BELOW;
   const logOnComeback = cardHeight >= COMEBACK_LOG_FROM;
   const leanComeback = cardHeight < COMEBACK_LEAN_BELOW;
   const tightComeback = cardHeight < COMEBACK_TIGHT_BELOW;
-  const room = { mergeTip, foldComeback, logOnComeback, leanComeback, tightComeback };
+  const tinyComeback = cardHeight < COMEBACK_TINY_BELOW;
+  const roomyComeback = cardHeight >= COMEBACK_ROOMY_FROM;
+  const room = { mergeTip, foldComeback, logOnComeback, leanComeback, tightComeback, tinyComeback, roomyComeback };
   if (screenReader || fontScale >= LIST_FONT_SCALE) return { mode: 'list', ...room };
   return { mode: cardHeight < COMPACT_BELOW ? 'compact' : 'regular', ...room };
 }
@@ -272,14 +298,46 @@ export function keptLine(kept: number): string {
 }
 
 /**
- * The tips worth a place on Today: a Joker, a face card within reach, yesterday's card still to save,
- * and the call. The rest (the next band, a draw, the Showdown) live on the hand and in the rules,
- * so the screen above the card stays quiet.
+ * The tips worth a place on Today: a Joker, a face card within reach, yesterday's card still to save, the
+ * call, and what the week is playing for (the warm-up, a river card a day or two away, Sunday's Showdown).
+ * The rest (the next band, a draw) live on the hand and in the rules, so the screen above the card stays quiet.
+ *
+ * In the warm-up week the line that explains it leads. On a player's very first look, while the swipe hint
+ * is showing, only one line may join it, and only the warm-up explanation: the call waits for the next look
+ * (its chip is still there), so the first screen asks one thing at a time.
  */
-const TODAY_TONES: ReadonlySet<TipTone> = new Set(['joker', 'face', 'rescue', 'call']);
+const TODAY_TONES: ReadonlySet<TipTone> = new Set(['joker', 'face', 'rescue', 'call', 'showdown']);
 
-export function todayTips(tips: readonly Tip[]): Tip[] {
-  return tips.filter((tip) => TODAY_TONES.has(tip.tone));
+export function todayTips(tips: readonly Tip[], { warmup = false, firstLook = false }: { warmup?: boolean; firstLook?: boolean } = {}): Tip[] {
+  const shown = tips.filter((tip) => TODAY_TONES.has(tip.tone));
+  const week = shown.filter((tip) => tip.tone === 'showdown');
+  const ordered = warmup ? [...week, ...shown.filter((tip) => tip.tone !== 'showdown')] : shown;
+  if (firstLook) return warmup ? week.slice(0, 1) : [];
+  return ordered;
+}
+
+/**
+ * The hand line over the deck: what to call the hand, its name, and what it pays. On Sunday it names the
+ * stake ("Showdown tonight"); in the warm-up week the hand plays for fun and pays nothing.
+ */
+export function handLineCopy({ warmup, hand, chips, sunday }: { warmup: boolean; hand: Pick<Hand, 'title'> | null; chips: number; sunday: boolean }): {
+  label: string;
+  title: string;
+  pays: number | null;
+  spoken: string;
+} {
+  const label = warmup ? 'Warm-up hand' : sunday && hand ? 'Showdown tonight' : 'Your hand';
+  const title = hand?.title ?? 'No cards yet';
+  const pays = !warmup && hand ? chips : null;
+  const worth = pays === null ? '' : `. Pays ${grouped(pays)} chips ${sunday ? 'at midnight' : 'if the week ended now'}`;
+  return { label, title, pays, spoken: `${label}: ${title}${worth}` };
+}
+
+/** The eyebrow on today's idea: "Today's idea", with the reason it was picked when there is one. */
+export function ideaLabel(reason: string): string {
+  const why = reason.trim().replace(/\.$/, '');
+  const base = 'Today’s idea';
+  return !why || why.replace(/'/g, '’').toLowerCase() === base.toLowerCase() ? base : `${base} · ${why}`;
 }
 
 /** What the screen says once every card is kept: a title and a line about the week's hand. */
@@ -316,12 +374,14 @@ export type EventLike = { id: number; kind: string };
 
 /**
  * What gets the screen for the events waiting: one moment, never a stack. A face card beats the first card,
- * which beats a milestone; anything else is a receipt for the latest of them. Everything waiting is folded
- * into the moment (`ids`), so dismissing it clears the queue. `also` lists what was folded in.
+ * which beats a milestone; anything else is a receipt for the latest check-in, with a Court rung riding
+ * along on it. Everything waiting is folded into the moment (`ids`), so dismissing it clears the queue.
+ * `also` lists what was folded in.
  */
 export type Moment<E extends EventLike> = { kind: 'face' | 'first' | 'milestone' | 'receipt'; main: E; also: E[]; ids: number[] };
 
-const RECEIPTS = new Set(['deal', 'backfill', 'rung']);
+/** Receipts about a card come before a rung's own receipt: the rung then shows as a line on the card's. */
+const CARD_RECEIPTS = new Set(['deal', 'backfill']);
 
 export function momentOf<E extends EventLike>(events: readonly E[]): Moment<E> | null {
   if (!events.length) return null;
@@ -330,35 +390,116 @@ export function momentOf<E extends EventLike>(events: readonly E[]): Moment<E> |
     const main = events.find((e) => e.kind === kind);
     if (main) return { kind, main, also: events.filter((e) => e !== main), ids };
   }
-  const receipts = events.filter((e) => RECEIPTS.has(e.kind));
-  const main = receipts.at(-1) ?? events.at(-1)!;
+  const main = events.filter((e) => CARD_RECEIPTS.has(e.kind)).at(-1) ?? events.filter((e) => e.kind === 'rung').at(-1) ?? events.at(-1)!;
   return { kind: 'receipt', main, also: events.filter((e) => e !== main), ids };
 }
 
+/** A waiting event as far as staleness goes: the check-in it came from, or the rung it reached. */
+export type EventFacts = { kind: string; habitId?: string; level?: Level; day?: Day; suit?: string; days?: number };
+
+/**
+ * Whether a waiting event no longer matches the deck, so it must not be shown (or must stop showing): its
+ * check-in was undone or changed level since (from the Undo chip, a pill or the habit page), or the suit
+ * dropped back below the rung it reached.
+ */
+export function eventStale(e: EventFacts, today: Day, live: { level: (habitId: string, day: Day) => Level | null; suitDays: (suit: string) => number }): boolean {
+  if ((e.kind === 'deal' || e.kind === 'backfill') && e.habitId) return live.level(e.habitId, e.kind === 'deal' ? today : (e.day ?? today)) !== e.level;
+  if (e.kind === 'rung' && e.suit) return live.suitDays(e.suit) < (e.days ?? 0);
+  return false;
+}
+
+/** How a Joker is described everywhere a player reads about one. */
+export const JOKER_LINE = 'It has no suit and plays as any rank.';
+
 type HandLike = Pick<Hand, 'kind' | 'title' | 'score'>;
+
+/** A Court rung reached by the same check-in, told on the card's receipt. */
+export type RungNote = { part: string; days: number };
+
+/**
+ * A late log that moved the week's Joker onto yesterday. `face` names the face card whose day it was, when
+ * that face card now falls on yesterday; `today` names today's card now, when today has one.
+ */
+export type JokerMove = { day: string; face: string | null; today: string | null };
 
 /** What a receipt is about: today's card after a check-in, yesterday logged late, or a rung in the Court. */
 export type Receipt =
-  | { kind: 'deal'; level: Level; joker: boolean; wentUp: boolean; first: boolean; dropped: boolean; hand: HandLike | null; handWas: HandLike | null; saved: boolean }
-  | { kind: 'backfill'; level: Level; hand: HandLike | null }
+  | {
+      kind: 'deal';
+      level: Level;
+      /** Today's card by name, such as "Ten of Diamonds". */
+      card: string;
+      joker: boolean;
+      wentUp: boolean;
+      first: boolean;
+      dropped: boolean;
+      hand: HandLike | null;
+      handWas: HandLike | null;
+      saved: boolean;
+      rung?: RungNote | null;
+    }
+  | {
+      kind: 'backfill';
+      level: Level;
+      /** Yesterday's card by name, after the late log. */
+      card: string;
+      joker: boolean;
+      /** Yesterday had no card before the late log. */
+      blank: boolean;
+      hand: HandLike | null;
+      handWas: HandLike | null;
+      moved?: JokerMove | null;
+      rung?: RungNote | null;
+    }
   | { kind: 'rung'; suit: string; part: string; days: number };
 
 /**
- * The words on the receipt that drops in after a check-in. When a higher card breaks a pair, it says so
- * plainly instead of cheering: the card went up but the hand went down.
+ * The receipt's words. `lead` is the news that must never be cut (yesterday saved too, a Joker that moved),
+ * shown first; `line` is the card and the hand; `notes` follow (the Joker's rule, a rung reached).
  */
-export function receiptCopy(r: Receipt): { eyebrow: string; title: string; line: string } {
-  if (r.kind === 'rung') return { eyebrow: `The Court · ${r.suit}`, title: `${grouped(r.days)} days of ${r.part}`, line: 'Still climbing toward the Ace.' };
-  const level = r.level === 'ceiling' ? 'Ceiling reached' : 'Floor kept';
-  if (r.kind === 'backfill') return { eyebrow: `Logged late · ${level}`, title: 'Yesterday saved', line: r.hand ? `Your hand: ${handPhrase(r.hand)}.` : 'Yesterday has its card.' };
+export type ReceiptCopy = { eyebrow: string; title: string; lead: string | null; line: string; notes: string[] };
+
+/** The hand, in words, after a change: a broken match said plainly, a better kicker named as just that. */
+function handLine(hand: HandLike | null, handWas: HandLike | null, dropped: boolean): string {
+  if (!hand) return '';
+  if (dropped && handWas) return `A higher card broke your ${handWas.title}. Your hand is now ${handPhrase(hand)}.`;
+  if (handWas && hand.score > handWas.score) return hand.title === handWas.title ? `Still ${handPhrase(hand)}, now with a higher side card.` : `Your hand is now ${handPhrase(hand)}.`;
+  return `Your hand: ${handPhrase(hand)}.`;
+}
+
+/** "a Ten of Hearts", "an Eight of Clubs", "a Joker". */
+export function aCard(name: string): string {
+  return `${/^[AEIOU]/.test(name) ? 'an' : 'a'} ${name}`;
+}
+
+const rungNote = (r: RungNote | null | undefined) => (r ? [`And ${grouped(r.days)} days of ${r.part} in the Court.`] : []);
+
+/**
+ * The words on the receipt that drops in after a check-in. When a higher card breaks a pair, it says so
+ * plainly instead of cheering: the card went up but the hand went down. A late log says "Yesterday counts"
+ * when yesterday had no card, and "Yesterday logged" when it already had one: "saved" is kept for the
+ * saved day of the rules, which a late log never makes.
+ */
+export function receiptCopy(r: Receipt): ReceiptCopy {
+  if (r.kind === 'rung') return { eyebrow: `The Court · ${r.suit}`, title: `${grouped(r.days)} days of ${r.part}`, lead: null, line: 'Still climbing toward the Ace.', notes: [] };
+  const eyebrow = r.level === 'ceiling' ? 'Ceiling reached' : 'Floor kept';
+  const hand = handLine(r.hand, r.handWas, r.kind === 'deal' && r.dropped);
+  const line = (r.joker ? hand : `${r.card}. ${hand}`).trim();
+  const notes = [...(r.joker ? [JOKER_LINE] : []), ...rungNote(r.rung)];
+  if (r.kind === 'backfill') {
+    let lead: string | null = null;
+    if (r.moved) {
+      const today = r.moved.today ? ` Today is ${aCard(r.moved.today)}.` : '';
+      lead = r.moved.face
+        ? `The ${r.moved.face} now lands on ${r.moved.day}, so its Joker moved there.${today}`
+        : r.moved.today
+          ? `The week’s Joker moved to ${r.moved.day}, your first kept day.${today}`
+          : `Your waiting Joker landed on ${r.moved.day}.`;
+    }
+    return { eyebrow, title: r.blank ? 'Yesterday counts' : 'Yesterday logged', lead, line, notes };
+  }
   const title = r.joker ? 'A Joker!' : r.dropped ? 'Today’s card changed' : r.wentUp && !r.first ? 'Today’s card went up' : 'Today’s card';
-  let line = '';
-  if (r.dropped && r.hand && r.handWas) line = `A higher card broke your ${r.handWas.title}. Your hand is now ${handPhrase(r.hand)}.`;
-  else if (r.hand && r.handWas && r.hand.score > r.handWas.score) line = r.hand.title === r.handWas.title ? `Your ${r.hand.title} just got stronger.` : `Your hand is now ${handPhrase(r.hand)}.`;
-  else if (r.hand) line = `Your hand: ${handPhrase(r.hand)}.`;
-  if (r.joker) line = `It plays as any card. ${line}`.trim();
-  if (r.saved) line = `${line} Yesterday’s card was saved too.`.trim();
-  return { eyebrow: level, title, line };
+  return { eyebrow, title, lead: r.saved ? 'Yesterday’s card was saved too.' : null, line, notes };
 }
 
 /** Something that interrupts Today: a moment from a check-in, the first-swipe coach mark or the reminder question. */
@@ -367,7 +508,8 @@ export type Interruption = 'moment' | 'coach' | 'reminder' | null;
 /**
  * The one interruption allowed now. A moment from a check-in always wins. The coach mark only shows to a
  * player with nothing kept yet. The reminder question waits for a later visit to Today than the one with
- * the first kept day, and never comes on a day with a face card or a Comeback card.
+ * the first kept day, and never comes on a day with a face card or a Comeback card. It also waits while
+ * Today is out of sight or a finished week's Showdown is still to be shown, so it never opens over it.
  */
 export function interruptionFor(s: {
   moment: boolean;
@@ -377,9 +519,14 @@ export function interruptionFor(s: {
   visitAfterKeeping: boolean;
   faceToday: boolean;
   comebackToday: boolean;
+  /** Today is the screen in front (no Showdown or other screen pushed over it). */
+  inFront?: boolean;
+  /** A finished week's Showdown is waiting to open. */
+  showdownPending?: boolean;
 }): Interruption {
   if (s.moment) return 'moment';
   if (s.coachDue) return 'coach';
+  if (s.inFront === false || s.showdownPending) return null;
   if (s.reminderDue && s.visitAfterKeeping && !s.faceToday && !s.comebackToday) return 'reminder';
   return null;
 }

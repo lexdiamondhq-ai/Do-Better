@@ -1,5 +1,6 @@
+import { usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useEffectEvent, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
@@ -7,9 +8,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { SUIT_INFO } from '@/engine/cards';
+import { weekday } from '@/engine/day';
 import type { BackKey } from '@/engine/game';
 import { improves } from '@/engine/game';
-import { grouped, momentOf, receiptCopy, type Moment } from '@/engine/today';
+import { eventStale, grouped, JOKER_LINE, momentOf, receiptCopy, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
 import { useData, useEvents, type GameEvent } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
@@ -29,6 +31,7 @@ import { Body, Button, Display, Label, raisedStyle } from './ui';
 
 type Deal = Extract<GameEvent, { kind: 'deal' }>;
 type Backfill = Extract<GameEvent, { kind: 'backfill' }>;
+type Rung = Extract<GameEvent, { kind: 'rung' }>;
 
 /** The night behind a big moment, and the light text on it. */
 const NIGHT = 'rgba(10, 8, 14, 0.95)';
@@ -38,6 +41,20 @@ const MOON_SOFT = 'rgba(255, 253, 248, 0.78)';
 const NIGHT_SOLID = '#0A080E';
 /** Below this window height a big moment shows its card one size smaller, so its buttons stay on screen. */
 const SHORT_SCREEN = 760;
+/**
+ * A big moment waits this long after the check-in that caused it, so the card can finish leaving the
+ * table, its stamp ("First move done") can be read and the burst can play before the night comes down.
+ */
+const MOMENT_DELAY_MS = 520;
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+/** The tab screens. Anything else (a habit's page) has its own header across the top, which a receipt must not cover. */
+const TAB_PATHS = new Set(['/', '/hands', '/you', '/playbook']);
+
+/** A card's name without the other suits it also carries: "Ten of Clubs". */
+const shortName = (face: CardFace) => faceLabel(face.kind === 'card' ? { ...face, also: undefined } : face);
+
+/** "And 150 days of Mind in the Court." for a rung reached by the same check-in as a bigger moment. */
+const rungLine = (rung: Rung) => `And ${grouped(rung.days)} days of ${SUIT_INFO[rung.suit].part} in the Court.`;
 
 /**
  * What the last check-in did, one moment at a time and never a stack: a face card earned in the Court,
@@ -48,19 +65,38 @@ const SHORT_SCREEN = 760;
 export function GameEvents({ back }: { back: BackKey }) {
   const { events, dismissEvent, markShown } = useEvents();
   const { undoCheckIn } = useData();
-  const moment = momentOf(events);
+  const deck = useDeck();
+  // A receipt whose check-in was undone or changed since (from the Undo chip, a pill or a habit's page)
+  // goes at once, so nothing celebrates a card that is no longer there.
+  const stale = deck
+    ? events.filter((e) =>
+        eventStale(e, deck.today, {
+          level: (habitId, day) => deck.cards.find((c) => c.habit.id === habitId)?.checkIns.get(day) ?? null,
+          suitDays: (suit) => deck.court.find((c) => c.suit === suit)?.votes ?? 0,
+        }),
+      )
+    : [];
+  const live = stale.length ? events.filter((e) => !stale.includes(e)) : events;
+  const moment = momentOf(live);
   const shown = moment?.ids.join(',') ?? '';
+  const gone = stale.map((e) => e.id).join(',');
 
   useEffect(() => {
     if (!shown) return;
     for (const id of shown.split(',')) markShown(Number(id));
   }, [shown, markShown]);
 
+  useEffect(() => {
+    if (!gone) return;
+    for (const id of gone.split(',')) dismissEvent(Number(id));
+  }, [gone, dismissEvent]);
+
   if (!moment) return null;
   const done = () => moment.ids.forEach(dismissEvent);
   const { main } = moment;
   const milestone = moment.also.find((e): e is Extract<GameEvent, { kind: 'milestone' }> => e.kind === 'milestone');
-  const alsoLine = milestone && main.kind !== 'milestone' ? `And that makes ${grouped(milestone.count)} kept days.` : null;
+  const rung = moment.also.find((e): e is Rung => e.kind === 'rung');
+  const alsoLine = [milestone && main.kind !== 'milestone' ? `And that makes ${grouped(milestone.count)} kept days.` : null, rung ? rungLine(rung) : null].filter(Boolean).join(' ') || null;
   // A day logged late that set off a bigger moment: the moment keeps the late log's Undo, which its receipt would have had.
   const late = moment.also.find((e): e is Backfill => e.kind === 'backfill') ?? null;
   const undoLate = late
@@ -71,10 +107,36 @@ export function GameEvents({ back }: { back: BackKey }) {
       }
     : null;
 
-  if (main.kind === 'face') return <FaceEarned key={main.id} event={main} also={alsoLine} late={!!late} onUndoLate={undoLate} onDone={done} />;
-  if (main.kind === 'first') return <FirstCard key={main.id} event={main} back={back} also={alsoLine} onDone={done} />;
-  if (main.kind === 'milestone') return <Milestone key={main.id} count={main.count} onUndoLate={undoLate} onDone={done} />;
+  // A big moment rises once the card that caused it has left the table.
+  if (main.kind === 'face')
+    return (
+      <Later key={main.id} ms={MOMENT_DELAY_MS}>
+        <FaceEarned event={main} also={alsoLine} late={!!late} onUndoLate={undoLate} onDone={done} />
+      </Later>
+    );
+  if (main.kind === 'first')
+    return (
+      <Later key={main.id} ms={MOMENT_DELAY_MS}>
+        <FirstCard event={main} back={back} also={alsoLine} onDone={done} />
+      </Later>
+    );
+  if (main.kind === 'milestone')
+    return (
+      <Later key={main.id} ms={MOMENT_DELAY_MS}>
+        <Milestone count={main.count} also={rung ? rungLine(rung) : null} onUndoLate={undoLate} onDone={done} />
+      </Later>
+    );
   return <ReceiptBanner key={main.id} moment={moment} back={back} onDone={done} />;
+}
+
+/** Shows its children only after `ms`. Remount it with a new key to wait again. */
+function Later({ ms, children }: { ms: number; children: ReactNode }) {
+  const [due, setDue] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setDue(true), ms);
+    return () => clearTimeout(id);
+  }, [ms]);
+  return due ? children : null;
 }
 
 // Receipts --------------------------------------------------------------------------------------------
@@ -108,17 +170,21 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
   const insets = useSafeAreaInsets();
   const deck = useDeck();
   const { undoCheckIn } = useData();
+  // On a habit's page the receipt drops in under the page's own back and Edit buttons, never over them.
+  const pushed = !TAB_PATHS.has(usePathname());
   const main = moment.main;
   const y = useSharedValue(-240);
   const finish = useEffectEvent(onDone);
 
   let card: { from: CardFace | null; to: CardFace } | null = null;
   let glyph: ReactNode = null;
-  let copy: { eyebrow: string; title: string; line: string };
+  let copy: ReceiptCopy;
   let sound: SoundName = 'flip';
   let joker = false;
   let undo: (() => void) | null = null;
   const nameOf = (id: string) => deck?.cards.find((c) => c.habit.id === id)?.habit.name ?? null;
+  const rungEvent = main.kind === 'rung' ? null : moment.also.find((e): e is Rung => e.kind === 'rung');
+  const rung: RungNote | null = rungEvent ? { part: SUIT_INFO[rungEvent.suit].part, days: rungEvent.days } : null;
 
   if (main.kind === 'deal') {
     // A run of deals shows as one: flipped from the card before the run, unless a step down in between makes that look like a loss.
@@ -131,6 +197,7 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
     copy = receiptCopy({
       kind: 'deal',
       level: main.level,
+      card: shortName(card.to),
       joker,
       wentUp,
       first: !was,
@@ -138,13 +205,25 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
       hand: main.deal.hand,
       handWas: run[0]?.deal.handWas ?? main.deal.handWas,
       saved: run.some((e) => !!e.saved),
+      rung,
     });
-    const name = nameOf(main.habitId);
-    if (name) copy = { ...copy, eyebrow: `${copy.eyebrow} · ${name}` };
     sound = joker ? 'joker' : main.deal.handDropped ? 'flip' : wentUp ? 'cardUp' : 'flip';
   } else if (main.kind === 'backfill') {
-    card = { from: null, to: faceOfDay(main.deal.card) };
-    copy = receiptCopy({ kind: 'backfill', level: main.level, hand: main.deal.hand });
+    const was = main.deal.was;
+    joker = main.deal.card.kind === 'joker';
+    card = { from: was ? faceOfDay(was) : null, to: faceOfDay(main.deal.card) };
+    // Yesterday turned into a Joker with no face card earned now: the week's Joker moved there from today
+    // (its face card now falls on yesterday, or yesterday became the week's first kept day), or a waiting one landed.
+    let moved: JokerMove | null = null;
+    if (joker && was?.kind !== 'joker' && deck) {
+      const face = deck.game.faces.find((f) => f.day === main.day);
+      moved = {
+        day: WEEKDAYS[weekday(main.day)],
+        face: face ? `${face.face.name} of ${SUIT_INFO[face.suit].name}` : null,
+        today: deck.todayCard?.kind === 'card' ? shortName(faceOfDay(deck.todayCard)) : null,
+      };
+    }
+    copy = receiptCopy({ kind: 'backfill', level: main.level, card: shortName(card.to), joker, blank: !was, hand: main.deal.hand, handWas: main.deal.handWas, moved, rung });
     sound = 'cardUp';
     const { habitId, day } = main;
     undo = () => {
@@ -158,15 +237,21 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
     copy = receiptCopy({ kind: 'rung', suit: info.name, part: info.part, days: main.days });
     sound = 'cardUp';
   } else {
-    copy = { eyebrow: '', title: '', line: '' };
+    copy = { eyebrow: '', title: '', lead: null, line: '', notes: [] };
   }
-  // The card itself leads the line: "Seven of Spades. Your hand is now a Pair of Sevens."
-  const line = card && !joker ? `${faceLabel(card.to)}. ${copy.line}`.trim() : copy.line;
-  const spoken = `${copy.eyebrow}. ${copy.title}. ${line}`;
+  if (main.kind === 'deal' || main.kind === 'backfill') {
+    const name = nameOf(main.habitId);
+    if (name) copy = { ...copy, eyebrow: `${copy.eyebrow} · ${name}` };
+  }
+  const spoken = [copy.eyebrow, copy.title, copy.lead, copy.line, ...copy.notes]
+    .filter(Boolean)
+    .map((part) => String(part).replace(/\.$/, ''))
+    .join('. ')
+    .concat('.');
 
   useEffect(() => {
     const end = () => finish();
-    y.set(withSpring(0, { damping: 16, stiffness: 180, reduceMotion: ReduceMotion.System }));
+    y.set(withSpring(0, { mass: 1, damping: 16, stiffness: 180, reduceMotion: ReduceMotion.System }));
     playSound(sound, 200);
     if (joker) feel.joker();
     else feel.flip();
@@ -205,12 +290,12 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
             if (ok) scheduleOnRN(close);
           }),
         );
-      } else y.set(withSpring(0, { damping: 16, stiffness: 200 }));
+      } else y.set(withSpring(0, { mass: 1, damping: 16, stiffness: 200 }));
     });
   const panel = useAnimatedStyle(() => ({ transform: [{ translateY: y.get() }] }));
 
   return (
-    <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + space.sm, paddingHorizontal: space.md }}>
+    <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + space.sm + (pushed ? TAP + space.sm : 0), paddingHorizontal: space.md }}>
       {joker ? (
         <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 440 }}>
           <Burst kind="joker" color="#FFFFFF" />
@@ -242,11 +327,22 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
             <Display size={20} color={t.onRaised} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
               {copy.title}
             </Display>
-            {line ? (
-              <Body size={13} weight="bold" color={t.onRaised} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
-                {line}
+            {copy.lead ? (
+              // The news that must never be cut leads: yesterday saved too, or a Joker that moved.
+              <Body size={13} weight="heavy" color={t.onRaised} numberOfLines={3} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
+                {copy.lead}
               </Body>
             ) : null}
+            {copy.line ? (
+              <Body size={13} weight="bold" color={t.onRaised} numberOfLines={3} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
+                {copy.line}
+              </Body>
+            ) : null}
+            {copy.notes.map((note) => (
+              <Body key={note} size={12} weight="bold" color={t.onRaisedSecondary} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 16 }}>
+                {note}
+              </Body>
+            ))}
           </View>
           <View style={{ alignItems: 'center', gap: 2 }}>
             {undo ? (
@@ -314,7 +410,7 @@ function Stage({ label, onClose, children }: { label: string; onClose: () => voi
       if (e.translationY > 120 || e.velocityY > 900) {
         y.set(withTiming(900, { duration: 220, reduceMotion: ReduceMotion.Never }));
         scheduleOnRN(close);
-      } else y.set(withSpring(0, { damping: 18, stiffness: 200 }));
+      } else y.set(withSpring(0, { mass: 1, damping: 18, stiffness: 200 }));
     });
   const slide = useAnimatedStyle(() => ({ transform: [{ translateY: y.get() }], opacity: 1 - Math.min(0.6, y.get() / 600) }));
 
@@ -346,6 +442,45 @@ function Stage({ label, onClose, children }: { label: string; onClose: () => voi
   );
 }
 
+/**
+ * The button that carries on from a big moment. Until the moment is ready it ignores presses (so the finger
+ * that swiped can't close it by accident) but it already holds the keyboard's focus, so Enter never lands on
+ * Share instead; once ready, Enter carries on.
+ */
+function MomentButton({ label, ready, onPress }: { label: string; ready: boolean; onPress: () => void }) {
+  const ref = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    (ref.current as unknown as { focus?: () => void } | null)?.focus?.();
+  }, [ready]);
+  return (
+    <Pressable
+      ref={ref}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !ready }}
+      onPress={() => {
+        if (ready) onPress();
+      }}
+      style={({ pressed }) => ({
+        minHeight: TAP,
+        backgroundColor: MOON,
+        borderRadius: radius.pill,
+        paddingVertical: space.lg,
+        paddingHorizontal: space.xl,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: ready ? (pressed ? 0.75 : 1) : 0.4,
+        transform: [{ scale: ready && pressed ? 0.98 : 1 }],
+      })}
+    >
+      <Body weight="heavy" size={16} color="#17121F" maxFontSizeMultiplier={fontScale.chrome} style={{ textAlign: 'center' }}>
+        {label}
+      </Body>
+    </Pressable>
+  );
+}
+
 function FaceEarned({
   event,
   also,
@@ -374,9 +509,12 @@ function FaceEarned({
     feel.joker();
     playSound('face');
     if (withJoker) playSound('joker', 700);
-    scale.set(withSpring(1, { damping: 10, reduceMotion: ReduceMotion.System }));
-    rotate.set(withDelay(80, withSpring(-4, { damping: 8, reduceMotion: ReduceMotion.System })));
-    joker.set(withDelay(700, withSequence(withSpring(1.12, { damping: 6 }), withSpring(1))));
+    // A firm spring: the card pops into place with only a small overshoot (about 3%), so it never grows over the
+    // title below it. Every spring here names its mass: Reanimated 4 springs default to a mass of 4, which turns
+    // these settings into a wobble that overshoots by a fifth.
+    scale.set(withSpring(1, { mass: 1, damping: 20, stiffness: 210, reduceMotion: ReduceMotion.System }));
+    rotate.set(withDelay(80, withSpring(-4, { mass: 1, damping: 14, stiffness: 160, reduceMotion: ReduceMotion.System })));
+    joker.set(withDelay(700, withSequence(withSpring(1.06, { mass: 1, damping: 18, stiffness: 240, overshootClamping: true, reduceMotion: ReduceMotion.System }), withSpring(1, { mass: 1, damping: 18, stiffness: 200, reduceMotion: ReduceMotion.System }))));
   }, [scale, rotate, joker, withJoker]);
 
   const cardStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }, { rotate: `${rotate.get()}deg` }] }));
@@ -393,7 +531,8 @@ function FaceEarned({
       {(ready) => (
         <>
           <Label color={chip.bg} maxFontSizeMultiplier={fontScale.chrome}>{`The Court · ${info.name} · ${info.part}`}</Label>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }} aria-hidden>
+          {/* A little room under the card, so its tilted corner stays clear of the title at the top of the pop. */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: space.xs }} aria-hidden>
             <Animated.View style={cardStyle}>
               <PlayingCard face={court} size={short ? 'lg' : 'xl'} />
             </Animated.View>
@@ -411,7 +550,7 @@ function FaceEarned({
             </Body>
             {withJoker ? (
               <Body weight="bold" color={MOON} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
-                {`${late ? 'Yesterday' : 'Today'}’s card turned into a Joker. It plays as whatever card makes your best hand.`}
+                {`${late ? 'Yesterday' : 'Today'}’s card turned into a Joker. ${JOKER_LINE}`}
               </Body>
             ) : null}
             {also ? (
@@ -422,7 +561,7 @@ function FaceEarned({
           </View>
           <SaveDeckCard moment="face" />
           <View style={{ alignSelf: 'stretch', gap: space.sm }}>
-            <Button label="Keep playing" onPress={close} disabled={!ready} colors={{ bg: MOON, fg: '#17121F' }} />
+            <MomentButton label="Keep playing" ready={ready} onPress={close} />
             {/* Share draws itself from the theme: on the night it needs the light text of a dark table. */}
             <ThemeScope theme={themeOn(NIGHT_SOLID, t)}>
               <ShareButton target={{ kind: 'face', suit: event.suit, face: event.face, identities: event.identities, days: event.face.votes }} />
@@ -479,7 +618,7 @@ function FirstCard({ event, back, also, onDone }: { event: Extract<GameEvent, { 
             ) : null}
           </View>
           <View style={{ alignSelf: 'stretch', gap: space.xs }}>
-            <Button label="Keep going" onPress={onDone} disabled={!ready} colors={{ bg: MOON, fg: '#17121F' }} />
+            <MomentButton label="Keep going" ready={ready} onPress={onDone} />
             <Button label="Undo" variant="quiet" onPress={undo} disabled={!ready} colors={{ bg: 'transparent', fg: MOON_SOFT }} hint="Takes back this check-in" />
           </View>
         </>
@@ -488,13 +627,13 @@ function FirstCard({ event, back, also, onDone }: { event: Extract<GameEvent, { 
   );
 }
 
-/** A round number of kept days across every card. */
-function Milestone({ count, onUndoLate, onDone }: { count: number; onUndoLate: (() => void) | null; onDone: () => void }) {
+/** A round number of kept days across every card. `also` is a Court rung the same check-in reached. */
+function Milestone({ count, also, onUndoLate, onDone }: { count: number; also: string | null; onUndoLate: (() => void) | null; onDone: () => void }) {
   const pop = useSharedValue(0.6);
   useEffect(() => {
     playSound('cardUp');
     feel.joker();
-    pop.set(withSpring(1, { damping: 9, reduceMotion: ReduceMotion.System }));
+    pop.set(withSpring(1, { mass: 1, damping: 9, stiffness: 100, reduceMotion: ReduceMotion.System }));
   }, [pop]);
   const style = useAnimatedStyle(() => ({ transform: [{ scale: pop.get() }] }));
   return (
@@ -512,8 +651,13 @@ function Milestone({ count, onUndoLate, onDone }: { count: number; onUndoLate: (
           <Body color={MOON_SOFT} style={{ textAlign: 'center', maxWidth: 300 }} maxFontSizeMultiplier={fontScale.chrome}>
             Every one of them still counts. A day off never takes one back.
           </Body>
+          {also ? (
+            <Body weight="bold" color={MOON_SOFT} style={{ textAlign: 'center', maxWidth: 300 }} maxFontSizeMultiplier={fontScale.chrome}>
+              {also}
+            </Body>
+          ) : null}
           <View style={{ alignSelf: 'stretch', borderTopWidth: 1, borderColor: withAlpha(MOON, 0.16), paddingTop: space.lg, gap: space.xs }}>
-            <Button label="Keep going" onPress={onDone} disabled={!ready} colors={{ bg: MOON, fg: '#17121F' }} />
+            <MomentButton label="Keep going" ready={ready} onPress={onDone} />
             {onUndoLate ? <Button label="Undo the late log" variant="quiet" onPress={onUndoLate} disabled={!ready} colors={{ bg: 'transparent', fg: MOON_SOFT }} hint="Takes back yesterday’s check-in" /> : null}
           </View>
         </>

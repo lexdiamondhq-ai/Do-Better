@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { cardColors, on, tables, themes } from '@/theme/tokens';
 
 import {
+  aCard,
   allKeptCopy,
   allowFor,
   buildQueue,
@@ -11,9 +12,13 @@ import {
   comebackCopy,
   comebackGap,
   densityFor,
+  eventStale,
   feltFor,
+  handLineCopy,
   identityLine,
+  ideaLabel,
   interruptionFor,
+  JOKER_LINE,
   keptLine,
   keyMove,
   laterTag,
@@ -22,6 +27,7 @@ import {
   receiptCopy,
   timing,
   todayTips,
+  whenLine,
   type TodayCard,
 } from './today';
 
@@ -41,6 +47,14 @@ describe('time of day', () => {
     expect(laterTag('midday', 'morning')).toBe('Plays later today');
     expect(laterTag('morning', 'evening')).toBeNull();
     expect(laterTag('any', 'evening')).toBeNull();
+  });
+
+  it('carries on from a later tag instead of saying Plays twice', () => {
+    expect(whenLine('After getting into bed', null, null)).toBe('Plays after getting into bed');
+    expect(whenLine('After getting into bed', null, 'Plays tonight')).toBe('after getting into bed');
+    expect(whenLine('7 pm', null, 'Plays tonight')).toBe('at 7 pm');
+    expect(whenLine('After lunch', 'at my desk', 'Plays later today')).toBe('after lunch · at my desk');
+    expect(whenLine('  ', 'at my desk', null)).toBeNull();
   });
 });
 
@@ -79,10 +93,15 @@ describe('the queue', () => {
     expect(ids(buildQueue({ cards, deferred: [], focused: 'gone', now }))).toEqual(['a', 'b', 'c']);
   });
 
-  it('plays cards for now first, then later today, then earlier, keeping deck order within each', () => {
+  it('plays cards for now first, then later today (soonest first), then earlier, keeping deck order within each', () => {
     const cards = [card('m1', { part: 'morning' }), card('e1', { part: 'evening' }), card('a1'), card('d1', { part: 'midday' }), card('e2', { part: 'evening' }), card('m2', { part: 'morning' })];
     expect(ids(buildQueue({ cards, deferred: [], now: 'midday' }))).toEqual(['a1', 'd1', 'e1', 'e2', 'm1', 'm2']);
-    expect(ids(buildQueue({ cards, deferred: [], now: 'morning' }))).toEqual(['m1', 'a1', 'm2', 'e1', 'd1', 'e2']);
+    expect(ids(buildQueue({ cards, deferred: [], now: 'morning' }))).toEqual(['m1', 'a1', 'm2', 'd1', 'e1', 'e2']);
+  });
+
+  it('deals a card for later today before one for tonight, even when tonight comes first in the deck', () => {
+    const cards = [card('read', { part: 'evening' }), card('walk', { part: 'midday' }), card('focus', { part: 'morning', level: 'floor' })];
+    expect(ids(buildQueue({ cards, deferred: [], now: 'morning' }))).toEqual(['walk', 'read']);
   });
 
   it('shows the Welcome back header only when asked, and only in front of cards to play', () => {
@@ -125,7 +144,7 @@ describe('room on screen', () => {
   const base = { cardHeight: 520, windowHeight: 932, fontScale: 1, screenReader: false };
 
   it('shows the full card when it has room', () => {
-    expect(densityFor(base)).toEqual({ mode: 'regular', mergeTip: false, foldComeback: false, logOnComeback: true, leanComeback: false, tightComeback: false });
+    expect(densityFor(base)).toEqual({ mode: 'regular', mergeTip: false, foldComeback: false, logOnComeback: true, leanComeback: false, tightComeback: false, tinyComeback: false, roomyComeback: true });
   });
 
   it('folds the card when its body is shorter than 360 points', () => {
@@ -148,6 +167,16 @@ describe('room on screen', () => {
     expect(densityFor({ ...base, cardHeight: 339 })).toMatchObject({ leanComeback: true, tightComeback: false });
     expect(densityFor({ ...base, cardHeight: 305 }).tightComeback).toBe(false);
     expect(densityFor({ ...base, cardHeight: 304 })).toMatchObject({ leanComeback: true, tightComeback: true });
+  });
+
+  it('drops the label over the Comeback first move only below 250 points', () => {
+    expect(densityFor({ ...base, cardHeight: 250 })).toMatchObject({ tightComeback: true, tinyComeback: false });
+    expect(densityFor({ ...base, cardHeight: 249 })).toMatchObject({ tightComeback: true, tinyComeback: true });
+  });
+
+  it('gives a folded Comeback with room to spare more words from 430 points', () => {
+    expect(densityFor({ ...base, cardHeight: 440 })).toMatchObject({ foldComeback: true, roomyComeback: true });
+    expect(densityFor({ ...base, cardHeight: 429 })).toMatchObject({ foldComeback: true, roomyComeback: false });
   });
 
   it('gives the tip its own band only on screens 900 points tall or more', () => {
@@ -233,9 +262,39 @@ describe('the chrome', () => {
     expect(keptLine(1860)).toBe('1,860 kept days');
   });
 
-  it('keeps only the tips that matter today', () => {
+  it('keeps only the tips that matter today, Sunday’s Showdown and a near river card among them', () => {
     const tips = (['climb', 'joker', 'draw', 'rescue', 'showdown', 'call', 'face', 'deal', 'done'] as const).map((tone) => ({ tone, text: tone }));
-    expect(todayTips(tips).map((t) => t.tone)).toEqual(['joker', 'rescue', 'call', 'face']);
+    expect(todayTips(tips).map((t) => t.tone)).toEqual(['joker', 'rescue', 'showdown', 'call', 'face']);
+  });
+
+  it('leads the warm-up week with the line that explains it', () => {
+    const tips = [
+      { tone: 'face' as const, text: 'Keep a People habit today to earn the Queen of Hearts and a Joker.' },
+      { tone: 'showdown' as const, text: 'Warm-up week. Your first full hand deals Monday.' },
+    ];
+    expect(todayTips(tips, { warmup: true }).map((t) => t.tone)).toEqual(['showdown', 'face']);
+  });
+
+  it('shows at most one line on a very first look: the warm-up explanation, never the call', () => {
+    const call = { tone: 'call' as const, text: 'Call the hand you’ll make this week.' };
+    const warm = { tone: 'showdown' as const, text: 'Warm-up week. Your first full hand deals Monday.' };
+    expect(todayTips([call], { firstLook: true })).toEqual([]);
+    expect(todayTips([warm, { tone: 'face' as const, text: 'face' }], { warmup: true, firstLook: true })).toEqual([warm]);
+  });
+
+  it('always says what the hand pays, and names the stake on Sunday', () => {
+    const hand = { title: 'Pair of Eights' };
+    expect(handLineCopy({ warmup: false, hand, chips: 30, sunday: false })).toEqual({ label: 'Your hand', title: 'Pair of Eights', pays: 30, spoken: 'Your hand: Pair of Eights. Pays 30 chips if the week ended now' });
+    expect(handLineCopy({ warmup: false, hand, chips: 1200, sunday: true })).toMatchObject({ label: 'Showdown tonight', pays: 1200, spoken: 'Showdown tonight: Pair of Eights. Pays 1,200 chips at midnight' });
+    expect(handLineCopy({ warmup: false, hand: null, chips: 0, sunday: false })).toMatchObject({ label: 'Your hand', title: 'No cards yet', pays: null });
+    expect(handLineCopy({ warmup: true, hand, chips: 0, sunday: true })).toMatchObject({ label: 'Warm-up hand', pays: null });
+  });
+
+  it('labels today’s idea once, with its reason only when it has a real one', () => {
+    expect(ideaLabel('Today’s idea')).toBe('Today’s idea');
+    expect(ideaLabel("Today's idea.")).toBe('Today’s idea');
+    expect(ideaLabel('Reach out is ready for a comeback')).toBe('Today’s idea · Reach out is ready for a comeback');
+    expect(ideaLabel('It’s Monday.')).toBe('Today’s idea · It’s Monday');
   });
 
   it('sums up a kept day with the hand in words', () => {
@@ -297,33 +356,110 @@ describe('moments', () => {
     expect(m?.main.id).toBe(3);
     expect(momentOf([])).toBeNull();
   });
+
+  it('keeps a rung reached on the same keep as a deal, on the deal’s receipt', () => {
+    // The data layer emits the rung before the deal.
+    const m = momentOf([ev(1, 'rung'), ev(2, 'deal')]);
+    expect(m).toMatchObject({ kind: 'receipt', main: { id: 2, kind: 'deal' }, ids: [1, 2] });
+    expect(m?.also.map((e) => e.kind)).toEqual(['rung']);
+    expect(momentOf([ev(1, 'rung'), ev(2, 'backfill')])?.main.kind).toBe('backfill');
+    expect(momentOf([ev(1, 'rung')])?.main.kind).toBe('rung');
+  });
+});
+
+describe('events that no longer match the deck', () => {
+  const today = '2026-10-16';
+  const levels = new Map<string, string | null>([
+    ['walk:2026-10-16', 'floor'],
+    ['read:2026-10-15', 'ceiling'],
+  ]);
+  const live = { level: (id: string, day: string) => (levels.get(`${id}:${day}`) ?? null) as 'floor' | 'ceiling' | null, suitDays: (suit: string) => (suit === 'clubs' ? 149 : 200) };
+
+  it('drops a receipt whose check-in was undone or changed level', () => {
+    expect(eventStale({ kind: 'deal', habitId: 'walk', level: 'floor' }, today, live)).toBe(false);
+    expect(eventStale({ kind: 'deal', habitId: 'walk', level: 'ceiling' }, today, live)).toBe(true);
+    expect(eventStale({ kind: 'deal', habitId: 'focus', level: 'floor' }, today, live)).toBe(true);
+    expect(eventStale({ kind: 'backfill', habitId: 'read', level: 'ceiling', day: '2026-10-15' }, today, live)).toBe(false);
+    expect(eventStale({ kind: 'backfill', habitId: 'read', level: 'floor', day: '2026-10-15' }, today, live)).toBe(true);
+  });
+
+  it('drops a rung the suit fell back below, and never touches the big moments', () => {
+    expect(eventStale({ kind: 'rung', suit: 'clubs', days: 150 }, today, live)).toBe(true);
+    expect(eventStale({ kind: 'rung', suit: 'spades', days: 200 }, today, live)).toBe(false);
+    expect(eventStale({ kind: 'face' }, today, live)).toBe(false);
+    expect(eventStale({ kind: 'milestone' }, today, live)).toBe(false);
+  });
 });
 
 describe('receipts', () => {
   const pair = { kind: 'pair' as const, title: 'Pair of Eights', score: 200 };
+  const pairBetter = { kind: 'pair' as const, title: 'Pair of Eights', score: 210 };
   const high = { kind: 'high-card' as const, title: 'King high', score: 100 };
-  const deal = { kind: 'deal' as const, level: 'floor' as const, joker: false, wentUp: true, first: false, dropped: false, hand: pair, handWas: high, saved: false };
+  const trips = { kind: 'three-of-a-kind' as const, title: 'Three Eights', score: 400 };
+  const deal = { kind: 'deal' as const, level: 'floor' as const, card: 'Eight of Spades', joker: false, wentUp: true, first: false, dropped: false, hand: pair, handWas: high, saved: false };
 
-  it('names the level and what the hand became', () => {
-    expect(receiptCopy(deal)).toEqual({ eyebrow: 'Floor kept', title: 'Today’s card went up', line: 'Your hand is now a Pair of Eights.' });
+  it('names the card, the level and what the hand became', () => {
+    expect(receiptCopy(deal)).toEqual({ eyebrow: 'Floor kept', title: 'Today’s card went up', lead: null, line: 'Eight of Spades. Your hand is now a Pair of Eights.', notes: [] });
     expect(receiptCopy({ ...deal, level: 'ceiling', first: true }).title).toBe('Today’s card');
+  });
+
+  it('says a better side card is just that, not a stronger hand of the same name', () => {
+    expect(receiptCopy({ ...deal, card: 'Ten of Hearts', hand: pairBetter, handWas: pair }).line).toBe('Ten of Hearts. Still a Pair of Eights, now with a higher side card.');
+    expect(receiptCopy({ ...deal, card: 'Ten of Hearts', hand: { ...trips, score: 410 }, handWas: trips }).line).toBe('Ten of Hearts. Still Three Eights, now with a higher side card.');
   });
 
   it('says plainly when a higher card broke a match', () => {
     const r = receiptCopy({ ...deal, dropped: true, hand: high, handWas: pair });
     expect(r.title).toBe('Today’s card changed');
-    expect(r.line).toBe('A higher card broke your Pair of Eights. Your hand is now King high.');
+    expect(r.line).toBe('Eight of Spades. A higher card broke your Pair of Eights. Your hand is now King high.');
   });
 
-  it('celebrates a Joker and a saved yesterday', () => {
-    const r = receiptCopy({ ...deal, joker: true, saved: true, handWas: pair });
+  it('leads with a saved yesterday, so it is never the line that gets cut', () => {
+    const r = receiptCopy({ ...deal, card: 'Ten of Diamonds', hand: pairBetter, handWas: pair, saved: true });
+    expect(r.lead).toBe('Yesterday’s card was saved too.');
+    expect(r.line).toBe('Ten of Diamonds. Still a Pair of Eights, now with a higher side card.');
+  });
+
+  it('celebrates a Joker with the one rule every screen uses', () => {
+    const r = receiptCopy({ ...deal, card: 'Joker', joker: true, handWas: pair });
     expect(r.title).toBe('A Joker!');
-    expect(r.line).toBe('It plays as any card. Your hand: a Pair of Eights. Yesterday’s card was saved too.');
+    expect(r.line).toBe('Your hand: a Pair of Eights.');
+    expect(r.notes).toEqual([JOKER_LINE]);
+    expect(JOKER_LINE).toBe('It has no suit and plays as any rank.');
   });
 
-  it('covers a late log and a Court rung', () => {
-    expect(receiptCopy({ kind: 'backfill', level: 'ceiling', hand: pair })).toEqual({ eyebrow: 'Logged late · Ceiling reached', title: 'Yesterday saved', line: 'Your hand: a Pair of Eights.' });
-    expect(receiptCopy({ kind: 'rung', suit: 'Clubs', part: 'Mind', days: 150 }).title).toBe('150 days of Mind');
+  it('tells a rung reached on the same keep', () => {
+    expect(receiptCopy({ ...deal, rung: { part: 'Mind', days: 150 } }).notes).toEqual(['And 150 days of Mind in the Court.']);
+    expect(receiptCopy({ kind: 'rung', suit: 'Clubs', part: 'Mind', days: 150 })).toMatchObject({ title: '150 days of Mind', line: 'Still climbing toward the Ace.' });
+  });
+
+  describe('a day logged late', () => {
+    const late = { kind: 'backfill' as const, level: 'ceiling' as const, card: 'Seven of Spades', joker: false, blank: true, hand: pair, handWas: high };
+
+    it('says yesterday counts when it had no card, and never calls it saved', () => {
+      const r = receiptCopy(late);
+      expect(r).toEqual({ eyebrow: 'Ceiling reached', title: 'Yesterday counts', lead: null, line: 'Seven of Spades. Your hand is now a Pair of Eights.', notes: [] });
+      expect(Object.values(receiptCopy({ ...late, blank: false })).join(' ')).not.toMatch(/saved/i);
+    });
+
+    it('says yesterday was logged when it already had a card', () => {
+      expect(receiptCopy({ ...late, blank: false, handWas: pair }).title).toBe('Yesterday logged');
+    });
+
+    it('says so plainly when the late log moved the Joker off today', () => {
+      const r = receiptCopy({ ...late, card: 'Joker', joker: true, blank: false, hand: trips, handWas: trips, moved: { day: 'Thursday', face: 'Queen of Hearts', today: 'Ten of Hearts' } });
+      expect(r.title).toBe('Yesterday logged');
+      expect(r.lead).toBe('The Queen of Hearts now lands on Thursday, so its Joker moved there. Today is a Ten of Hearts.');
+      expect(r.line).toBe('Your hand: Three Eights.');
+      expect(receiptCopy({ ...late, joker: true, moved: { day: 'Monday', face: null, today: 'Eight of Clubs' } }).lead).toBe('The week’s Joker moved to Monday, your first kept day. Today is an Eight of Clubs.');
+      expect(receiptCopy({ ...late, joker: true, moved: { day: 'Monday', face: null, today: null } }).lead).toBe('Your waiting Joker landed on Monday.');
+    });
+  });
+
+  it('puts the right article before a card', () => {
+    expect(aCard('Eight of Clubs')).toBe('an Eight of Clubs');
+    expect(aCard('Ace of Spades')).toBe('an Ace of Spades');
+    expect(aCard('Ten of Hearts')).toBe('a Ten of Hearts');
   });
 });
 
@@ -340,6 +476,14 @@ describe('one interruption at a time', () => {
     expect(interruptionFor({ ...quiet, reminderDue: true, visitAfterKeeping: true })).toBe('reminder');
     expect(interruptionFor({ ...quiet, reminderDue: true, visitAfterKeeping: true, faceToday: true })).toBeNull();
     expect(interruptionFor({ ...quiet, reminderDue: true, visitAfterKeeping: true, comebackToday: true })).toBeNull();
+  });
+
+  it('holds the reminder question while a Showdown waits to open or Today is out of sight', () => {
+    const due = { ...quiet, reminderDue: true, visitAfterKeeping: true };
+    expect(interruptionFor({ ...due, inFront: true, showdownPending: false })).toBe('reminder');
+    expect(interruptionFor({ ...due, inFront: true, showdownPending: true })).toBeNull();
+    expect(interruptionFor({ ...due, inFront: false })).toBeNull();
+    expect(interruptionFor({ ...due, moment: true, showdownPending: true })).toBe('moment');
   });
 });
 
