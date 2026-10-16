@@ -180,6 +180,12 @@ export function createDemoBackend(today: Day): Backend {
       const old = state.prompts.find((p) => p.habitId === prompt.habitId && p.missedDay === prompt.missedDay);
       state.prompts = [{ ...prompt, response: prompt.response ?? old?.response ?? null }, ...state.prompts.filter((p) => p !== old)];
     },
+    async clearPrompt(habitId, missedDay) {
+      state.prompts = state.prompts.map((p) => (p.habitId === habitId && p.missedDay === missedDay ? { ...p, response: null } : p));
+    },
+    async deletePrompt(habitId, missedDay) {
+      state.prompts = state.prompts.filter((p) => !(p.habitId === habitId && p.missedDay === missedDay));
+    },
     async saveProfile({ northStar, onboardedAt }) {
       state.profile = { ...state.profile, ...(northStar !== undefined ? { northStar } : {}), ...(onboardedAt ? { onboardedAt } : {}) };
     },

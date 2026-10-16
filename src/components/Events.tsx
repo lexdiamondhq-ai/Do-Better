@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SUIT_INFO } from '@/engine/cards';
 import { improves } from '@/engine/game';
 import { HANDS } from '@/engine/poker';
-import { useData, type GameEvent } from '@/lib/data';
+import { useEvents, type GameEvent } from '@/lib/data';
 import { playSound } from '@/lib/sound';
 import { cardFace, chip, space } from '@/theme/tokens';
 
@@ -24,15 +24,18 @@ type DealShown = Extract<GameEvent, { kind: 'deal' }>;
  * one, so swiping through the deck quickly doesn't queue a parade of toasts.
  */
 export function GameEvents({ back }: { back: Parameters<typeof CardBack>[0]['back'] }) {
-  const { events, dismissEvent } = useData();
+  const { events, dismissEvent } = useEvents();
   const first = events[0];
   if (!first) return null;
   if (first.kind === 'face') return <FaceEarned key={first.id} event={first} onDone={() => dismissEvent(first.id)} />;
+  if (first.kind === 'milestone' || first.kind === 'rung' || first.kind === 'backfill') return <Notice key={first.id} event={first} onDone={() => dismissEvent(first.id)} />;
 
+  // The first card ever turns over like any other deal.
   const run: DealShown[] = [];
   for (const e of events) {
-    if (e.kind !== 'deal') break;
-    run.push(e);
+    if (e.kind === 'deal') run.push(e);
+    else if (e.kind === 'first') run.push({ ...e, kind: 'deal', saved: null });
+    else break;
   }
   const last = run[run.length - 1];
   // Flip from the card before the whole run, unless a quiet step down in between makes that look like a loss.
@@ -104,6 +107,50 @@ function DealToast({ event, back, onDone }: { event: DealShown; back: Parameters
               {`${handLine}${savedLine}`}
             </Body>
           </View>
+        </Pressable>
+      </Animated.View>
+    </View>
+  );
+}
+
+/** A one-line moment: yesterday logged late, a kept-days milestone, or a rung in the Court. */
+function Notice({ event, onDone }: { event: Extract<GameEvent, { kind: 'milestone' | 'rung' | 'backfill' }>; onDone: () => void }) {
+  const insets = useSafeAreaInsets();
+  const y = useSharedValue(-180);
+  const finish = useEffectEvent(onDone);
+
+  useEffect(() => {
+    playSound('cardUp', 120);
+    y.set(withSpring(0, { damping: 16, stiffness: 180 }));
+    const leave = setTimeout(() => y.set(withTiming(-200, { duration: 240 })), 3000);
+    const done = setTimeout(() => finish(), 3260);
+    return () => {
+      clearTimeout(leave);
+      clearTimeout(done);
+    };
+  }, [y]);
+
+  const panel = useAnimatedStyle(() => ({ transform: [{ translateY: y.get() }] }));
+  const [title, line] =
+    event.kind === 'milestone'
+      ? [`${event.count.toLocaleString()} kept days`, 'Every one still counts.']
+      : event.kind === 'rung'
+        ? [`${SUIT_INFO[event.suit].name} · ${event.days} days`, `${SUIT_INFO[event.suit].part} keeps climbing toward the Ace.`]
+        : ['Yesterday saved', `${faceLabel(faceOfDay(event.deal.card))}${event.deal.hand ? `. Your hand: ${event.deal.hand.title}.` : '.'}`];
+
+  return (
+    <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + space.sm, paddingHorizontal: space.lg }}>
+      <Animated.View style={panel}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${title}. ${line}`}
+          onPress={onDone}
+          style={{ gap: 2, backgroundColor: '#17121F', borderRadius: 26, padding: space.md, paddingHorizontal: space.lg, boxShadow: '0px 10px 30px rgba(0, 0, 0, 0.35)' }}
+        >
+          <Label color={chip.bg}>{title}</Label>
+          <Body size={13} weight="bold" color="rgba(255,253,248,0.75)" numberOfLines={2}>
+            {line}
+          </Body>
         </Pressable>
       </Animated.View>
     </View>

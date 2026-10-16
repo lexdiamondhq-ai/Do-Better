@@ -1,26 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 import { AppState } from 'react-native';
 
-import type { Suit } from '@/engine/cards';
-import { newFaces, summarizeCourt, type FaceInfo } from '@/engine/court';
-import { localDay, msUntilNextDay, weekStart, type Day } from '@/engine/day';
-import type { DayCard } from '@/engine/deal';
-import { dealEvent, playGame, playLiveWeek, type DealEvent } from '@/engine/game';
-import { indexCheckIns, type Level } from '@/engine/kept';
-import { checkInLane, createLedger, step, type Lane, type Outcome, type Step } from '@/engine/ledger';
+import { canBackfill, localDay, msUntilNextDay, weekStart, type Day } from '@/engine/day';
+import { playGame } from '@/engine/game';
+import type { Level } from '@/engine/kept';
+import { checkInLane, createLedger, levelIn, step, type Lane, type Outcome, type Step } from '@/engine/ledger';
 import type { HandKind } from '@/engine/poker';
 
 import type { Backend, Loaded } from './backend';
-import { courtHabits, gameInput } from './play';
+import { forgetMoments, gameInput, momentsOf, newMemory, type CheckInMade, type GameEvent, type Moment } from './play';
 import type { Habit, HabitDraft, RecoveryPrompt, RecoveryResponse } from './types';
 
-type DataState = { status: 'loading' } | { status: 'error'; message: string } | ({ status: 'ready' } & Loaded);
+export type { GameEvent } from './play';
 
-/** Something a check-in caused that's worth a moment on screen. */
-export type GameEvent =
-  /** Today's card got better. `saved` is yesterday's card when the same check-in rescued it. */
-  | { id: number; kind: 'deal'; deal: DealEvent; saved: DayCard | null }
-  | { id: number; kind: 'face'; suit: Suit; face: FaceInfo; identities: string[]; joker: boolean };
+type DataState = { status: 'loading' } | { status: 'error'; message: string } | ({ status: 'ready' } & Loaded);
 
 type DataApi = {
   state: DataState;
@@ -28,22 +21,34 @@ type DataApi = {
   /** Seeds the deal for this player. */
   seed: string;
   reload: () => void;
-  checkIn: (habitId: string, level: Level) => Promise<void>;
-  undoCheckIn: (habitId: string) => Promise<void>;
+  /**
+   * Keeps a card at `level`. Leave `day` out for today: the write always goes to the real date, even
+   * just after midnight. Pass yesterday to log it late ("Did it, forgot to log"); that only adds a
+   * missing day and only where `canBackfill` allows it, and rejects otherwise.
+   */
+  checkIn: (habitId: string, level: Level, day?: Day) => Promise<void>;
+  /** Takes back a check-in: today's unless `day` is a yesterday that `canBackfill` still allows changing. */
+  undoCheckIn: (habitId: string, day?: Day) => Promise<void>;
   createHabit: (draft: HabitDraft) => Promise<Habit>;
   updateHabit: (id: string, draft: HabitDraft) => Promise<void>;
   archiveHabit: (id: string) => Promise<void>;
   /** Writes the Comeback prompt the first time it is shown, and again with the response. */
   recordPrompt: (habitId: string, missedDay: Day, response: RecoveryResponse | null) => Promise<void>;
   saveProfile: (patch: { northStar?: string | null; onboarded?: boolean }) => Promise<void>;
-  /** Calls a hand for this week. Only on Monday; the screen checks before offering it. */
+  /** Calls a hand for this week, while calls are open; the screen checks before offering it. */
   callHand: (hand: HandKind) => Promise<void>;
-  /** Deals and face cards from the latest check-ins, oldest first, waiting to be shown. */
+};
+
+type EventsApi = {
+  /** Moments from the latest check-ins, oldest first, waiting to be shown. */
   events: GameEvent[];
   dismissEvent: (id: number) => void;
+  /** Tells the queue an event is on screen. Events never shown are dropped if their check-in fails to save. */
+  markShown: (id: number) => void;
 };
 
 const DataContext = createContext<DataApi | null>(null);
+const EventsContext = createContext<EventsApi | null>(null);
 
 const deviceTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
@@ -75,8 +80,19 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
   const [ledger] = useState(() => createLedger<Loaded>());
   // The newest data, updated in the same moment as every change, so two quick check-ins never read a stale copy.
   const store = useRef<DataState>(state);
-  // Events a check-in queued, so they can be dropped if its save fails before they're shown.
-  const moments = useRef({ nextId: 1, nextToken: 1, byToken: new Map<number, number[]>(), cancelled: new Set<number>() });
+  // Events each check-in queued, so they can be dropped if its save fails before they're shown, and
+  // what has been celebrated today, so an undo and redo can't replay it.
+  const moments = useRef({
+    nextId: 1,
+    nextToken: 1,
+    byToken: new Map<number, { today: Day; events: GameEvent[] }>(),
+    cancelled: new Set<number>(),
+    shown: new Set<number>(),
+    memory: newMemory(),
+  });
+  // Comeback answers given in this session, by the card and the day they kept, so undoing that check-in
+  // brings the Comeback back.
+  const answered = useRef(new Map<string, Day>());
 
   const commit = useCallback((next: DataState) => {
     store.current = next;
@@ -132,26 +148,18 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
   }, []);
 
   /**
-   * Queues what a change did to today's card and the Court, after the swipe has painted. Returns a token
-   * for dropping those events again if the change doesn't save.
+   * Queues what a check-in did (its card, face cards, milestones), worked out after the swipe has painted.
+   * Returns a token for dropping those events if the check-in doesn't save.
    */
   const announce = useCallback(
-    (before: Loaded, after: Loaded, today: Day): number => {
+    (before: Loaded, after: Loaded, today: Day, made: CheckInMade): number => {
       const m = moments.current;
       const token = m.nextToken++;
       setTimeout(() => {
         if (m.cancelled.delete(token)) return;
-        const was = playLiveWeek(gameInput(before, today, backend.seed));
-        const now = playLiveWeek(gameInput(after, today, backend.seed));
-        const fresh: GameEvent[] = [];
-        const deal = dealEvent(was, now);
-        const saved = now.slots.find((slot, i) => slot.card?.kind === 'card' && slot.card.rescued && !was.slots[i].card)?.card ?? null;
-        if (deal) fresh.push({ id: m.nextId++, kind: 'deal', deal, saved });
-        const joker = now.slots.find((s) => s.isToday)?.card?.kind === 'joker' && was.slots.find((s) => s.isToday)?.card?.kind !== 'joker';
-        const court = (d: Loaded) => summarizeCourt(courtHabits(d.habits), indexCheckIns(d.days), today);
-        for (const f of newFaces(court(before), court(after))) fresh.push({ id: m.nextId++, kind: 'face', suit: f.suit, face: f.face, identities: f.identities, joker });
+        const fresh = momentsOf(before, after, today, backend.seed, made, m.memory).map((x: Moment) => ({ ...x, id: m.nextId++ }) as GameEvent);
         if (!fresh.length) return;
-        m.byToken.set(token, fresh.map((e) => e.id));
+        m.byToken.set(token, { today, events: fresh });
         setEvents((e) => [...e, ...fresh]);
       }, 0);
       return token;
@@ -159,16 +167,24 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
     [backend],
   );
 
-  /** Drops the events a failed change queued. */
+  /** A check-in saved: its events can no longer be dropped. */
+  const confirmed = useCallback((token: number) => {
+    moments.current.byToken.delete(token);
+  }, []);
+
+  /** Drops the events a failed check-in queued that nobody has seen yet, so the next try can celebrate them. */
   const unannounce = useCallback((token: number) => {
     const m = moments.current;
-    const ids = m.byToken.get(token);
-    if (!ids) {
+    const queued = m.byToken.get(token);
+    if (!queued) {
       m.cancelled.add(token);
       return;
     }
     m.byToken.delete(token);
-    setEvents((e) => e.filter((x) => !ids.includes(x.id)));
+    const unseen = queued.events.filter((e) => !m.shown.has(e.id));
+    forgetMoments(unseen, queued.today, m.memory);
+    const gone = new Set(unseen.map((e) => e.id));
+    if (gone.size) setEvents((e) => e.filter((x) => !gone.has(x.id)));
   }, []);
 
   /** Shows a change at once and starts saving it. Null when there is nothing loaded to change. */
@@ -202,21 +218,63 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
   );
 
   const checkIn = useCallback(
-    async (habitId: string, level: Level) => {
-      const day = syncToday();
-      const started = begin(step(checkInLane<Loaded>(habitId, day), level), () => backend.saveDay(habitId, day, level));
+    async (habitId: string, level: Level, day?: Day) => {
+      const s = store.current;
+      if (s.status !== 'ready') return;
+      const today = syncToday();
+      const target = day ?? today;
+      const late = target !== today;
+      if (late && (!canBackfill(target, today, s.habits.find((h) => h.id === habitId)) || levelIn(s.days, habitId, target))) {
+        throw new Error('Only yesterday can be logged late, once, while its week is still being played.');
+      }
+      const started = begin(step(checkInLane<Loaded>(habitId, target), level), () => backend.saveDay(habitId, target, level));
       if (!started) return;
-      const token = announce(started.before, started.after, day);
-      await settle(started.done, () => unannounce(token));
+      const token = announce(started.before, started.after, today, { habitId, level, day: target });
+      const saved = await settle(started.done, () => unannounce(token));
+      if (!saved) return;
+      confirmed(token);
+      // A day logged late was never missed, so its Comeback prompt goes too. No answer is written for it.
+      const loaded = store.current;
+      const lane = promptLane(habitId, target);
+      if (late && loaded.status === 'ready' && lane.read(loaded)) {
+        const cleanup = begin(step(lane, null), () => backend.deletePrompt(habitId, target));
+        if (cleanup) await settle(cleanup.done).catch(() => {});
+      }
     },
-    [backend, begin, settle, announce, unannounce, syncToday],
+    [backend, begin, settle, announce, unannounce, confirmed, syncToday],
   );
 
   const undoCheckIn = useCallback(
-    async (habitId: string) => {
-      const day = syncToday();
-      const started = begin(step(checkInLane<Loaded>(habitId, day), null), () => backend.deleteDay(habitId, day));
-      if (started) await settle(started.done);
+    async (habitId: string, day?: Day) => {
+      const s = store.current;
+      if (s.status !== 'ready') return;
+      const today = syncToday();
+      const target = day ?? today;
+      if (target !== today && !canBackfill(target, today, s.habits.find((h) => h.id === habitId))) {
+        throw new Error('That day is settled now, so it stays as it is.');
+      }
+      // Undo brings the Comeback back: an answer this session gave to the Comeback that this check-in kept is cleared too.
+      const answerKey = `${habitId}:${target}`;
+      const missed = answered.current.get(answerKey);
+      const prompt = missed ? promptLane(habitId, missed).read(s) : null;
+      const started = begin(step(checkInLane<Loaded>(habitId, target), null), () => backend.deleteDay(habitId, target));
+      if (!started) return;
+      let cleared: ReturnType<typeof begin> = null;
+      if (missed && prompt?.response) {
+        answered.current.delete(answerKey);
+        cleared = begin(step(promptLane(habitId, missed), { ...prompt, response: null }), () => backend.clearPrompt(habitId, missed));
+      }
+      const restore = () => {
+        // The check-in is back, so its answer goes back too.
+        if (!missed || !prompt?.response) return;
+        answered.current.set(answerKey, missed);
+        const again = begin(step(promptLane(habitId, missed), prompt), () => backend.savePrompt(prompt));
+        again?.done.catch(() => {});
+      };
+      await Promise.all([settle(started.done).catch((e: unknown) => {
+        restore();
+        throw e;
+      }), cleared ? settle(cleared.done).catch(() => {}) : null]);
     },
     [backend, begin, settle, syncToday],
   );
@@ -263,6 +321,7 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       const lane = promptLane(habitId, missedDay);
       // The first "shown" write never replaces an answer already given.
       const prompt: RecoveryPrompt = { habitId, missedDay, recoveryDay, response: response ?? lane.read(s)?.response ?? null };
+      if (response === 'floor_only' || response === 'two_minute') answered.current.set(`${habitId}:${recoveryDay}`, missedDay);
       const started = begin(step(lane, prompt), () => backend.savePrompt({ habitId, missedDay, recoveryDay, response }));
       if (started) await settle(started.done);
     },
@@ -312,17 +371,36 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       recordPrompt,
       saveProfile,
       callHand,
-      events,
-      dismissEvent: (id: number) => setEvents((e) => e.filter((x) => x.id !== id)),
     }),
-    [state, today, backend, checkIn, undoCheckIn, createHabit, updateHabit, archiveHabit, recordPrompt, saveProfile, callHand, events],
+    [state, today, backend, checkIn, undoCheckIn, createHabit, updateHabit, archiveHabit, recordPrompt, saveProfile, callHand],
   );
 
-  return <DataContext.Provider value={api}>{children}</DataContext.Provider>;
+  // Its own context, so a toast coming and going doesn't redraw every screen that reads the deck.
+  const markShown = useCallback((id: number) => {
+    moments.current.shown.add(id);
+  }, []);
+  const dismissEvent = useCallback((id: number) => {
+    moments.current.shown.add(id);
+    setEvents((e) => e.filter((x) => x.id !== id));
+  }, []);
+  const eventsApi = useMemo<EventsApi>(() => ({ events, dismissEvent, markShown }), [events, dismissEvent, markShown]);
+
+  return (
+    <DataContext.Provider value={api}>
+      <EventsContext.Provider value={eventsApi}>{children}</EventsContext.Provider>
+    </DataContext.Provider>
+  );
 }
 
 export function useData(): DataApi {
   const api = useContext(DataContext);
   if (!api) throw new Error('useData must be used inside DataProvider');
+  return api;
+}
+
+/** The moments waiting to be shown: deals, face cards, the first card, back-fills, milestones and rungs. */
+export function useEvents(): EventsApi {
+  const api = useContext(EventsContext);
+  if (!api) throw new Error('useEvents must be used inside DataProvider');
   return api;
 }

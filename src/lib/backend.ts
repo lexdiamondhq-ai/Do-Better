@@ -24,6 +24,10 @@ export interface Backend {
   updateHabit(id: string, draft: HabitDraft): Promise<Habit>;
   archiveHabit(id: string, archivedAt: string): Promise<void>;
   savePrompt(prompt: RecoveryPrompt): Promise<void>;
+  /** Takes back the answer to a Comeback prompt, so the Comeback shows again. The prompt itself stays. */
+  clearPrompt(habitId: string, missedDay: Day): Promise<void>;
+  /** Removes a Comeback prompt, for a missed day that was logged late after all. */
+  deletePrompt(habitId: string, missedDay: Day): Promise<void>;
   saveProfile(patch: { northStar?: string | null; onboardedAt?: string }): Promise<void>;
   saveCall(weekStart: Day, hand: HandKind): Promise<void>;
 }
@@ -122,6 +126,17 @@ export function supabaseBackend(userId: string): Backend {
       const row = { habit_id: habitId, owner_id: userId, missed_day: missedDay, recovery_day: recoveryDay, ...(response ? { response, responded_at: new Date().toISOString() } : {}) };
       // ignoreDuplicates keeps the first "shown" write from wiping a response.
       const { error } = await supabase.from('recovery_prompts').upsert(row, { onConflict: 'habit_id,missed_day', ignoreDuplicates: !response });
+      if (error) throw friendly(error);
+    },
+
+    async clearPrompt(habitId, missedDay) {
+      // The table's check keeps response and responded_at empty together.
+      const { error } = await supabase.from('recovery_prompts').update({ response: null, responded_at: null }).eq('habit_id', habitId).eq('missed_day', missedDay);
+      if (error) throw friendly(error);
+    },
+
+    async deletePrompt(habitId, missedDay) {
+      const { error } = await supabase.from('recovery_prompts').delete().eq('habit_id', habitId).eq('missed_day', missedDay);
       if (error) throw friendly(error);
     },
 
