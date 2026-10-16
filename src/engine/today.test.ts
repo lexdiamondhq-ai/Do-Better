@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { cardColors, on, tables, themes } from '@/theme/tokens';
 
 import {
+  allKeptCopy,
   allowFor,
   buildQueue,
   cardKey,
@@ -13,10 +14,13 @@ import {
   feltFor,
   identityLine,
   interruptionFor,
+  keptLine,
   laterTag,
   momentOf,
   partOfDayAt,
+  receiptCopy,
   timing,
+  todayTips,
   type TodayCard,
 } from './today';
 
@@ -117,20 +121,26 @@ describe('which ways the front card goes', () => {
 });
 
 describe('room on screen', () => {
-  const base = { cardHeight: 460, windowHeight: 844, fontScale: 1, screenReader: false };
+  const base = { cardHeight: 520, windowHeight: 932, fontScale: 1, screenReader: false };
 
   it('shows the full card when it has room', () => {
-    expect(densityFor(base)).toEqual({ mode: 'regular', mergeTip: false });
+    expect(densityFor(base)).toEqual({ mode: 'regular', mergeTip: false, foldComeback: false });
   });
 
-  it('folds the card when its body is shorter than 380 points', () => {
-    expect(densityFor({ ...base, cardHeight: 379 }).mode).toBe('compact');
-    expect(densityFor({ ...base, cardHeight: 380 }).mode).toBe('regular');
+  it('folds the card when its body is shorter than 360 points', () => {
+    expect(densityFor({ ...base, cardHeight: 359 }).mode).toBe('compact');
+    expect(densityFor({ ...base, cardHeight: 360 }).mode).toBe('regular');
   });
 
-  it('merges the tip into the hand line below 740 points of screen', () => {
+  it('folds the Comeback card sooner, below 470 points', () => {
+    expect(densityFor({ ...base, cardHeight: 469 })).toMatchObject({ mode: 'regular', foldComeback: true });
+    expect(densityFor({ ...base, cardHeight: 470 }).foldComeback).toBe(false);
+  });
+
+  it('gives the tip its own band only on screens 900 points tall or more', () => {
+    expect(densityFor({ ...base, windowHeight: 844 }).mergeTip).toBe(true);
     expect(densityFor({ ...base, windowHeight: 667 }).mergeTip).toBe(true);
-    expect(densityFor({ ...base, windowHeight: 740 }).mergeTip).toBe(false);
+    expect(densityFor({ ...base, windowHeight: 900 }).mergeTip).toBe(false);
   });
 
   it('turns the cards into a list at large text sizes or with a screen reader', () => {
@@ -173,6 +183,27 @@ describe('the Comeback card', () => {
     expect(comebackGap('2026-10-01', today, new Map([['2026-10-14', 'floor']]))).toBe('yesterday');
     expect(comebackGap('2026-10-01', today, new Map())).toBe('few');
     expect(comebackGap('2026-10-15', today, new Map())).toBe('yesterday');
+  });
+});
+
+describe('the chrome', () => {
+  it('counts kept days, with a kind start', () => {
+    expect(keptLine(0)).toBe('Day one');
+    expect(keptLine(1)).toBe('1 kept day');
+    expect(keptLine(1860)).toBe('1,860 kept days');
+  });
+
+  it('keeps only the tips that matter today', () => {
+    const tips = (['climb', 'joker', 'draw', 'rescue', 'showdown', 'call', 'face', 'deal', 'done'] as const).map((tone) => ({ tone, text: tone }));
+    expect(todayTips(tips).map((t) => t.tone)).toEqual(['joker', 'rescue', 'call', 'face']);
+  });
+
+  it('sums up a kept day with the hand in words', () => {
+    const hand = { kind: 'pair' as const, title: 'Pair of Jacks' };
+    expect(allKeptCopy({ count: 4, hand, warmup: false, chips: 30 })).toEqual({ title: 'All 4 kept.', hand: 'Your hand: a Pair of Jacks, worth 30 chips if the week ended now.' });
+    expect(allKeptCopy({ count: 1, hand, warmup: true, chips: 0 }).title).toBe('Kept.');
+    expect(allKeptCopy({ count: 1, hand, warmup: true, chips: 0 }).hand).not.toMatch(/chips/);
+    expect(allKeptCopy({ count: 2, hand: null, warmup: false, chips: 0 }).hand).toBe('Today’s card is in your hand.');
   });
 });
 
@@ -225,6 +256,34 @@ describe('moments', () => {
     expect(m?.kind).toBe('receipt');
     expect(m?.main.id).toBe(3);
     expect(momentOf([])).toBeNull();
+  });
+});
+
+describe('receipts', () => {
+  const pair = { kind: 'pair' as const, title: 'Pair of Eights', score: 200 };
+  const high = { kind: 'high-card' as const, title: 'King high', score: 100 };
+  const deal = { kind: 'deal' as const, level: 'floor' as const, joker: false, wentUp: true, first: false, dropped: false, hand: pair, handWas: high, saved: false };
+
+  it('names the level and what the hand became', () => {
+    expect(receiptCopy(deal)).toEqual({ eyebrow: 'Floor kept', title: 'Today’s card went up', line: 'Your hand is now a Pair of Eights.' });
+    expect(receiptCopy({ ...deal, level: 'ceiling', first: true }).title).toBe('Today’s card');
+  });
+
+  it('says plainly when a higher card broke a match', () => {
+    const r = receiptCopy({ ...deal, dropped: true, hand: high, handWas: pair });
+    expect(r.title).toBe('Today’s card changed');
+    expect(r.line).toBe('A higher card broke your Pair of Eights. Your hand is now King high.');
+  });
+
+  it('celebrates a Joker and a saved yesterday', () => {
+    const r = receiptCopy({ ...deal, joker: true, saved: true, handWas: pair });
+    expect(r.title).toBe('A Joker!');
+    expect(r.line).toBe('It plays as any card. Your hand: a Pair of Eights. Yesterday’s card was saved too.');
+  });
+
+  it('covers a late log and a Court rung', () => {
+    expect(receiptCopy({ kind: 'backfill', level: 'ceiling', hand: pair })).toEqual({ eyebrow: 'Logged late · Ceiling reached', title: 'Yesterday saved', line: 'Your hand: a Pair of Eights.' });
+    expect(receiptCopy({ kind: 'rung', suit: 'Clubs', part: 'Mind', days: 150 }).title).toBe('150 days of Mind');
   });
 });
 

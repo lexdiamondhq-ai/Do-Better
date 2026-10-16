@@ -9,7 +9,9 @@
 import { contrast, mix } from '@/theme/color';
 
 import { addDays, type Day } from './day';
+import type { Tip, TipTone } from './game';
 import { dayStatus, type CheckIns, type Level } from './kept';
+import { handPhrase, type Hand } from './poker';
 
 // Time of day -------------------------------------------------------------------------------------------
 
@@ -146,19 +148,24 @@ export function cardKey(item: QueueItem, deals: number): string {
 export type Density = 'regular' | 'compact' | 'list';
 
 /** A card body shorter than this folds its Floor and Ceiling into one row of buttons. */
-export const COMPACT_BELOW = 380;
+export const COMPACT_BELOW = 360;
+/** The Comeback card says more, so it folds sooner: to its first move, Done it and the Floor. */
+export const COMEBACK_BELOW = 470;
 /** At this text size or larger, cards become a list with buttons. */
 export const LIST_FONT_SCALE = 1.35;
-/** On screens shorter than this the tip joins the hand line instead of taking its own band. */
-export const TALL_SCREEN = 740;
+/** Only screens at least this tall give the tip its own band; on the rest it joins the hand line, leaving the room to the card. */
+export const TALL_SCREEN = 900;
 
 export function densityFor({ cardHeight, windowHeight, fontScale, screenReader }: { cardHeight: number; windowHeight: number; fontScale: number; screenReader: boolean }): {
   mode: Density;
   mergeTip: boolean;
+  /** Show the Comeback card folded. */
+  foldComeback: boolean;
 } {
   const mergeTip = windowHeight < TALL_SCREEN;
-  if (screenReader || fontScale >= LIST_FONT_SCALE) return { mode: 'list', mergeTip };
-  return { mode: cardHeight < COMPACT_BELOW ? 'compact' : 'regular', mergeTip };
+  const foldComeback = cardHeight < COMEBACK_BELOW;
+  if (screenReader || fontScale >= LIST_FONT_SCALE) return { mode: 'list', mergeTip, foldComeback };
+  return { mode: cardHeight < COMPACT_BELOW ? 'compact' : 'regular', mergeTip, foldComeback };
 }
 
 // The Comeback card's words -----------------------------------------------------------------------------
@@ -213,6 +220,36 @@ export function comebackCopy({ name, identity, kept, gap }: { name: string; iden
   return { eyebrow: gap === 'few' ? 'A few days got away' : 'Yesterday got away', headline: who ?? `${name.trim()}.`, evidence };
 }
 
+// The chrome's words -------------------------------------------------------------------------------------
+
+/** The header's count: "186 kept days". Before the first one, "Day one". */
+export function keptLine(kept: number): string {
+  if (kept <= 0) return 'Day one';
+  return kept === 1 ? '1 kept day' : `${grouped(kept)} kept days`;
+}
+
+/**
+ * The tips worth a place on Today: a Joker, a face card within reach, yesterday's card still to save,
+ * and the call. The rest (the next band, a draw, the Showdown) live on the hand and in the rules,
+ * so the screen above the card stays quiet.
+ */
+const TODAY_TONES: ReadonlySet<TipTone> = new Set(['joker', 'face', 'rescue', 'call']);
+
+export function todayTips(tips: readonly Tip[]): Tip[] {
+  return tips.filter((tip) => TODAY_TONES.has(tip.tone));
+}
+
+/** What the screen says once every card is kept: a title and a line about the week's hand. */
+export function allKeptCopy({ count, hand, warmup, chips }: { count: number; hand: Pick<Hand, 'kind' | 'title'> | null; warmup: boolean; chips: number }): {
+  title: string;
+  hand: string;
+} {
+  const title = count === 1 ? 'Kept.' : `All ${count} kept.`;
+  if (!hand) return { title, hand: 'Today’s card is in your hand.' };
+  if (warmup) return { title, hand: `Your hand: ${handPhrase(hand)}. A warm-up week, so it plays for fun.` };
+  return { title, hand: `Your hand: ${handPhrase(hand)}, worth ${grouped(chips)} chips if the week ended now.` };
+}
+
 // The table's colour ------------------------------------------------------------------------------------
 
 /**
@@ -253,6 +290,32 @@ export function momentOf<E extends EventLike>(events: readonly E[]): Moment<E> |
   const receipts = events.filter((e) => RECEIPTS.has(e.kind));
   const main = receipts.at(-1) ?? events.at(-1)!;
   return { kind: 'receipt', main, also: events.filter((e) => e !== main), ids };
+}
+
+type HandLike = Pick<Hand, 'kind' | 'title' | 'score'>;
+
+/** What a receipt is about: today's card after a check-in, yesterday logged late, or a rung in the Court. */
+export type Receipt =
+  | { kind: 'deal'; level: Level; joker: boolean; wentUp: boolean; first: boolean; dropped: boolean; hand: HandLike | null; handWas: HandLike | null; saved: boolean }
+  | { kind: 'backfill'; level: Level; hand: HandLike | null }
+  | { kind: 'rung'; suit: string; part: string; days: number };
+
+/**
+ * The words on the receipt that drops in after a check-in. When a higher card breaks a pair, it says so
+ * plainly instead of cheering: the card went up but the hand went down.
+ */
+export function receiptCopy(r: Receipt): { eyebrow: string; title: string; line: string } {
+  if (r.kind === 'rung') return { eyebrow: `The Court · ${r.suit}`, title: `${grouped(r.days)} days of ${r.part}`, line: 'Still climbing toward the Ace.' };
+  const level = r.level === 'ceiling' ? 'Ceiling reached' : 'Floor kept';
+  if (r.kind === 'backfill') return { eyebrow: `Logged late · ${level}`, title: 'Yesterday saved', line: r.hand ? `Your hand: ${handPhrase(r.hand)}.` : 'Yesterday has its card.' };
+  const title = r.joker ? 'A Joker!' : r.dropped ? 'Today’s card changed' : r.wentUp && !r.first ? 'Today’s card went up' : 'Today’s card';
+  let line = '';
+  if (r.dropped && r.hand && r.handWas) line = `A higher card broke your ${r.handWas.title}. Your hand is now ${handPhrase(r.hand)}.`;
+  else if (r.hand && r.handWas && r.hand.score > r.handWas.score) line = r.hand.title === r.handWas.title ? `Your ${r.hand.title} just got stronger.` : `Your hand is now ${handPhrase(r.hand)}.`;
+  else if (r.hand) line = `Your hand: ${handPhrase(r.hand)}.`;
+  if (r.joker) line = `It plays as any card. ${line}`.trim();
+  if (r.saved) line = `${line} Yesterday’s card was saved too.`.trim();
+  return { eyebrow: level, title, line };
 }
 
 /** Something that interrupts Today: a moment from a check-in, the first-swipe coach mark or the reminder question. */
