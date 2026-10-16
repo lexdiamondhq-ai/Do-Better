@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useMemo, type PropsWithChildren
 
 import { summarizeCourt, type CourtSuit } from '@/engine/court';
 import { addDays, type Day } from '@/engine/day';
-import { tallyDay, tierOf, type DayCard, type Tier } from '@/engine/deal';
+import { bandOf, tallyDay, tierOf, type Band, type DayCard, type Tier } from '@/engine/deal';
 import type { BackKey, Game, TableKey } from '@/engine/game';
 import { indexCheckIns, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level } from '@/engine/kept';
 import { ideaOfTheDay, recommend, type Recommendation, type RecommendationContext } from '@/engine/playbook';
@@ -20,6 +20,10 @@ export type HabitView = {
   neverTwice: Day | null;
   window30: ReturnType<typeof summarizeWindow>;
   allTime: { kept: number; ceiling: number };
+  /** When in the day this card usually plays, from When it plays or the recipe. Stub until workstream B. */
+  partOfDay: 'morning' | 'midday' | 'evening' | 'any';
+  /** Kept nearly every day for a month with plenty of Ceilings. Stub until workstream B. */
+  mastered: boolean;
 };
 
 export type Deck = {
@@ -32,6 +36,12 @@ export type Deck = {
   /** Today's card so far, and the tier it was dealt from. */
   todayCard: DayCard | null;
   todayTier: Tier | null;
+  /** The band today's card deals from so far, or null before anything is kept. */
+  todayBand: Band | null;
+  /** Three or more days since the last check-in on any card. Only a trigger for the Welcome back card. Stub until B. */
+  away: boolean;
+  /** What a returning player still has, for the Welcome back card. Null unless away. */
+  welcome: { kept: number; faces: number; chips: number } | null;
   /** Every suit, in deck order, with its kept days and face card. */
   court: CourtSuit[];
   recommendations: Recommendation[];
@@ -62,12 +72,15 @@ function useComputedDeck(): Deck | null {
         neverTwice: missed && !answered.has(`${habit.id}:${missed}`) ? missed : null,
         window30: summarizeWindow(today, 30, habit.startedOn, checkIns),
         allTime: totals(checkIns, today),
+        partOfDay: 'any',
+        mastered: false,
       };
     });
 
     const game = playGameFor(state, today, seed);
     const todayCard = game.current.slots.find((s) => s.isToday)?.card ?? null;
-    const todayTier = tierOf(tallyDay(today, dealHabits(state.habits, state.profile.timezone), byHabit));
+    const todayTally = tallyDay(today, dealHabits(state.habits, state.profile.timezone), byHabit);
+    const todayTier = tierOf(todayTally);
     const allWeeks = [...game.weeks, game.current];
     const cardsDealt = allWeeks.flatMap((w) => w.slots.flatMap((s) => (s.card ? [s.card] : [])));
     let kept = 0;
@@ -110,6 +123,9 @@ function useComputedDeck(): Deck | null {
       game,
       todayCard,
       todayTier,
+      todayBand: bandOf(todayTally),
+      away: false,
+      welcome: null,
       court: summarizeCourt(courtHabits(state.habits), byHabit, today),
       recommendations: recommend(ctx),
       idea: ideaOfTheDay(ctx),

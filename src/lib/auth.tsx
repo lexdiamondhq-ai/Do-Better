@@ -16,7 +16,12 @@ type AuthState = {
   demo: Backend | null;
 };
 
-type AuthApi = AuthState & { startDemo: () => void; endDemo: () => void };
+type AuthApi = AuthState & {
+  startDemo: () => void;
+  endDemo: () => void;
+  /** Leaves the demo (if any) and starts the player's own deck as a guest. Stub until workstream G. */
+  startOwnDeck: () => Promise<void>;
+};
 
 /** Who just left: the account that signed out (or was switched away from), or the demo deck. */
 export type SignedOut = { userId: string | null; demo: boolean };
@@ -45,7 +50,7 @@ function signedOut(who: SignedOut) {
   }
 }
 
-const AuthContext = createContext<AuthApi>({ session: null, user: null, ready: false, demo: null, startDemo: () => {}, endDemo: () => {} });
+const AuthContext = createContext<AuthApi>({ session: null, user: null, ready: false, demo: null, startDemo: () => {}, endDemo: () => {}, startOwnDeck: async () => {} });
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<Omit<AuthState, 'demo'>>({ session: null, user: null, ready: false });
@@ -73,6 +78,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       endDemo: () => {
         signedOut({ userId: null, demo: true });
         setDemo(null);
+      },
+      startOwnDeck: async () => {
+        if (demo) {
+          signedOut({ userId: null, demo: true });
+          setDemo(null);
+        }
       },
     }),
     [state, demo],
