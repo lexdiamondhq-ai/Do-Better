@@ -7,6 +7,7 @@ import type { BackKey, Game, TableKey } from '@/engine/game';
 import { daysAway, indexCheckIns, masteryOf, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level, type Mastery } from '@/engine/kept';
 import { ideaOfTheDay, partOfDay, recommend, type HabitFacts, type PartOfDay, type Recommendation, type RecommendationContext } from '@/engine/playbook';
 
+import { CueScheduler } from './cues';
 import { useData } from './data';
 import { courtHabits, dealHabits, playGameFor } from './play';
 import { usePrefs, type Look } from './prefs';
@@ -173,10 +174,15 @@ function useComputedDeck(): Deck | null {
 
 const DeckContext = createContext<Deck | null>(null);
 
-/** Works the deck out once per change, for every screen under it. */
+/** Works the deck out once per change, for every screen under it, and keeps the phone's reminders in step with it. */
 export function DeckProvider({ children }: PropsWithChildren) {
   const deck = useComputedDeck();
-  return <DeckContext.Provider value={deck}>{children}</DeckContext.Provider>;
+  return (
+    <DeckContext.Provider value={deck}>
+      <CueScheduler deck={deck} />
+      {children}
+    </DeckContext.Provider>
+  );
 }
 
 export function useDeck(): Deck | null {
