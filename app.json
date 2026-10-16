@@ -6,24 +6,38 @@
     "orientation": "portrait",
     "scheme": "dobetter",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
     "ios": {
       "bundleIdentifier": "com.dobetter.app",
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "icon": {
+        "light": "./assets/icon.png",
+        "dark": "./assets/icon-dark.png",
+        "tinted": "./assets/icon-tinted.png"
       }
     },
     "android": {
-      "package": "com.dobetter.app"
+      "package": "com.dobetter.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ECE8F4"
+      }
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
           "backgroundColor": "#ECE8F4",
           "dark": {
+            "image": "./assets/splash-icon-dark.png",
             "backgroundColor": "#120F18"
           }
         }
@@ -39,6 +53,9 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
     }
   }
 }

@@ -8,7 +8,7 @@ import { ask } from '@/components/Ask';
 import { Chips, formatChips } from '@/components/Chips';
 import { CardSlot, faceOfCourt, PlayingCard, SuitTag } from '@/components/PlayingCard';
 import { SuitGlyph } from '@/components/Suit';
-import { Body, Button, Display, Label, Page, PageTitle, Section } from '@/components/ui';
+import { Body, Button, Display, Label, Page, PageTitle, raisedStyle, Section } from '@/components/ui';
 import { SUIT_INFO } from '@/engine/cards';
 import type { CourtSuit } from '@/engine/court';
 import { BACKS, TABLES, type TableKey } from '@/engine/game';
@@ -57,8 +57,8 @@ export default function You() {
 
   return (
     <Page header={<PageTitle eyebrow="Identity" title="Who you’re becoming" />}>
-      <View style={{ backgroundColor: t.cardBack, borderRadius: radius.card, padding: space.xl, gap: space.md }}>
-        <Label color={t.onCardBack} style={{ opacity: 0.6 }}>Your north star</Label>
+      <View style={{ ...raisedStyle(t), borderRadius: radius.card, padding: space.xl, gap: space.md }}>
+        <Label color={t.onRaisedSecondary}>Your north star</Label>
         {editing ? (
           <>
             <TextInput
@@ -86,7 +86,7 @@ export default function You() {
             style={{ gap: space.sm }}
           >
             <Display size={28} color={t.onCardBack}>{deck.profile.northStar ?? 'Write one sentence about who you’re becoming.'}</Display>
-            <Body size={13} weight="bold" color={t.onCardBack} style={{ opacity: 0.55 }}>Tap to {deck.profile.northStar ? 'edit' : 'write it'}</Body>
+            <Body size={13} weight="bold" color={t.onRaisedSecondary}>Tap to {deck.profile.northStar ? 'edit' : 'write it'}</Body>
           </Pressable>
         )}
       </View>

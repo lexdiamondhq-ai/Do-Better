@@ -1,5 +1,5 @@
 import type { Suit } from '@/engine/cards';
-import { newFaces, summarizeCourt, type CourtHabit, type CourtSuit, type FaceInfo } from '@/engine/court';
+import { newFaces, RUNGS, summarizeCourt, type CourtHabit, type CourtSuit, type FaceInfo } from '@/engine/court';
 import { archivedDay, canBackfill, weekStart, type Day } from '@/engine/day';
 import type { DayCard, DealHabit } from '@/engine/deal';
 import { dealEvent, playGame, playLiveWeek, playPastWeeks, type DealEvent, type Game, type GameInput, type Week } from '@/engine/game';
@@ -12,7 +12,7 @@ import type { Habit } from './types';
 
 /** Habits as the deal sees them. An archived habit leaves the deck on the local day it was archived. */
 export function dealHabits(habits: readonly Habit[], timezone: string): DealHabit[] {
-  return habits.map((h) => ({ id: h.id, suit: h.suit, startedOn: h.startedOn, archivedOn: h.archivedAt ? archivedDay(h.archivedAt, timezone) : null }));
+  return habits.map((h) => ({ id: h.id, name: h.name, suit: h.suit, startedOn: h.startedOn, archivedOn: h.archivedAt ? archivedDay(h.archivedAt, timezone) : null }));
 }
 
 export function courtHabits(habits: readonly Habit[]): CourtHabit[] {
@@ -113,7 +113,6 @@ export function lateRefusal(data: Loaded, habitId: string, day: Day, today: Day,
 export const MILESTONES: readonly number[] = [10, 25, 50, 100, 250, 500, 1000];
 
 /** Steps between a suit's King and its Ace, in days kept. Each is celebrated, with no Joker. */
-export const RUNGS: readonly number[] = [150, 200, 250, 300];
 
 /** Something a check-in caused that's worth a moment on screen. */
 export type GameEvent =
@@ -203,7 +202,9 @@ export function momentsOf(before: Loaded, after: Loaded, today: Day, seed: strin
   } else {
     const card = cardOn(now, made.day);
     if (card) {
-      const deal: DealEvent = { card, was: firstEver ? null : cardOn(was, made.day), hand: now.hand, handWas: firstEver ? null : was.hand };
+      const handWas = firstEver ? null : was.hand;
+      const handDropped = !!handWas && (!now.hand || now.hand.score < handWas.score);
+      const deal: DealEvent = { card, was: firstEver ? null : cardOn(was, made.day), hand: now.hand, handWas, handDropped };
       out.push(first ? { kind: 'first', habitId, level, deal } : { kind: 'backfill', habitId, level, day: made.day, deal });
     }
   }

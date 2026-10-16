@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { FACES, summarizeCourt } from '@/engine/court';
+import { FACES, RUNGS, summarizeCourt } from '@/engine/court';
 import { addDays, weekday, weekStart, type Day } from '@/engine/day';
 import { playGame } from '@/engine/game';
 import { indexCheckIns, neverTwiceDay, type Level } from '@/engine/kept';
 
 import type { Loaded } from './backend';
 import { createDemoBackend } from './demo';
-import { courtHabits, gameInput, MILESTONES, momentsOf, newMemory, RUNGS } from './play';
+import { courtHabits, gameInput, MILESTONES, momentsOf, newMemory } from './play';
 
 // Monday 12 to Sunday 18 October 2026: the demo is laid out by week, so every day of the week is checked.
 const WEEK: Day[] = Array.from({ length: 7 }, (_, i) => addDays('2026-10-12', i));

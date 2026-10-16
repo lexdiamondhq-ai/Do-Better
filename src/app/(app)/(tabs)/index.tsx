@@ -301,7 +301,7 @@ function AllKept({ deck }: { deck: Deck }) {
       </View>
 
       <Pressable onPress={() => router.push('/playbook')} style={{ backgroundColor: t.cardBack, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}>
-        <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{`Today's idea · ${deck.idea.reason}`}</Label>
+        <Label color={t.onRaisedSecondary}>{`Today's idea · ${deck.idea.reason}`}</Label>
         <Display size={24} color={t.onCardBack}>{deck.idea.principle.title}</Display>
         <Body color={t.onCardBack} style={{ opacity: 0.85 }}>{deck.idea.principle.tryThis}</Body>
       </Pressable>

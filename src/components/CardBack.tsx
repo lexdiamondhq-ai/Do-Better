@@ -7,7 +7,7 @@ import type { BackKey } from '@/engine/game';
 import { suitColors } from '@/theme/tokens';
 
 import { CARD_SIZES, type CardSize } from './PlayingCard';
-import { starPath, SuitShape } from './Suit';
+import { CROWN, starPath, SuitShape } from './Suit';
 
 /** Each back's own colours. Backs look the same on every table. */
 export const BACK_COLORS: Record<BackKey, { bg: string; fg: string; accent: string }> = {
@@ -71,7 +71,6 @@ function houndstooth(w: number, h: number, cell: number): string {
   return d;
 }
 
-const CROWN = 'M10 74 L14 36 L32 57 L50 27 L68 57 L86 36 L90 74 Z M10 79 H90 V89 H10 Z';
 const FLUSH_SUITS: Suit[] = ['hearts', 'hearts', 'hearts', 'hearts', 'hearts'];
 const STARS: readonly [number, number, number][] = [
   [0.22, 0.18, 0.09],
@@ -170,8 +169,9 @@ function Pattern({ back, w, h, uid }: { back: BackKey; w: number; h: number; uid
           <Rect x={0} y={0} width={w} height={h} fill={`url(#v${uid})`} />
           <Path d={diagonals(w, h, w / 9, 'up')} stroke={c.fg} strokeWidth={line} opacity={0.12} />
           {FLUSH_SUITS.map((suit, i) => {
-            const a = ((i - 2) * Math.PI) / 9;
-            return <SuitShape key={i} suit={suit} x={cx + Math.sin(a) * w * 0.3} y={cy + w * 0.12 - Math.cos(a) * w * 0.3} size={w * 0.15} fill={c.fg} opacity={0.95} />;
+            // A fan of five, spaced so no two suits touch.
+            const a = ((i - 2) * Math.PI) / 6;
+            return <SuitShape key={i} suit={suit} x={cx + Math.sin(a) * w * 0.29} y={cy + w * 0.1 - Math.cos(a) * w * 0.29} size={w * 0.13} fill={c.fg} opacity={0.95} />;
           })}
         </>
       );
@@ -242,7 +242,13 @@ function Pattern({ back, w, h, uid }: { back: BackKey; w: number; h: number; uid
   }
 }
 
-/** The back of a card, in the design the player picked. Future days in the week show it. */
+/** A light edge on every back, so a dark back never melts into a dark table. */
+const BACK_EDGE = 'rgba(255, 253, 248, 0.16)';
+
+/**
+ * The back of a card, in the design the player picked. Future days in the week show it. It is a
+ * picture: nothing on it grows with the phone's text size.
+ */
 export function CardBack({ back, size = 'md', width, style }: { back: BackKey; size?: CardSize; width?: number; style?: StyleProp<ViewStyle> }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const base = CARD_SIZES[size];
@@ -255,10 +261,14 @@ export function CardBack({ back, size = 'md', width, style }: { back: BackKey; s
   return (
     <View
       accessible
+      accessibilityRole="image"
       accessibilityLabel="Card still to come"
-      style={[{ width: w, height: h, borderRadius: radius, overflow: 'hidden', backgroundColor: c.bg, boxShadow: size === 'xs' ? undefined : '0px 4px 12px rgba(0, 0, 0, 0.2)' }, style]}
+      style={[
+        { width: w, height: h, borderRadius: radius, overflow: 'hidden', backgroundColor: c.bg, borderWidth: 1, borderColor: BACK_EDGE, boxShadow: size === 'xs' ? undefined : '0px 4px 12px rgba(0, 0, 0, 0.2)' },
+        style,
+      ]}
     >
-      <Svg width={w} height={h}>
+      <Svg width={w} height={h} style={{ position: 'absolute', top: -1, left: -1 }}>
         <Pattern back={back} w={w} h={h} uid={uid} />
         <Path d={`M0 0 H${n(w)} V${n(h)} H0 Z ${inner}`} fill={c.bg} fillRule="evenodd" />
         <Path d={inner} fill="none" stroke={back === 'houndstooth' || back === 'checker' ? c.accent : c.fg} strokeWidth={Math.max(0.8, w / 110)} opacity={0.7} />

@@ -8,7 +8,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, radius, space } from '@/theme/tokens';
 
 import { SuitGlyph } from './Suit';
-import { Body, Display, Label } from './ui';
+import { Body, Display, Label, raisedStyle } from './ui';
 
 /** "♣ MIND · I'm a reader": the part of you this card deals for, and who it says you are. */
 function Identity({ habit, ink }: { habit: Habit; ink: string }) {
@@ -64,9 +64,9 @@ export function NeverTwiceCard({ habit, week, saving, style }: { habit: Habit; w
   const t = useTheme();
   const c = cardColors[habit.color];
   return (
-    <View style={[{ flex: 1, backgroundColor: t.cardBack, borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }, style]}>
+    <View style={[{ flex: 1, ...raisedStyle(t), borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }, style]}>
       <View style={{ gap: space.md }}>
-        <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{`Comeback · ${habit.name}`}</Label>
+        <Label color={t.onRaisedSecondary}>{`Comeback · ${habit.name}`}</Label>
         <View style={{ flexDirection: 'row', gap: 6 }}>
           {week.map((w, i) => (
             <View
@@ -86,7 +86,7 @@ export function NeverTwiceCard({ habit, week, saving, style }: { habit: Habit; w
         </View>
       </View>
       <View style={{ gap: space.sm }}>
-        <Display size={48} color={c.bg === '#17614B' ? '#B5D6CB' : c.bg}>Yesterday got away.</Display>
+        <Display size={48} color={c.onDark}>Yesterday got away.</Display>
         <Body weight="bold" size={16} color={t.onCardBack}>
           {saving ? 'One day off changes nothing. Keep this today and yesterday still gets its card.' : 'One day off changes nothing. Here is the easy way back in.'}
         </Body>
@@ -98,7 +98,7 @@ export function NeverTwiceCard({ habit, week, saving, style }: { habit: Habit; w
             <Body size={14} color={t.onCardBack} style={{ opacity: 0.7, flexShrink: 1, textAlign: 'right' }} numberOfLines={1}>{habit.twoMinuteLabel}</Body>
           </View>
         ) : null}
-        <Direction arrow="↓" label="Swipe down · Floor" value={habit.floorLabel} ink={t.onCardBack} circleBg={c.bg} circleFg="#17121F" />
+        <Direction arrow="↓" label="Swipe down · Floor" value={habit.floorLabel} ink={t.onCardBack} circleBg={c.onDark} circleFg="#17121F" />
       </View>
     </View>
   );
