@@ -1,12 +1,12 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useEffect, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type ViewStyle } from 'react-native';
 import Animated, { cancelAnimation, Easing, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Chips } from '@/components/Chips';
-import { CardSlot, PlayingCard, type CardFace } from '@/components/PlayingCard';
+import { CARD_SIZES, CardSlot, PlayingCard, type CardFace } from '@/components/PlayingCard';
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Label } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
@@ -156,7 +156,7 @@ export default function SignIn() {
               <Display size={compact ? 36 : typeScale.display.xl} header>
                 {'Miss a day.\nKeep everything you’ve earned.'}
               </Display>
-              <Body size={compact ? typeScale.text.md : typeScale.text.lg}>Every habit you keep deals a playing card. Every Sunday, your week plays as a poker hand. No streaks to break, ever.</Body>
+              <Body size={compact ? typeScale.text.md : typeScale.text.lg}>Every day you keep a habit deals a playing card. Every Sunday, your week plays as a poker hand. No streaks to break, ever.</Body>
             </View>
             {noticeView}
             <View style={{ gap: space.sm }}>
@@ -245,6 +245,7 @@ export default function SignIn() {
               {codeSent ? (
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityLabel="Use another email"
                   onPress={() => {
                     setCodeSent(false);
                     setCode('');
@@ -252,7 +253,12 @@ export default function SignIn() {
                   }}
                   style={{ minHeight: TAP, alignItems: 'center', justifyContent: 'center' }}
                 >
-                  <Body size={typeScale.text.md} weight="bold" color={t.textSecondary}>{`Code sent to ${email.trim()}. Use another email`}</Body>
+                  <Body size={typeScale.text.md} weight="bold" color={t.textSecondary}>
+                    {`Code sent to ${email.trim()}. `}
+                    <Body size={typeScale.text.md} weight="heavy" style={{ textDecorationLine: 'underline' }}>
+                      {'Use\u00A0another\u00A0email'}
+                    </Body>
+                  </Body>
                 </Pressable>
               ) : null}
             </View>
@@ -386,11 +392,21 @@ function Fan({ p, dashed }: { p: SharedValue<number>; dashed: string }) {
         return face ? (
           <PlayingCard key={i} face={face} size="md" width={FAN_CARD} style={at} />
         ) : (
-          <CardSlot key={i} size="md" color={dashed} style={[at, { width: FAN_CARD, height: FAN_H }]}>
-            <SuitGlyph suit="clubs" size={26} color={dashed} />
-          </CardSlot>
+          <OpenSlot key={i} p={p} dashed={dashed} style={at} />
         );
       })}
+    </Animated.View>
+  );
+}
+
+/** The gap in the hand. It goes while the dealt card sits in it, so no dashed edge shows round that card. */
+function OpenSlot({ p, dashed, style }: { p: SharedValue<number>; dashed: string; style: ViewStyle }) {
+  const hide = useAnimatedStyle(() => ({ opacity: interpolate(p.get(), [0.52, 0.545, 0.9, 0.97], [1, 0, 0, 1], 'clamp') }));
+  return (
+    <Animated.View style={[style, hide]}>
+      <CardSlot size="md" color={dashed} style={{ width: FAN_CARD, height: FAN_H, borderRadius: (CARD_SIZES.md.radius * FAN_CARD) / CARD_SIZES.md.w }}>
+        <SuitGlyph suit="clubs" size={26} color={dashed} />
+      </CardSlot>
     </Animated.View>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { best30, bounceBacks, calendarWeeks, comebackAnswer, daysAway, dayStatus, indexCheckIns, keptBetween, masteryOf, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
+import { best30, bounceBacks, calendarWeeks, comebackAnswer, daysAway, dayStatus, indexCheckIns, keptBetween, keptDayCount, masteryOf, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
 import { addDays, weekday, weekStart } from './day';
 import { dealWeek } from './deal';
 
@@ -67,6 +67,15 @@ describe('totals', () => {
   it('ignores check-ins after the given day', () => {
     const checkIns = days({ '2026-10-08': 'floor', '2026-10-09': 'ceiling', '2026-10-11': 'ceiling' });
     expect(totals(checkIns, '2026-10-10')).toEqual({ kept: 2, ceiling: 1 });
+  });
+});
+
+describe('keptDayCount', () => {
+  it('counts calendar days with any habit kept, once each, up to the given day', () => {
+    const a = days({ '2026-10-08': 'floor', '2026-10-09': 'ceiling', '2026-10-11': 'floor' });
+    const b = days({ '2026-10-09': 'floor', '2026-10-10': 'ceiling' });
+    expect(keptDayCount([a, b], '2026-10-10')).toBe(3);
+    expect(keptDayCount([], '2026-10-10')).toBe(0);
   });
 });
 

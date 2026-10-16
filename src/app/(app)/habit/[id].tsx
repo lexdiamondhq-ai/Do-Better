@@ -160,7 +160,8 @@ export default function HabitDetail() {
                   <Label color={t.onRaisedSecondary}>{`Court of ${suit.name}`}</Label>
                 </View>
                 <Display size={typeScale.display.sm} color={t.onRaised}>
-                  {court.face ? `${court.face.name} of ${suit.name} · ${court.face.title}` : `${court.votes} ${suit.part} ${court.votes === 1 ? 'day' : 'days'}`}
+                  {/* The face's title wraps as one unit, so "Showing up" never leaves "up" alone on a line. */}
+                  {court.face ? `${court.face.name} of ${suit.name} · ${court.face.title.replace(/ /g, '\u00A0')}` : `${court.votes} ${suit.part} ${court.votes === 1 ? 'day' : 'days'}`}
                 </Display>
                 <Body size={typeScale.text.sm} color={t.onRaisedSecondary}>
                   {`Every day you keep ${habit.name} counts for your ${suit.part.toLowerCase()}. `}

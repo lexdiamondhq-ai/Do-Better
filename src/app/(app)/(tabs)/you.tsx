@@ -17,7 +17,7 @@ import { FACES, RUNGS, type CourtSuit } from '@/engine/court';
 import { BACKS, TABLES, type TableKey } from '@/engine/game';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
-import { useDeck, useLook } from '@/lib/deck';
+import { useAdded, useDeck, useLook } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { sendInvite } from '@/lib/invite';
 import { usePrefs } from '@/lib/prefs';
@@ -494,13 +494,15 @@ function Backs({ open }: { open: ReadonlySet<string> }) {
 function Archived({ archived }: { archived: Habit[] }) {
   const t = useTheme();
   const { restoreHabit } = useData();
+  const { noteBack } = useAdded();
   const [busy, setBusy] = useState<string | null>(null);
   if (!archived.length) return null;
 
   async function restore(h: Habit) {
     setBusy(h.id);
     try {
-      await restoreHabit(h.id);
+      const back = await restoreHabit(h.id);
+      noteBack(back.id);
       feel.ceiling();
     } catch (e) {
       ask('That card didn’t come back', e instanceof Error ? e.message : 'Try again.');
@@ -527,7 +529,8 @@ function Archived({ archived }: { archived: Habit[] }) {
                 <Body weight="heavy" numberOfLines={1}>
                   {h.name}
                 </Body>
-                <Body size={12} color={t.textSecondary} numberOfLines={1}>{`${SUIT_INFO[h.suit].part} · ${h.floorLabel}`}</Body>
+                {/* Two lines: beside the Return button a Floor like "Send one message" doesn't fit on one. */}
+                <Body size={12} color={t.textSecondary} numberOfLines={2}>{`${SUIT_INFO[h.suit].part} · ${h.floorLabel}`}</Body>
               </View>
               {/* The row's one action, solid in the card's own colour so it never reads as switched off. */}
               <Button label="Return to deck" variant="quiet" colors={{ bg: c.bg, fg: c.ink }} busy={busy === h.id} disabled={!!busy && busy !== h.id} onPress={() => restore(h)} style={{ paddingHorizontal: space.md }} />

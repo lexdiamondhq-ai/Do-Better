@@ -255,7 +255,8 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
   }
   if (main.kind === 'deal' || main.kind === 'backfill') {
     const name = nameOf(main.habitId);
-    if (name) copy = { ...copy, eyebrow: `${copy.eyebrow} · ${name}` };
+    // The name wraps as one unit, so a second line holds all of "Reach out" rather than splitting it.
+    if (name) copy = { ...copy, eyebrow: `${copy.eyebrow} · ${name.replace(/ /g, '\u00A0')}` };
   }
   const spoken = [copy.eyebrow, copy.title, copy.lead, copy.line, ...copy.notes]
     .filter(Boolean)
@@ -335,7 +336,8 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
         >
           {card ? <Flip from={card.from} to={card.to} back={back} /> : <View style={{ width: 52, height: 64, alignItems: 'center', justifyContent: 'center' }}>{glyph}</View>}
           <View style={{ flex: 1, gap: 1 }}>
-            <Label color={t.onRaisedSecondary} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
+            {/* Two lines, so the habit's name at the end of the eyebrow is never cut on a small phone. */}
+            <Label color={t.onRaisedSecondary} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome}>
               {copy.eyebrow}
             </Label>
             <Display size={20} color={t.onRaised} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>

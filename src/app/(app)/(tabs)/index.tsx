@@ -1,4 +1,4 @@
-import { useIsFocused, useNavigation, useRouter } from 'expo-router';
+import { useIsFocused, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, AppState, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, interpolateColor, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -54,7 +54,7 @@ import { hasSeen, usePrefs } from '@/lib/prefs';
 import { playSound } from '@/lib/sound';
 import { withAlpha } from '@/theme/color';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
-import { cardColors, fontScale, radius, space, suitColors, TAP, themeOn } from '@/theme/tokens';
+import { cardColors, fontScale, radius, space, suitColors, TAP, themeOn, type Theme } from '@/theme/tokens';
 
 /** The first-swipe coach mark, shown once per player until the first kept day. */
 const COACH = 'coach:first-swipe';
@@ -185,6 +185,8 @@ function Table({ deck }: { deck: Deck }) {
   // While the swipe hint shows on a first look, the line above the deck stays quiet (bar the warm-up's own line).
   const tips = todayTips(game.tips, { warmup: game.current.warmup, firstLook: coachDue });
   const tip = tips.length ? tips[tipTurn % tips.length] : null;
+  // A tip can name the card a face-card moment is about to show, so until it closes the tip keeps its place but shows nothing.
+  const tipVeiled = bigMoment;
 
   // Effects ---------------------------------------------------------------------------------------------
   useEffect(() => {
@@ -270,6 +272,22 @@ function Table({ deck }: { deck: Deck }) {
     setDeals((d) => d + 1);
     setPromoted(0);
   };
+
+  // "See it" on a new card's receipt opens Today with `focus`: that card comes to the front, once. The
+  // param is cleared again, so it can't bring the card back on another day.
+  const { focus: focusParam } = useLocalSearchParams<{ focus?: string }>();
+  const [focusSeen, setFocusSeen] = useState<string | undefined>(undefined);
+  if (focusParam !== focusSeen) {
+    setFocusSeen(focusParam);
+    const view = focusParam ? views.get(focusParam) : undefined;
+    if (view && !view.today) {
+      setWelcome(false);
+      bringForward(view.habit.id);
+    }
+  }
+  useEffect(() => {
+    if (focusParam) router.setParams({ focus: undefined });
+  }, [focusParam, router]);
 
   /**
    * Keeps a card at a level: from a swipe, a button, the list or a pill. Every kept day comes from one of those.
@@ -380,6 +398,8 @@ function Table({ deck }: { deck: Deck }) {
     feel.flip();
     // A Comeback card that was about yesterday turns over to today's face.
     if (queue[0]?.id === view.habit.id && queue[0].kind === 'comeback') bringForward(focused);
+    // The receipt's own Undo takes back a late log; the chip for today's last check-in goes, so the two never sit side by side.
+    setMove(null);
     checkIn(view.habit.id, level, yesterday).catch(fail);
   }
 
@@ -532,8 +552,10 @@ function Table({ deck }: { deck: Deck }) {
   const handLine = hasCards ? (
     <HandLine
       game={game}
+      base={base}
       sunday={weekday(deck.today) === 6}
       tip={density.mergeTip ? tip : null}
+      tipVeiled={tipVeiled}
       tipCount={tips.length}
       tipTurn={tipTurn}
       onTip={() => setTipTurn((n) => n + 1)}
@@ -541,10 +563,14 @@ function Table({ deck }: { deck: Deck }) {
       onCall={() => router.push(game.callOpen ? '/call' : '/hands')}
     />
   ) : null;
-  const banner = hasCards && !density.mergeTip && tip ? <TipBanner tip={tip} count={tips.length} turn={tipTurn} onNext={() => setTipTurn((n) => n + 1)} /> : null;
+  const banner = hasCards && !density.mergeTip && tip ? <TipBanner tip={tip} veiled={tipVeiled} count={tips.length} turn={tipTurn} onNext={() => setTipTurn((n) => n + 1)} /> : null;
   const pills = hasCards ? <Pills cards={deck.cards} frontId={front?.item.kind === 'welcome' ? null : (front?.item.id ?? null)} onPill={onPill} onOpen={(id) => router.push(`/habit/${id}`)} onNew={() => router.push('/habit/edit')} /> : null;
 
   if (density.mode === 'list') {
+    // The same order as the cards: a Comeback first, then by time of day, then what's kept.
+    const at = new Map(queue.map((q, i) => [q.id, i]));
+    const place = (view: HabitView) => at.get(view.habit.id) ?? queue.length;
+    const listRows = [...[...pending].sort((a, b) => place(a) - place(b)), ...deck.cards.filter((c) => c.today)];
     return (
       <View style={{ flex: 1 }}>
         <Animated.View style={[StyleSheet.absoluteFill, table]} />
@@ -558,7 +584,7 @@ function Table({ deck }: { deck: Deck }) {
             <View style={{ paddingHorizontal: space.lg, gap: space.md }}>
               {pending.length === 0 && hasCards ? <AllKept deck={deck} keptCount={keptCount} onReach={null} onIdea={() => router.push('/playbook')} /> : null}
               {!hasCards ? <EmptyDeck onCreate={() => router.push('/habit/edit')} /> : null}
-              {[...pending, ...deck.cards.filter((c) => c.today)].map((view) => (
+              {listRows.map((view) => (
                 <ListRow
                   key={view.habit.id}
                   view={view}
@@ -589,7 +615,8 @@ function Table({ deck }: { deck: Deck }) {
           {handLine}
           {banner}
           {pills}
-          <View style={{ flex: 1, marginHorizontal: space.lg, marginTop: hasCards && front ? (compact ? space.lg : space.xl) : space.md }}>
+          {/* Raised over the row below it, so a card dragged down passes over "2 of 4 kept today" and Later, not under them. */}
+          <View style={{ flex: 1, zIndex: front ? 1 : undefined, marginHorizontal: space.lg, marginTop: hasCards && front ? (compact ? space.lg : space.xl) : space.md }}>
             <View style={{ flex: 1 }} onLayout={(e) => setDeckHeight(Math.round(e.nativeEvent.layout.height))}>
               {front ? null : hasCards ? (
                 <AllKept
@@ -740,8 +767,10 @@ function Header({ deck, demo, compact, onStartOwn, onStack }: { deck: Deck; demo
  */
 function HandLine({
   game,
+  base,
   sunday,
   tip,
+  tipVeiled,
   tipCount,
   tipTurn,
   onTip,
@@ -749,8 +778,12 @@ function HandLine({
   onCall,
 }: {
   game: Game;
+  /** The app's own theme, for the Rules sheet: a full-screen reference doesn't take the felt's colour. */
+  base: Theme;
   sunday: boolean;
   tip: { tone: TipTone; text: string } | null;
+  /** Holds the tip's place without showing it. */
+  tipVeiled: boolean;
   tipCount: number;
   tipTurn: number;
   onTip: () => void;
@@ -799,15 +832,21 @@ function HandLine({
         </Pressable>
         <CallChip game={game} onPress={onCall} />
       </View>
-      <RulesSheet visible={rules} topic="week" onClose={() => setRules(false)} />
+      <ThemeScope theme={base}>
+        <RulesSheet visible={rules} topic="week" onClose={() => setRules(false)} />
+      </ThemeScope>
       {tip ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={tip.text}
           accessibilityHint={tipCount > 1 ? 'Shows the next tip' : undefined}
           onPress={onTip}
+          disabled={tipVeiled}
+          aria-hidden={tipVeiled}
+          accessibilityElementsHidden={tipVeiled}
+          importantForAccessibility={tipVeiled ? 'no-hide-descendants' : 'auto'}
           hitSlop={{ top: 4, bottom: 8 }}
-          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}
+          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm, opacity: tipVeiled ? 0 : 1 }}
         >
           <Body size={12} weight="heavy" numberOfLines={2} color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome} style={{ flex: 1, lineHeight: 16 }}>
             {`${TIP_MARK[tip.tone]}  ${tip.text}`}
@@ -867,16 +906,20 @@ function CallChip({ game, onPress }: { game: Game; onPress: () => void }) {
 }
 
 /** A tip that matters today, on tall screens, in its own raised band. Tap for the next one. */
-function TipBanner({ tip, count, turn, onNext }: { tip: { tone: TipTone; text: string }; count: number; turn: number; onNext: () => void }) {
+function TipBanner({ tip, veiled, count, turn, onNext }: { tip: { tone: TipTone; text: string }; veiled: boolean; count: number; turn: number; onNext: () => void }) {
   const t = useTheme();
   return (
     <Pressable
       onPress={onNext}
+      disabled={veiled}
+      aria-hidden={veiled}
+      accessibilityElementsHidden={veiled}
+      importantForAccessibility={veiled ? 'no-hide-descendants' : 'auto'}
       accessibilityRole="button"
       accessibilityLabel={tip.text}
       accessibilityHint={count > 1 ? 'Shows the next tip' : undefined}
       style={({ pressed }) => [
-        { marginHorizontal: space.lg, marginTop: space.md, flexDirection: 'row', alignItems: 'center', gap: space.md, borderRadius: radius.lg, paddingVertical: space.sm, paddingHorizontal: space.md, opacity: pressed ? 0.85 : 1 },
+        { marginHorizontal: space.lg, marginTop: space.md, flexDirection: 'row', alignItems: 'center', gap: space.md, borderRadius: radius.lg, paddingVertical: space.sm, paddingHorizontal: space.md, opacity: veiled ? 0 : pressed ? 0.85 : 1 },
         raisedStyle(t),
       ]}
     >
@@ -1032,7 +1075,7 @@ function UndoChip({ move, onUndo }: { move: Move; onUndo: () => void }) {
           ↺
         </Body>
       </View>
-      <Body weight="heavy" size={14} color={t.bg} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
+      <Body weight="heavy" size={14} color={t.bg} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1, lineHeight: 17 }}>
         {`Undo · ${move.name}`}
       </Body>
     </Pressable>

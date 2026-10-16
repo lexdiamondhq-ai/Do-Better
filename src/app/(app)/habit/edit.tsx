@@ -416,7 +416,7 @@ export default function EditHabit() {
           value={draft.twoMinuteLabel}
           onChangeText={(v) => set({ twoMinuteLabel: v })}
           placeholder={example.twoMinute}
-          hint="Offered the morning after a miss. On that morning, doing just this keeps the day."
+          hint="Offered the day after a miss. That day, doing just this keeps it."
           inputRef={firstMove}
           returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => why.current?.focus()}
         />,

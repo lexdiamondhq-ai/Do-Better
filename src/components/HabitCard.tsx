@@ -552,9 +552,10 @@ export function WelcomeCard({ kept, faces, chips: stack, compact = false, onOpen
         ))}
       </View>
       <View style={{ gap: space.md }}>
+        {/* "Nothing was lost." is the line under the deck, so it isn't said twice here. */}
         {compact ? null : (
           <Body size={15} weight="bold" color={ink} maxFontSizeMultiplier={fontScale.chrome}>
-            Nothing was lost. Pick one card to start with; the rest can wait.
+            Pick one card to start with; the rest can wait.
           </Body>
         )}
         {onOpen ? (

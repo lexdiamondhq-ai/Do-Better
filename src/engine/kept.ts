@@ -115,6 +115,18 @@ export function totals(checkIns: CheckIns, upTo: Day): { kept: number; ceiling: 
 }
 
 /**
+ * Kept days across the whole deck up to and including `upTo`: calendar days with at least one habit kept.
+ * Two habits kept on the same day make one kept day, not two.
+ */
+export function keptDayCount(checkIns: Iterable<CheckIns>, upTo: Day): number {
+  const kept = new Set<Day>();
+  for (const days of checkIns) {
+    for (const day of days.keys()) if (day <= upTo) kept.add(day);
+  }
+  return kept.size;
+}
+
+/**
  * The missed day the Comeback card should be shown for, or null.
  * That is yesterday, when yesterday counted, had no check-in, and today isn't kept yet.
  */

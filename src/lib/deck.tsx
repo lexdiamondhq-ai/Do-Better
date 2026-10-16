@@ -4,7 +4,7 @@ import { summarizeCourt, type CourtSuit } from '@/engine/court';
 import { addDays, type Day } from '@/engine/day';
 import { bandOf, tallyDay, tierOf, type Band, type DayCard, type Tier } from '@/engine/deal';
 import type { BackKey, Game, TableKey } from '@/engine/game';
-import { comebackAnswer, daysAway, indexCheckIns, masteryOf, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level, type Mastery } from '@/engine/kept';
+import { comebackAnswer, daysAway, indexCheckIns, keptDayCount, masteryOf, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level, type Mastery } from '@/engine/kept';
 import { ideaOfTheDay, partOfDay, recommend, type HabitFacts, type PartOfDay, type Recommendation, type RecommendationContext } from '@/engine/playbook';
 
 import { CueScheduler } from './cues';
@@ -65,7 +65,7 @@ const EMPTY: CheckIns = new Map();
 export const AWAY_BLANK_DAYS = 2;
 
 /** Everything the screens show, derived from the loaded rows. Null until the data has loaded. */
-function useComputedDeck(): Deck | null {
+function useComputedDeck(back: readonly string[]): Deck | null {
   const { state, today, seed } = useData();
   const { prefs } = usePrefs();
   const perHabit = prefs.reminders.perHabit;
@@ -98,13 +98,10 @@ function useComputedDeck(): Deck | null {
     const todayTier = tierOf(todayTally);
     const allWeeks = [...game.weeks, game.current];
     const cardsDealt = allWeeks.flatMap((w) => w.slots.flatMap((s) => (s.card ? [s.card] : [])));
-    let kept = 0;
+    // Kept days are calendar days, so two habits kept on one day count once. Ceilings count per habit.
+    const kept = keptDayCount(byHabit.values(), today);
     let ceilings = 0;
-    for (const days of byHabit.values()) {
-      const t = totals(days, today);
-      kept += t.kept;
-      ceilings += t.ceiling;
-    }
+    for (const days of byHabit.values()) ceilings += totals(days, today).ceiling;
 
     // Rates over the last 30 days, ignoring today because it isn't over yet.
     const yesterday = addDays(today, -1);
@@ -129,6 +126,7 @@ function useComputedDeck(): Deck | null {
         hasIdentity: !!c.habit.identity,
         comeback: !!c.neverTwice,
         mastered: c.mastered,
+        justBack: back.includes(c.habit.id),
       });
     }
     const keptToday = cards.filter((c) => c.today).length;
@@ -174,7 +172,7 @@ function useComputedDeck(): Deck | null {
         jokers: cardsDealt.filter((c) => c.kind === 'joker').length,
       },
     };
-  }, [state, today, seed, perHabit]);
+  }, [state, today, seed, perHabit, back]);
 }
 
 const DeckContext = createContext<Deck | null>(null);
@@ -182,23 +180,37 @@ const DeckContext = createContext<Deck | null>(null);
 /** A card that just joined the deck, new or brought back, for a screen to say so. */
 export type Added = { id: string; name: string; back: boolean };
 
-type AddedApi = { added: Added | null; noteAdded: (card: Added) => void; clearAdded: () => void };
+/** `noteBack` marks a card brought back from the archive without a note to show, as from You. */
+type AddedApi = { added: Added | null; noteAdded: (card: Added) => void; noteBack: (id: string) => void; clearAdded: () => void };
 
-const AddedContext = createContext<AddedApi>({ added: null, noteAdded: () => {}, clearAdded: () => {} });
+const AddedContext = createContext<AddedApi>({ added: null, noteAdded: () => {}, noteBack: () => {}, clearAdded: () => {} });
 
 /** How long a "just added" note waits for a screen to show it. */
 const ADDED_FOR_MS = 6000;
 
 /** Works the deck out once per change, for every screen under it, and keeps the phone's reminders in step with it. */
 export function DeckProvider({ children }: PropsWithChildren) {
-  const deck = useComputedDeck();
+  // Cards brought back from the archive this session, so the coach doesn't ask to rest them again straight away.
+  const [back, setBack] = useState<readonly string[]>([]);
+  const deck = useComputedDeck(back);
   const [added, setAdded] = useState<Added | null>(null);
   useEffect(() => {
     if (!added) return;
     const timer = setTimeout(() => setAdded(null), ADDED_FOR_MS);
     return () => clearTimeout(timer);
   }, [added]);
-  const addedApi = useMemo<AddedApi>(() => ({ added, noteAdded: setAdded, clearAdded: () => setAdded(null) }), [added]);
+  const addedApi = useMemo<AddedApi>(() => {
+    const noteBack = (id: string) => setBack((ids) => (ids.includes(id) ? ids : [...ids, id]));
+    return {
+      added,
+      noteAdded: (card: Added) => {
+        setAdded(card);
+        if (card.back) noteBack(card.id);
+      },
+      noteBack,
+      clearAdded: () => setAdded(null),
+    };
+  }, [added]);
   return (
     <DeckContext.Provider value={deck}>
       <AddedContext.Provider value={addedApi}>
