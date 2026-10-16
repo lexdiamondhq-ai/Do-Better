@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { addDays, daysBetween, localDay, weekDays, weekStart, weekday } from './day';
+import { addDays, daysBetween, laterDay, localDay, weekDays, weekStart, weekday } from './day';
 
 describe('localDay', () => {
   it('uses the local date, not the UTC date', () => {
@@ -41,5 +41,14 @@ describe('weeks', () => {
 
   it('list their seven days', () => {
     expect(weekDays('2026-12-28')).toEqual(['2026-12-28', '2026-12-29', '2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03']);
+  });
+});
+
+describe('laterDay', () => {
+  it('keeps the later day, so a remembered week never moves back', () => {
+    expect(laterDay('2026-10-12', '2026-10-05')).toBe('2026-10-12');
+    expect(laterDay('2026-10-05', '2026-10-12')).toBe('2026-10-12');
+    expect(laterDay(undefined, '2026-10-05')).toBe('2026-10-05');
+    expect(laterDay(null, '2026-10-05')).toBe('2026-10-05');
   });
 });

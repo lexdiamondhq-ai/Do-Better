@@ -48,3 +48,8 @@ export function weekDays(start: Day): Day[] {
 export function onOrBefore(a: Day, b: Day): boolean {
   return a <= b;
 }
+
+/** The later of two days. A missing day counts as earlier than any day. */
+export function laterDay(a: Day | null | undefined, b: Day): Day {
+  return a && a > b ? a : b;
+}

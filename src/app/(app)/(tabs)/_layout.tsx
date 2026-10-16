@@ -24,7 +24,9 @@ export default function TabsLayout() {
 
   const needsOnboarding = !!deck && !deck.profile.onboardedAt && deck.cards.length === 0 && deck.archived.length === 0;
   const showdown = deck ? lastShowdown(deck.game) : null;
-  const pending = showdown && prefsReady && !needsOnboarding && (demo || prefs.showdownSeen[seed] !== showdown.start) ? showdown.start : null;
+  // Only a week later than the last one watched, so a clock moved back across a date line can't reopen a settled week.
+  const seen = prefs.showdownSeen[seed];
+  const pending = showdown && prefsReady && !needsOnboarding && (demo || !seen || showdown.start > seen) ? showdown.start : null;
 
   useEffect(() => {
     if (!pending || opened.current === pending) return;
