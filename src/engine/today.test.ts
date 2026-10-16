@@ -446,6 +446,13 @@ describe('receipts', () => {
       expect(receiptCopy({ ...late, blank: false, handWas: pair }).title).toBe('Yesterday logged');
     });
 
+    it('says plainly when the late log lowered the hand', () => {
+      // A day now fully kept deals higher, which can break the pair its old card made.
+      const r = receiptCopy({ ...late, blank: false, card: 'Nine of Spades', hand: high, handWas: pair, dropped: true, wentUp: true });
+      expect(r.line).toBe('Nine of Spades. A higher card broke your Pair of Eights. Your hand is now King high.');
+      expect(receiptCopy({ ...late, blank: false, hand: high, handWas: pair, dropped: true }).line).toBe('Seven of Spades. Your hand is now King high. It was a Pair of Eights.');
+    });
+
     it('says so plainly when the late log moved the Joker off today', () => {
       const r = receiptCopy({ ...late, card: 'Joker', joker: true, blank: false, hand: trips, handWas: trips, moved: { day: 'Thursday', face: 'Queen of Hearts', today: 'Ten of Hearts' } });
       expect(r.title).toBe('Yesterday logged');

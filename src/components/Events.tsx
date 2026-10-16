@@ -16,6 +16,7 @@ import { useData, useEvents, type GameEvent } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { useReviewAsk } from '@/lib/review';
+import { identityPhrase } from '@/lib/share';
 import { playSound, type SoundName } from '@/lib/sound';
 import { withAlpha } from '@/theme/color';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
@@ -111,7 +112,7 @@ export function GameEvents({ back }: { back: BackKey }) {
   if (main.kind === 'face')
     return (
       <Later key={main.id} ms={MOMENT_DELAY_MS}>
-        <FaceEarned event={main} also={alsoLine} late={!!late} onUndoLate={undoLate} onDone={done} />
+        <FaceEarned event={main} also={alsoLine} onUndoLate={undoLate} onDone={done} />
       </Later>
     );
   if (main.kind === 'first')
@@ -211,6 +212,7 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
   } else if (main.kind === 'backfill') {
     const was = main.deal.was;
     joker = main.deal.card.kind === 'joker';
+    const wentUp = !!was && was.kind === 'card' && main.deal.card.kind === 'card' && main.deal.card.rank > was.rank;
     card = { from: was ? faceOfDay(was) : null, to: faceOfDay(main.deal.card) };
     // Yesterday turned into a Joker with no face card earned now: the week's Joker moved there from today
     // (its face card now falls on yesterday, or yesterday became the week's first kept day), or a waiting one landed.
@@ -223,8 +225,20 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
         today: deck.todayCard?.kind === 'card' ? shortName(faceOfDay(deck.todayCard)) : null,
       };
     }
-    copy = receiptCopy({ kind: 'backfill', level: main.level, card: shortName(card.to), joker, blank: !was, hand: main.deal.hand, handWas: main.deal.handWas, moved, rung });
-    sound = 'cardUp';
+    copy = receiptCopy({
+      kind: 'backfill',
+      level: main.level,
+      card: shortName(card.to),
+      joker,
+      blank: !was,
+      hand: main.deal.hand,
+      handWas: main.deal.handWas,
+      dropped: main.deal.handDropped,
+      wentUp,
+      moved,
+      rung,
+    });
+    sound = main.deal.handDropped ? 'flip' : 'cardUp';
     const { habitId, day } = main;
     undo = () => {
       feel.tick();
@@ -484,14 +498,12 @@ function MomentButton({ label, ready, onPress }: { label: string; ready: boolean
 function FaceEarned({
   event,
   also,
-  late,
   onUndoLate,
   onDone,
 }: {
   event: Extract<GameEvent, { kind: 'face' }>;
   also: string | null;
-  /** The face card came from a day logged late, so it was yesterday's card that turned into a Joker. */
-  late: boolean;
+  /** Takes back the day logged late that earned this face card, when one did. */
   onUndoLate: (() => void) | null;
   onDone: () => void;
 }) {
@@ -520,7 +532,17 @@ function FaceEarned({
   const cardStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }, { rotate: `${rotate.get()}deg` }] }));
   const jokerStyle = useAnimatedStyle(() => ({ opacity: Math.min(1, joker.get()), transform: [{ scale: joker.get() }, { rotate: '9deg' }] }));
   const court: CardFace = faceOfCourt(event.suit, event.face);
-  const who = event.identities.length ? event.identities.slice(0, 2).join(' and ') : `your ${info.part.toLowerCase()}`;
+  // "29 kept days. You’re a good friend." in the player's own words, or the part of them it built when they gave none.
+  const who = identityPhrase(event.identities, 'you');
+  const days = who ? `${grouped(event.face.votes)} kept days. ${who}.` : `${grouped(event.face.votes)} kept days of ${info.part}.`;
+  // A Joker always lands on a day kept on the day itself, so it is today's card when it comes now. Otherwise, where it will.
+  const jokerLine = withJoker
+    ? `Today’s card turned into a Joker. ${JOKER_LINE}`
+    : event.jokerLands === 'today'
+      ? 'Keep any habit today and it’s dealt as a Joker.'
+      : event.jokerLands === 'next-week'
+        ? 'Its Joker waits for next week’s first kept day.'
+        : null;
   const close = () => {
     onDone();
     if (event.face.face !== 'jack') askReview('face');
@@ -546,11 +568,11 @@ function FaceEarned({
             <Display size={short ? 30 : 34} color={MOON} header style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>{`${event.face.name} of ${info.name}`}</Display>
             <Display size={20} color={chip.bg} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>{`“${event.face.title}”`}</Display>
             <Body color={MOON_SOFT} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
-              {`${grouped(event.face.votes)} kept days for ${who}. Once the day ends, face cards are never lost.`}
+              {`${days} Once the day ends, face cards are never lost.`}
             </Body>
-            {withJoker ? (
+            {jokerLine ? (
               <Body weight="bold" color={MOON} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
-                {`${late ? 'Yesterday' : 'Today'}’s card turned into a Joker. ${JOKER_LINE}`}
+                {jokerLine}
               </Body>
             ) : null}
             {also ? (

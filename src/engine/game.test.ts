@@ -182,7 +182,7 @@ describe('Jokers', () => {
     const game = playGame(input({ habits: four, today, days: days({}) }));
     expect(game.current.slots[2].card?.kind).toBe('joker');
     expect(game.pendingJoker).toBe('hearts');
-    expect(game.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Jack of Spades today, so today’s card is a Joker. It plays as any rank.' });
+    expect(game.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Jack of Spades today, so today’s card is a Joker. It has no suit and plays as any rank.' });
     const monday = playGame(input({ habits: four, today: W3, days: days({}) }));
     expect(monday.pendingJoker).toBe('hearts');
     expect(monday.tips[0]).toEqual({ tone: 'joker', text: 'Keep any habit today and it’s dealt as a Joker.' });
@@ -242,7 +242,7 @@ describe('Jokers and days logged late', () => {
     expect(game.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today. Keep any habit today and it’s dealt as a Joker.' });
     const kept = playGame({ ...input({ today, habits: deck, days: { ...days, move: { ...spades, [today]: 'floor' } } }), late: late('call', yesterday, today) });
     expect(jokerDay(kept)).toBe(today);
-    expect(kept.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today, so today’s card is a Joker. It plays as any rank.' });
+    expect(kept.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today, so today’s card is a Joker. It has no suit and plays as any rank.' });
   });
 
   it('never lands a waiting Joker on a day that was only logged late', () => {

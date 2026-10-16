@@ -33,6 +33,14 @@ const PLANS: Plan[] = [
 /** The card the demo's first swipe keeps. */
 const COMEBACK = 'reach-out';
 
+/**
+ * Whys the demo player wrote in their own words. Only a why of your own shows on a card (a recipe's stock
+ * why is hidden), so the Comeback card has one to show.
+ */
+const OWN_WHYS: Partial<Record<string, string>> = {
+  [COMEBACK]: 'I don’t want my sister to only hear from me on birthdays.',
+};
+
 /** Its suit's kept days before today: one short of the Queen. */
 const COMEBACK_DAYS = 29;
 
@@ -77,7 +85,7 @@ function buildHistory(today: Day): { habits: Habit[]; days: HabitDay[] } {
       suitSet: true,
       anchor: r.anchor,
       whenWhere: null,
-      why: r.why,
+      why: OWN_WHYS[r.key] ?? r.why,
       recipeKey: r.key,
       position,
       startedOn: addDays(monday, -7 * plan.weeks),

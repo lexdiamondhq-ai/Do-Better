@@ -22,7 +22,7 @@ import { faceDays, knownOn, nextFace, suitDays, type FaceInfo, type LoggedLate }
 import { addDays, weekday, weekStart, type Day } from './day';
 import { canKeep, dayRank, dealWeek, inDeck, keptCards, loOf, rescueWaiting, RIVER_DAYS, riverCard, tallyDay, TOP_LO, type DayCard, type DealHabit, type Slot } from './deal';
 import type { CheckIns } from './kept';
-import { atLeast, bestHand, HAND_LADDER, handsIn, HANDS, makesCall, SUITED_BONUS, SUITED_DAYS, type Hand, type HandKind } from './poker';
+import { atLeast, bestHand, HAND_LADDER, handsIn, HANDS, JOKER_LINE, makesCall, SUITED_BONUS, SUITED_DAYS, type Hand, type HandKind } from './poker';
 
 export type GameInput = {
   /** Seeds the deal, so one person always gets the same cards. Their user id. */
@@ -598,7 +598,7 @@ function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; cal
     const next = !card && !jokerThisWeek && !current.warmup;
     tips.push(
       card?.kind === 'joker'
-        ? { tone: 'joker', text: `${earned}, so today’s card is a Joker. It plays as any rank.` }
+        ? { tone: 'joker', text: `${earned}, so today’s card is a Joker. ${JOKER_LINE}` }
         : next
           ? { tone: 'joker', text: `${earned}. Keep any habit today and it’s dealt as a Joker.` }
           : { tone: 'face', text: `${earned}. Its Joker waits for next week’s first kept day.` },

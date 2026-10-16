@@ -149,7 +149,8 @@ type Phase = 'turn' | 'gather' | 'result';
 export default function Showdown() {
   const base = useTheme();
   const router = useRouter();
-  const { week: start, replay } = useLocalSearchParams<{ week?: string; replay?: string }>();
+  // `sample` marks the demo deck's week, opened by the tabs layout, so the Showdown can say it is made up.
+  const { week: start, replay, sample } = useLocalSearchParams<{ week?: string; replay?: string; sample?: string }>();
   const deck = useDeck();
   const week = deck?.game.weeks.find((w) => w.start === start) ?? null;
 
@@ -163,13 +164,13 @@ export default function Showdown() {
       </View>
     );
   }
-  return <Table key={week.start} week={week} game={deck.game} replay={replay === '1'} />;
+  return <Table key={week.start} week={week} game={deck.game} replay={replay === '1'} sample={sample === '1'} />;
 }
 
 /** A phone this short gets a smaller fan and stamp, so the hand, its total and what it's made of all show above the buttons. */
 const SHORT_SCREEN = 700;
 
-function Table({ week, game, replay }: { week: Week; game: Game; replay: boolean }) {
+function Table({ week, game, replay, sample }: { week: Week; game: Game; replay: boolean; sample: boolean }) {
   const base = useTheme();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -354,6 +355,7 @@ function Table({ week, game, replay }: { week: Week; game: Game; replay: boolean
           contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: (phase === 'result' ? footerH : insets.bottom) + space.lg, paddingHorizontal: space.xl }}
         >
           <TopBar
+            eyebrow={sample ? 'Sample week' : 'Showdown'}
             range={weekRange(week.start)}
             right={
               phase !== 'result' ? (
@@ -385,7 +387,11 @@ function Table({ week, game, replay }: { week: Week; game: Game; replay: boolean
               ) : null
             ) : (
               <Body size={15} weight="bold" color={felt.theme.textSecondary}>
-                {firstShowdown ? `Your week’s cards turn over. The best five make your hand, and it pays chips into your stack. ${hint ?? ''}` : (hint ?? ' ')}
+                {sample
+                  ? `This is a sample week from the demo deck. ${hint ?? ''}`
+                  : firstShowdown
+                    ? `Your week’s cards turn over. The best five make your hand, and it pays chips into your stack. ${hint ?? ''}`
+                    : (hint ?? ' ')}
               </Body>
             )}
           </View>
@@ -495,10 +501,10 @@ function FeltBackground({ felt }: { felt: Felt }) {
   );
 }
 
-function TopBar({ range, right }: { range: string; right: ReactNode }) {
+function TopBar({ eyebrow, range, right }: { eyebrow: string; range: string; right: ReactNode }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: TAP }}>
-      <Label>{`Showdown · ${range}`}</Label>
+      <Label>{`${eyebrow} · ${range}`}</Label>
       {right}
     </View>
   );

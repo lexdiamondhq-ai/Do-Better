@@ -6,11 +6,11 @@ import { SUIT_INFO, SUITS } from '@/engine/cards';
 import { FACES, RUNGS } from '@/engine/court';
 import { KEPT_LO, RIVER_DAYS, TOP_LO } from '@/engine/deal';
 import { CALL_HISTORY } from '@/engine/game';
-import { HAND_LADDER, HANDS, type HandKind } from '@/engine/poker';
+import { HAND_LADDER, HANDS, JOKER_LINE, type HandKind } from '@/engine/poker';
 import { useDeck, useLook } from '@/lib/deck';
 import { tick } from '@/lib/feel';
 import { useTheme } from '@/theme/ThemeProvider';
-import { fontScale, radius, space, suitColors, TAP, typeScale } from '@/theme/tokens';
+import { edgeBorder, fontScale, radius, space, suitColors, TAP, typeScale } from '@/theme/tokens';
 
 import { CardBack } from './CardBack';
 import { ChipIcon, formatChips } from './Chips';
@@ -56,7 +56,8 @@ export const RULES: readonly RulesSection[] = [
       { term: 'The hand', line: 'Monday to Sunday, your best five cards make the hand.' },
       { term: 'Showdown', line: 'At Sunday midnight the hand pays chips into your stack. Chips never leave the stack.' },
       { term: 'No Flush', line: 'A day counts in the suit of every habit you kept, so five in one suit come too easily. It isn’t a hand here.' },
-      { term: 'Suited', line: 'Five Ceiling days in one suit in a week. It pays nothing: it’s a line about the week, like “Clubs led the week”.' },
+      { term: 'Suited', line: 'Five Ceiling days in one suit in a week. It pays nothing: it names the part of you that was at its best.' },
+      { term: 'Led the week', line: 'The suit on the most days you kept something.' },
       { term: 'Warm-up week', line: 'Start on a Thursday to a Sunday and that first week is a warm-up: its cards deal and count in the Court, with no Showdown and no call.' },
       { term: 'Fresh deck', line: 'Every day deals from a fresh deck, so the same card can turn up twice in a week.' },
     ],
@@ -92,7 +93,7 @@ export const RULES: readonly RulesSection[] = [
       { term: 'Face cards', line: `${faceDays.join(', ')} days.` },
       { term: 'Rungs', line: `Between the King and the Ace, rungs at ${RUNGS.slice(0, -1).join(', ')} and ${RUNGS[RUNGS.length - 1]} days mark the climb. They bring no Joker.` },
       { term: 'Kept for good', line: 'Days only add up. A face card, once earned, is never lost.' },
-      { term: 'Joker', line: 'Each new face card deals a Joker on your next kept day. It has no suit and plays as any rank.' },
+      { term: 'Joker', line: `Each new face card deals a Joker on your next kept day. ${JOKER_LINE} A day logged late never takes one.` },
       { term: 'One a week', line: 'At most one Joker lands in a week. Any others wait for the weeks after, so none is ever lost.' },
     ],
   },
@@ -326,7 +327,7 @@ function Prices() {
   const { back } = useLook();
   const spotted = new Set((deck?.game.hall ?? []).filter((e) => e.count > 0).map((e) => e.kind));
   return (
-    <View style={{ backgroundColor: t.bgRaised, borderRadius: radius.lg, paddingVertical: space.sm, paddingHorizontal: space.lg, borderWidth: t.edge === 'transparent' ? 0 : 1, borderColor: t.edge }}>
+    <View style={{ backgroundColor: t.bgRaised, borderRadius: radius.lg, paddingVertical: space.sm, paddingHorizontal: space.lg, ...edgeBorder(t) }}>
       <Label style={{ paddingVertical: space.sm }}>What each hand pays</Label>
       {handPrices(spotted)
         .reverse()

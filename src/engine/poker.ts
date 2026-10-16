@@ -54,6 +54,9 @@ export const SUITED_BONUS: number = 0;
 /** Ceiling days in one suit that make a week Suited. */
 export const SUITED_DAYS = 5;
 
+/** How a Joker is described everywhere a player reads about one: the tips, the receipts, the Court moment and the rules. */
+export const JOKER_LINE = 'It has no suit and plays as any rank.';
+
 export type HandInfo = {
   name: string;
   /** Chips the hand pays at the Showdown. */

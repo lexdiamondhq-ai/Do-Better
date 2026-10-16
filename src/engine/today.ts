@@ -12,7 +12,7 @@ import { addDays, type Day } from './day';
 import type { Tip, TipTone } from './game';
 import { dayStatus, type CheckIns, type Level } from './kept';
 import { playsLine } from './playbook';
-import { handPhrase, type Hand } from './poker';
+import { handPhrase, JOKER_LINE, type Hand } from './poker';
 
 // Time of day -------------------------------------------------------------------------------------------
 
@@ -408,8 +408,8 @@ export function eventStale(e: EventFacts, today: Day, live: { level: (habitId: s
   return false;
 }
 
-/** How a Joker is described everywhere a player reads about one. */
-export const JOKER_LINE = 'It has no suit and plays as any rank.';
+/** How a Joker is described, from the hands' own rules (poker.ts). */
+export { JOKER_LINE } from './poker';
 
 type HandLike = Pick<Hand, 'kind' | 'title' | 'score'>;
 
@@ -448,6 +448,10 @@ export type Receipt =
       blank: boolean;
       hand: HandLike | null;
       handWas: HandLike | null;
+      /** The week's hand got worse: a day now fully kept deals higher, which can break a pair. */
+      dropped?: boolean;
+      /** Yesterday's card went up in rank with the late log. */
+      wentUp?: boolean;
       moved?: JokerMove | null;
       rung?: RungNote | null;
     }
@@ -459,10 +463,13 @@ export type Receipt =
  */
 export type ReceiptCopy = { eyebrow: string; title: string; lead: string | null; line: string; notes: string[] };
 
-/** The hand, in words, after a change: a broken match said plainly, a better kicker named as just that. */
-function handLine(hand: HandLike | null, handWas: HandLike | null, dropped: boolean): string {
+/**
+ * The hand, in words, after a change: a broken match said plainly, a better kicker named as just that.
+ * `rose` says the changed card went up, so it can be named as what broke the hand.
+ */
+function handLine(hand: HandLike | null, handWas: HandLike | null, dropped: boolean, rose = true): string {
   if (!hand) return '';
-  if (dropped && handWas) return `A higher card broke your ${handWas.title}. Your hand is now ${handPhrase(hand)}.`;
+  if (dropped && handWas) return rose ? `A higher card broke your ${handWas.title}. Your hand is now ${handPhrase(hand)}.` : `Your hand is now ${handPhrase(hand)}. It was ${handPhrase(handWas)}.`;
   if (handWas && hand.score > handWas.score) return hand.title === handWas.title ? `Still ${handPhrase(hand)}, now with a higher side card.` : `Your hand is now ${handPhrase(hand)}.`;
   return `Your hand: ${handPhrase(hand)}.`;
 }
@@ -483,7 +490,7 @@ const rungNote = (r: RungNote | null | undefined) => (r ? [`And ${grouped(r.days
 export function receiptCopy(r: Receipt): ReceiptCopy {
   if (r.kind === 'rung') return { eyebrow: `The Court · ${r.suit}`, title: `${grouped(r.days)} days of ${r.part}`, lead: null, line: 'Still climbing toward the Ace.', notes: [] };
   const eyebrow = r.level === 'ceiling' ? 'Ceiling reached' : 'Floor kept';
-  const hand = handLine(r.hand, r.handWas, r.kind === 'deal' && r.dropped);
+  const hand = r.kind === 'deal' ? handLine(r.hand, r.handWas, r.dropped) : handLine(r.hand, r.handWas, !!r.dropped, !!r.wentUp);
   const line = (r.joker ? hand : `${r.card}. ${hand}`).trim();
   const notes = [...(r.joker ? [JOKER_LINE] : []), ...rungNote(r.rung)];
   if (r.kind === 'backfill') {
