@@ -151,8 +151,12 @@ export type Density = 'regular' | 'compact' | 'list';
 export const COMPACT_BELOW = 360;
 /** The Comeback card says more, so it folds sooner: to its first move, Done it and the Floor. */
 export const COMEBACK_BELOW = 470;
+/** From this height the folded Comeback still has room for "Did it, forgot to log" under its buttons. */
+export const COMEBACK_LOG_FROM = 400;
+/** Below this the folded Comeback drops its why (or the line about saving yesterday) and keeps its evidence line. */
+export const COMEBACK_LEAN_BELOW = 340;
 /** Below this the folded Comeback drops its evidence line too, keeping only who you are and the way in. */
-export const COMEBACK_TIGHT_BELOW = 340;
+export const COMEBACK_TIGHT_BELOW = 305;
 /** At this text size or larger, cards become a list with buttons. */
 export const LIST_FONT_SCALE = 1.35;
 /** Only screens at least this tall give the tip its own band; on the rest it joins the hand line, leaving the room to the card. */
@@ -163,14 +167,48 @@ export function densityFor({ cardHeight, windowHeight, fontScale, screenReader }
   mergeTip: boolean;
   /** Show the Comeback card folded. */
   foldComeback: boolean;
+  /** The Comeback card, folded or not, has room for "Did it, forgot to log". Otherwise yesterday is logged from the week strip. */
+  logOnComeback: boolean;
+  /** Folded, without the why: the evidence line still fits. */
+  leanComeback: boolean;
   /** Fold it further, to who you are and the way in. */
   tightComeback: boolean;
 } {
   const mergeTip = windowHeight < TALL_SCREEN;
   const foldComeback = cardHeight < COMEBACK_BELOW;
+  const logOnComeback = cardHeight >= COMEBACK_LOG_FROM;
+  const leanComeback = cardHeight < COMEBACK_LEAN_BELOW;
   const tightComeback = cardHeight < COMEBACK_TIGHT_BELOW;
-  if (screenReader || fontScale >= LIST_FONT_SCALE) return { mode: 'list', mergeTip, foldComeback, tightComeback };
-  return { mode: cardHeight < COMPACT_BELOW ? 'compact' : 'regular', mergeTip, foldComeback, tightComeback };
+  const room = { mergeTip, foldComeback, logOnComeback, leanComeback, tightComeback };
+  if (screenReader || fontScale >= LIST_FONT_SCALE) return { mode: 'list', ...room };
+  return { mode: cardHeight < COMPACT_BELOW ? 'compact' : 'regular', ...room };
+}
+
+// The keyboard ---------------------------------------------------------------------------------------------
+
+/** What a key does to the front card in a browser, or null. `first` is Done it on a Comeback card's first move. */
+export type KeyMove = { dir: 'up' | 'down' | 'left' | 'right'; first: boolean } | null;
+
+/**
+ * Arrows swipe the front card the ways it allows. Enter or Space opens the Welcome back card and presses
+ * Done it on a Comeback card, but only when no control has the focus, so they never steal a button's press.
+ * A key held down repeats, and a repeat never plays a card: each card takes its own press.
+ */
+export function keyMove(
+  key: { key: string; repeat: boolean; onPage: boolean },
+  front: { kind: QueueKind; allow: Allow; firstMove: boolean },
+): KeyMove {
+  if (key.repeat) return null;
+  const { allow } = front;
+  if (key.key === 'ArrowDown') return allow.down ? { dir: 'down', first: false } : null;
+  if (key.key === 'ArrowUp') return allow.up ? { dir: 'up', first: false } : null;
+  if (key.key === 'ArrowLeft') return allow.left ? { dir: 'left', first: false } : null;
+  if (key.key === 'ArrowRight') return allow.right ? { dir: 'right', first: false } : null;
+  if ((key.key === 'Enter' || key.key === ' ') && key.onPage) {
+    if (front.kind === 'welcome') return { dir: 'up', first: false };
+    if (front.kind === 'comeback' && front.firstMove) return { dir: 'down', first: true };
+  }
+  return null;
 }
 
 // The Comeback card's words -----------------------------------------------------------------------------

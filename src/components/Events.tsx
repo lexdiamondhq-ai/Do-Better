@@ -1,5 +1,6 @@
+import { StatusBar } from 'expo-status-bar';
 import { useEffect, useEffectEvent, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,8 +16,8 @@ import * as feel from '@/lib/feel';
 import { useReviewAsk } from '@/lib/review';
 import { playSound, type SoundName } from '@/lib/sound';
 import { withAlpha } from '@/theme/color';
-import { useTheme } from '@/theme/ThemeProvider';
-import { chip, fontScale, radius, space, TAP } from '@/theme/tokens';
+import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
+import { chip, fontScale, radius, space, TAP, themeOn } from '@/theme/tokens';
 
 import { Burst } from './Burst';
 import { CardBack } from './CardBack';
@@ -27,11 +28,16 @@ import { SuitGlyph } from './Suit';
 import { Body, Button, Display, Label, raisedStyle } from './ui';
 
 type Deal = Extract<GameEvent, { kind: 'deal' }>;
+type Backfill = Extract<GameEvent, { kind: 'backfill' }>;
 
 /** The night behind a big moment, and the light text on it. */
 const NIGHT = 'rgba(10, 8, 14, 0.95)';
 const MOON = '#FFFDF8';
 const MOON_SOFT = 'rgba(255, 253, 248, 0.78)';
+/** The night as a solid colour, for controls drawn from the theme (such as Share) to pick light text. */
+const NIGHT_SOLID = '#0A080E';
+/** Below this window height a big moment shows its card one size smaller, so its buttons stay on screen. */
+const SHORT_SCREEN = 760;
 
 /**
  * What the last check-in did, one moment at a time and never a stack: a face card earned in the Court,
@@ -41,6 +47,7 @@ const MOON_SOFT = 'rgba(255, 253, 248, 0.78)';
  */
 export function GameEvents({ back }: { back: BackKey }) {
   const { events, dismissEvent, markShown } = useEvents();
+  const { undoCheckIn } = useData();
   const moment = momentOf(events);
   const shown = moment?.ids.join(',') ?? '';
 
@@ -54,10 +61,19 @@ export function GameEvents({ back }: { back: BackKey }) {
   const { main } = moment;
   const milestone = moment.also.find((e): e is Extract<GameEvent, { kind: 'milestone' }> => e.kind === 'milestone');
   const alsoLine = milestone && main.kind !== 'milestone' ? `And that makes ${grouped(milestone.count)} kept days.` : null;
+  // A day logged late that set off a bigger moment: the moment keeps the late log's Undo, which its receipt would have had.
+  const late = moment.also.find((e): e is Backfill => e.kind === 'backfill') ?? null;
+  const undoLate = late
+    ? () => {
+        feel.tick();
+        undoCheckIn(late.habitId, late.day).catch(() => {});
+        done();
+      }
+    : null;
 
-  if (main.kind === 'face') return <FaceEarned key={main.id} event={main} also={alsoLine} onDone={done} />;
+  if (main.kind === 'face') return <FaceEarned key={main.id} event={main} also={alsoLine} late={!!late} onUndoLate={undoLate} onDone={done} />;
   if (main.kind === 'first') return <FirstCard key={main.id} event={main} back={back} also={alsoLine} onDone={done} />;
-  if (main.kind === 'milestone') return <Milestone key={main.id} count={main.count} onDone={done} />;
+  if (main.kind === 'milestone') return <Milestone key={main.id} count={main.count} onUndoLate={undoLate} onDone={done} />;
   return <ReceiptBanner key={main.id} moment={moment} back={back} onDone={done} />;
 }
 
@@ -205,10 +221,12 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
           accessible
           accessibilityRole="alert"
           accessibilityLabel={spoken}
-          accessibilityActions={[{ name: 'escape', label: 'Close' }]}
+          // The banner reads as one element, so its Undo is offered as an action too.
+          accessibilityActions={undo ? [{ name: 'undo', label: 'Undo the late log' }, { name: 'escape', label: 'Close' }] : [{ name: 'escape', label: 'Close' }]}
           onAccessibilityEscape={close}
           onAccessibilityAction={(e) => {
             if (e.nativeEvent.actionName === 'escape') close();
+            if (e.nativeEvent.actionName === 'undo' && undo) undo();
           }}
           style={[
             { flexDirection: 'row', alignItems: 'center', gap: space.md, borderRadius: 26, padding: space.md, paddingRight: space.sm, boxShadow: '0 14px 34px rgba(10, 8, 14, 0.38)' },
@@ -272,6 +290,10 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
 function Stage({ label, onClose, children }: { label: string; onClose: () => void; children: (ready: boolean) => ReactNode }) {
   const insets = useSafeAreaInsets();
   const [ready, setReady] = useState(false);
+  // When the moment is taller than the screen (a small phone, a guest's save card, large text) it scrolls,
+  // and closes with its button instead of a swipe down, which would fight the scroll.
+  const [room, setRoom] = useState({ view: 0, content: 0 });
+  const tall = room.view > 0 && room.content > room.view + 1;
   const y = useSharedValue(0);
   const finish = useEffectEvent(() => AccessibilityInfo.announceForAccessibility(label));
 
@@ -283,7 +305,7 @@ function Stage({ label, onClose, children }: { label: string; onClose: () => voi
 
   const close = () => onClose();
   const swipe = Gesture.Pan()
-    .enabled(ready)
+    .enabled(ready && !tall)
     .activeOffsetY([-10, 10])
     .onUpdate((e) => {
       y.set(Math.max(0, e.translationY));
@@ -298,17 +320,25 @@ function Stage({ label, onClose, children }: { label: string; onClose: () => voi
 
   return (
     <Modal transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
+      {/* The night is dark in either theme, so the clock and battery go light over it. */}
+      <StatusBar style="light" />
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View pointerEvents="none" aria-hidden style={[StyleSheet.absoluteFill, { backgroundColor: NIGHT }]} />
         <GestureDetector gesture={swipe}>
-          <Animated.View
-            accessibilityViewIsModal
-            role="dialog"
-            aria-modal
-            aria-label={label}
-            style={[{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.lg, paddingHorizontal: space.xl, gap: space.lg }, slide]}
-          >
-            {children(ready)}
+          <Animated.View accessibilityViewIsModal role="dialog" aria-modal aria-label={label} style={[{ flex: 1 }, slide]}>
+            <ScrollView
+              scrollEnabled={tall}
+              showsVerticalScrollIndicator={tall}
+              bounces={false}
+              onLayout={(e) => {
+                const view = e.nativeEvent.layout.height;
+                setRoom((r) => (r.view === view ? r : { ...r, view }));
+              }}
+              onContentSizeChange={(_w, content) => setRoom((r) => (r.content === content ? r : { ...r, content }))}
+              contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.lg, paddingHorizontal: space.xl, gap: space.lg }}
+            >
+              {children(ready)}
+            </ScrollView>
           </Animated.View>
         </GestureDetector>
       </GestureHandlerRootView>
@@ -316,7 +346,23 @@ function Stage({ label, onClose, children }: { label: string; onClose: () => voi
   );
 }
 
-function FaceEarned({ event, also, onDone }: { event: Extract<GameEvent, { kind: 'face' }>; also: string | null; onDone: () => void }) {
+function FaceEarned({
+  event,
+  also,
+  late,
+  onUndoLate,
+  onDone,
+}: {
+  event: Extract<GameEvent, { kind: 'face' }>;
+  also: string | null;
+  /** The face card came from a day logged late, so it was yesterday's card that turned into a Joker. */
+  late: boolean;
+  onUndoLate: (() => void) | null;
+  onDone: () => void;
+}) {
+  const t = useTheme();
+  const { height } = useWindowDimensions();
+  const short = height < SHORT_SCREEN;
   const info = SUIT_INFO[event.suit];
   const askReview = useReviewAsk();
   const scale = useSharedValue(0.3);
@@ -349,23 +395,23 @@ function FaceEarned({ event, also, onDone }: { event: Extract<GameEvent, { kind:
           <Label color={chip.bg} maxFontSizeMultiplier={fontScale.chrome}>{`The Court · ${info.name} · ${info.part}`}</Label>
           <View style={{ flexDirection: 'row', alignItems: 'center' }} aria-hidden>
             <Animated.View style={cardStyle}>
-              <PlayingCard face={court} size="xl" />
+              <PlayingCard face={court} size={short ? 'lg' : 'xl'} />
             </Animated.View>
             {withJoker ? (
-              <Animated.View style={[{ marginLeft: -44, marginTop: 100 }, jokerStyle]}>
-                <PlayingCard face={{ kind: 'joker' }} size="md" />
+              <Animated.View style={[short ? { marginLeft: -32, marginTop: 70 } : { marginLeft: -44, marginTop: 100 }, jokerStyle]}>
+                <PlayingCard face={{ kind: 'joker' }} size={short ? 'sm' : 'md'} />
               </Animated.View>
             ) : null}
           </View>
           <View style={{ gap: space.sm, alignItems: 'center' }}>
-            <Display size={34} color={MOON} header style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>{`${event.face.name} of ${info.name}`}</Display>
+            <Display size={short ? 30 : 34} color={MOON} header style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>{`${event.face.name} of ${info.name}`}</Display>
             <Display size={20} color={chip.bg} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>{`“${event.face.title}”`}</Display>
             <Body color={MOON_SOFT} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
               {`${grouped(event.face.votes)} kept days for ${who}. Once the day ends, face cards are never lost.`}
             </Body>
             {withJoker ? (
               <Body weight="bold" color={MOON} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
-                Today’s card turned into a Joker. It plays as whatever card makes your best hand.
+                {`${late ? 'Yesterday' : 'Today'}’s card turned into a Joker. It plays as whatever card makes your best hand.`}
               </Body>
             ) : null}
             {also ? (
@@ -377,7 +423,11 @@ function FaceEarned({ event, also, onDone }: { event: Extract<GameEvent, { kind:
           <SaveDeckCard moment="face" />
           <View style={{ alignSelf: 'stretch', gap: space.sm }}>
             <Button label="Keep playing" onPress={close} disabled={!ready} colors={{ bg: MOON, fg: '#17121F' }} />
-            <ShareButton target={{ kind: 'face', suit: event.suit, face: event.face, identities: event.identities, days: event.face.votes }} />
+            {/* Share draws itself from the theme: on the night it needs the light text of a dark table. */}
+            <ThemeScope theme={themeOn(NIGHT_SOLID, t)}>
+              <ShareButton target={{ kind: 'face', suit: event.suit, face: event.face, identities: event.identities, days: event.face.votes }} />
+            </ThemeScope>
+            {onUndoLate ? <Button label="Undo the late log" variant="quiet" onPress={onUndoLate} disabled={!ready} colors={{ bg: 'transparent', fg: MOON_SOFT }} hint="Takes back yesterday’s check-in" /> : null}
           </View>
         </>
       )}
@@ -389,6 +439,7 @@ function FaceEarned({ event, also, onDone }: { event: Extract<GameEvent, { kind:
 function FirstCard({ event, back, also, onDone }: { event: Extract<GameEvent, { kind: 'first' }>; back: BackKey; also: string | null; onDone: () => void }) {
   const deck = useDeck();
   const { undoCheckIn } = useData();
+  const { height } = useWindowDimensions();
   const warmup = deck?.game.current.warmup ?? false;
 
   useEffect(() => {
@@ -399,7 +450,8 @@ function FirstCard({ event, back, also, onDone }: { event: Extract<GameEvent, { 
 
   const undo = () => {
     feel.tick();
-    undoCheckIn(event.habitId).catch(() => {});
+    // The first card can be yesterday's, logged late: the undo goes to the day it was dealt for.
+    undoCheckIn(event.habitId, event.deal.card.day).catch(() => {});
     onDone();
   };
 
@@ -410,7 +462,7 @@ function FirstCard({ event, back, also, onDone }: { event: Extract<GameEvent, { 
           <Label color={chip.bg} maxFontSizeMultiplier={fontScale.chrome}>
             Your first card
           </Label>
-          <Flip from={null} to={faceOfDay(event.deal.card)} back={back} size="xl" delay={450} />
+          <Flip from={null} to={faceOfDay(event.deal.card)} back={back} size={height < SHORT_SCREEN ? 'lg' : 'xl'} delay={450} />
           <View style={{ gap: space.sm, alignItems: 'center' }}>
             <Display size={32} color={MOON} header style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
               {faceLabel(faceOfDay(event.deal.card))}
@@ -437,7 +489,7 @@ function FirstCard({ event, back, also, onDone }: { event: Extract<GameEvent, { 
 }
 
 /** A round number of kept days across every card. */
-function Milestone({ count, onDone }: { count: number; onDone: () => void }) {
+function Milestone({ count, onUndoLate, onDone }: { count: number; onUndoLate: (() => void) | null; onDone: () => void }) {
   const pop = useSharedValue(0.6);
   useEffect(() => {
     playSound('cardUp');
@@ -460,8 +512,9 @@ function Milestone({ count, onDone }: { count: number; onDone: () => void }) {
           <Body color={MOON_SOFT} style={{ textAlign: 'center', maxWidth: 300 }} maxFontSizeMultiplier={fontScale.chrome}>
             Every one of them still counts. A day off never takes one back.
           </Body>
-          <View style={{ alignSelf: 'stretch', borderTopWidth: 1, borderColor: withAlpha(MOON, 0.16), paddingTop: space.lg }}>
+          <View style={{ alignSelf: 'stretch', borderTopWidth: 1, borderColor: withAlpha(MOON, 0.16), paddingTop: space.lg, gap: space.xs }}>
             <Button label="Keep going" onPress={onDone} disabled={!ready} colors={{ bg: MOON, fg: '#17121F' }} />
+            {onUndoLate ? <Button label="Undo the late log" variant="quiet" onPress={onUndoLate} disabled={!ready} colors={{ bg: 'transparent', fg: MOON_SOFT }} hint="Takes back yesterday’s check-in" /> : null}
           </View>
         </>
       )}

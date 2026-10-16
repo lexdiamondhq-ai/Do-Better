@@ -15,6 +15,7 @@ import {
   identityLine,
   interruptionFor,
   keptLine,
+  keyMove,
   laterTag,
   momentOf,
   partOfDayAt,
@@ -124,7 +125,7 @@ describe('room on screen', () => {
   const base = { cardHeight: 520, windowHeight: 932, fontScale: 1, screenReader: false };
 
   it('shows the full card when it has room', () => {
-    expect(densityFor(base)).toEqual({ mode: 'regular', mergeTip: false, foldComeback: false, tightComeback: false });
+    expect(densityFor(base)).toEqual({ mode: 'regular', mergeTip: false, foldComeback: false, logOnComeback: true, leanComeback: false, tightComeback: false });
   });
 
   it('folds the card when its body is shorter than 360 points', () => {
@@ -137,9 +138,16 @@ describe('room on screen', () => {
     expect(densityFor({ ...base, cardHeight: 470 }).foldComeback).toBe(false);
   });
 
-  it('keeps the Comeback evidence line until the card is shorter than 340 points', () => {
-    expect(densityFor({ ...base, cardHeight: 353 })).toMatchObject({ mode: 'compact', foldComeback: true, tightComeback: false });
-    expect(densityFor({ ...base, cardHeight: 339 }).tightComeback).toBe(true);
+  it('keeps "Did it, forgot to log" on a folded Comeback card from 400 points', () => {
+    expect(densityFor({ ...base, cardHeight: 416 })).toMatchObject({ foldComeback: true, logOnComeback: true });
+    expect(densityFor({ ...base, cardHeight: 399 }).logOnComeback).toBe(false);
+  });
+
+  it('drops the Comeback why below 340 points and its evidence line only below 305', () => {
+    expect(densityFor({ ...base, cardHeight: 353 })).toMatchObject({ mode: 'compact', foldComeback: true, leanComeback: false, tightComeback: false });
+    expect(densityFor({ ...base, cardHeight: 339 })).toMatchObject({ leanComeback: true, tightComeback: false });
+    expect(densityFor({ ...base, cardHeight: 305 }).tightComeback).toBe(false);
+    expect(densityFor({ ...base, cardHeight: 304 })).toMatchObject({ leanComeback: true, tightComeback: true });
   });
 
   it('gives the tip its own band only on screens 900 points tall or more', () => {
@@ -152,6 +160,33 @@ describe('room on screen', () => {
     expect(densityFor({ ...base, fontScale: 1.35 }).mode).toBe('list');
     expect(densityFor({ ...base, fontScale: 1.3 }).mode).toBe('regular');
     expect(densityFor({ ...base, screenReader: true }).mode).toBe('list');
+  });
+});
+
+describe('the keyboard', () => {
+  const all = { up: true, down: true, left: true, right: true };
+  const press = (key: string, extra: Partial<{ repeat: boolean; onPage: boolean }> = {}) => ({ key, repeat: false, onPage: true, ...extra });
+  const front = (kind: 'card' | 'comeback' | 'welcome' | 'reach', allow = all, firstMove = true) => ({ kind, allow, firstMove });
+
+  it('swipes the front card with the arrows, only the ways it allows', () => {
+    expect(keyMove(press('ArrowDown'), front('card'))).toEqual({ dir: 'down', first: false });
+    expect(keyMove(press('ArrowUp'), front('card'))).toEqual({ dir: 'up', first: false });
+    expect(keyMove(press('ArrowLeft'), front('card', { ...all, left: false, right: false }))).toBeNull();
+    expect(keyMove(press('ArrowDown'), front('reach', { up: true, down: false, left: true, right: true }))).toBeNull();
+  });
+
+  it('never keeps a card from a key held down', () => {
+    expect(keyMove(press('ArrowDown', { repeat: true }), front('card'))).toBeNull();
+    expect(keyMove(press('Enter', { repeat: true }), front('comeback'))).toBeNull();
+  });
+
+  it('presses Done it with Enter or Space only when no control has the focus', () => {
+    expect(keyMove(press('Enter'), front('comeback'))).toEqual({ dir: 'down', first: true });
+    expect(keyMove(press(' '), front('comeback'))).toEqual({ dir: 'down', first: true });
+    expect(keyMove(press('Enter', { onPage: false }), front('comeback'))).toBeNull();
+    expect(keyMove(press('Enter'), front('comeback', all, false))).toBeNull();
+    expect(keyMove(press('Enter'), front('card'))).toBeNull();
+    expect(keyMove(press('Enter'), front('welcome'))).toEqual({ dir: 'up', first: false });
   });
 });
 

@@ -1,8 +1,9 @@
 import { useNavigation, useRouter } from 'expo-router';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, AppState, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { scheduleOnUI } from 'react-native-worklets';
 
 import { ask, type AskButton } from '@/components/Ask';
@@ -28,9 +29,11 @@ import {
   comebackGap,
   densityFor,
   feltFor,
+  grouped,
   identityLine,
   interruptionFor,
   keptLine,
+  keyMove,
   laterTag,
   momentOf,
   partOfDayAt,
@@ -59,8 +62,8 @@ const TIP_MARK: Record<TipTone, string> = { joker: '★', face: '♛', rescue: '
 
 /** One card on the table as it was dealt: what it is, and how it was allowed to go when it was in front. */
 type Play = { key: string; item: QueueItem; view: HabitView | null; allow: Allow; from: number; appear: 'deal' | 'flip' };
-/** The latest check-in made here, for the Undo chip. */
-type Move = { habitId: string; name: string; level: Level; n: number };
+/** The latest check-in made here, for the Undo chip. `was` is the level it replaced: undo goes back to it. */
+type Move = { habitId: string; name: string; level: Level; was: Level | null; n: number };
 
 export default function Today() {
   const deck = useDeck();
@@ -258,7 +261,7 @@ function Table({ deck }: { deck: Deck }) {
     else feel.floor();
     setBurst((b) => ({ n: (b?.n ?? 0) + 1, kind: level, color: cardColors[view.habit.color].bg }));
     setFocused(null);
-    setMove((m) => ({ habitId: id, name: view.habit.name, level, n: (m?.n ?? 0) + 1 }));
+    setMove((m) => ({ habitId: id, name: view.habit.name, level, was: view.today, n: (m?.n ?? 0) + 1 }));
     if (coachDue) markSeen(seed, COACH);
     checkIn(id, level).catch(fail);
     // A Ceiling on the Comeback card still answers it as the Floor; only Done it is the first move.
@@ -300,6 +303,23 @@ function Table({ deck }: { deck: Deck }) {
     playSound('flip');
     feel.flip();
     undoCheckIn(habitId).catch(fail);
+  }
+
+  /**
+   * The Undo chip takes back the latest check-in. A Ceiling reached over a kept Floor goes back to the Floor,
+   * never to nothing; in the Ceiling pass that card comes back to the front.
+   */
+  function takeBack(m: Move) {
+    if (!m.was) return undo(m.habitId);
+    const level = m.was;
+    setMove(null);
+    playSound('flip');
+    feel.flip();
+    if (reach) {
+      setReach((r) => (r ? { skipped: r.skipped.filter((x) => x !== m.habitId) } : r));
+      bringForward(m.habitId);
+    }
+    checkIn(m.habitId, level).catch(fail);
   }
 
   /** A pill: a waiting card comes to the front; a kept one offers to change or take back today. */
@@ -374,16 +394,16 @@ function Table({ deck }: { deck: Deck }) {
     const onKey = (e: KeyEvent) => {
       const tag = e.target?.tagName ?? '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
+      // A sheet or a big moment is open over the table: its keys are its own.
+      if (e.target?.closest?.('[aria-modal="true"]')) return;
       const card = swipe.current;
       if (!card) return;
-      let handled = true;
-      if (e.key === 'ArrowDown' && keyDown) card.fling('down', { tag: 'key' });
-      else if (e.key === 'ArrowUp' && keyUp) card.fling('up', { tag: 'key' });
-      else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && keySide) card.fling(e.key === 'ArrowLeft' ? 'left' : 'right', { tag: 'key' });
-      else if ((e.key === 'Enter' || e.key === ' ') && keyKind === 'welcome') card.fling('up', { tag: 'key' });
-      else if ((e.key === 'Enter' || e.key === ' ') && keyKind === 'comeback' && keyFirst) card.fling('down', { note: FIRST_MOVE_NOTE, tag: 'first' });
-      else handled = false;
-      if (handled) e.preventDefault();
+      const onPage = !tag || tag === 'BODY' || tag === 'HTML';
+      const move = keyMove({ key: e.key, repeat: !!e.repeat, onPage }, { kind: keyKind, allow: { up: !!keyUp, down: !!keyDown, left: !!keySide, right: !!keySide }, firstMove: !!keyFirst });
+      if (!move) return;
+      e.preventDefault();
+      if (move.first) card.fling('down', { note: FIRST_MOVE_NOTE, tag: 'first' });
+      else card.fling(move.dir, { tag: 'key' });
     };
     doc.addEventListener('keydown', onKey);
     return () => doc.removeEventListener('keydown', onKey);
@@ -406,11 +426,12 @@ function Table({ deck }: { deck: Deck }) {
           gap={comebackGap(habit.startedOn, deck.today, view.checkIns)}
           saving={!!game.rescue}
           compact={folded}
+          lean={density.leanComeback}
           tight={density.tightComeback}
           onFirstMove={live ? () => fling('down', { note: FIRST_MOVE_NOTE, tag: 'first' }) : undefined}
           onFloor={live ? () => fling('down') : undefined}
           onCeiling={live ? () => fling('up') : undefined}
-          onLogYesterday={live && !folded && lateCards.some((c) => c.habit.id === habit.id) ? () => logYesterday(view) : undefined}
+          onLogYesterday={live && density.logOnComeback && lateCards.some((c) => c.habit.id === habit.id) ? () => logYesterday(view) : undefined}
         />
       );
     }
@@ -566,7 +587,7 @@ function Table({ deck }: { deck: Deck }) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, marginHorizontal: space.lg, marginTop: space.sm, minHeight: TAP }}>
               <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                 {move ? (
-                  <UndoChip move={move} onUndo={() => undo(move.habitId)} />
+                  <UndoChip move={move} onUndo={() => takeBack(move)} />
                 ) : coach ? (
                   <Coach
                     onClose={() => {
@@ -579,19 +600,54 @@ function Table({ deck }: { deck: Deck }) {
                 )}
               </View>
               {reaching ? <QuietButton label="Done" onPress={() => setReach(null)} /> : null}
-              {front.allow.left ? <QuietButton label={reaching ? 'Not today →' : 'Later →'} hint={reaching ? 'Leaves this card at its Floor' : 'Sends this card to the back of the deck'} onPress={() => fling('left')} /> : null}
+              {front.allow.left && front.item.kind !== 'welcome' ? <QuietButton label={reaching ? 'Not today →' : 'Later →'} hint={reaching ? 'Leaves this card at its Floor' : 'Sends this card to the back of the deck'} onPress={() => fling('left')} /> : null}
             </View>
           ) : null}
         </View>
+        {!front && hasCards ? <BottomFade height={bottomPad + TAP + space.xl} /> : null}
+        {!front && move ? (
+          // The last card's check-in can be taken back too, from just above the tab bar.
+          <View pointerEvents="box-none" style={{ position: 'absolute', left: space.lg, right: space.lg, bottom: bottomPad, flexDirection: 'row' }}>
+            <UndoChip move={move} onUndo={() => takeBack(move)} />
+          </View>
+        ) : null}
       </ThemeScope>
       {interruption === 'reminder' ? <ReminderPrompt /> : null}
     </View>
   );
 }
 
-type KeyEvent = { key: string; target?: { tagName?: string } | null; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; preventDefault: () => void };
+type KeyEvent = {
+  key: string;
+  repeat?: boolean;
+  target?: { tagName?: string; closest?: (selector: string) => unknown } | null;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  preventDefault: () => void;
+};
 
 // Chrome ------------------------------------------------------------------------------------------------
+
+/** The table's own colour rising over the page's foot, so what scrolls under the floating tab bar fades away instead of being cut. */
+function BottomFade({ height }: { height: number }) {
+  const t = useTheme();
+  const id = `fade${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  return (
+    <View pointerEvents="none" aria-hidden style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height }}>
+      <Svg width="100%" height="100%">
+        <Defs>
+          <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={t.bg} stopOpacity={0} />
+            <Stop offset="0.4" stopColor={t.bg} stopOpacity={0.85} />
+            <Stop offset="0.6" stopColor={t.bg} stopOpacity={1} />
+          </LinearGradient>
+        </Defs>
+        <Rect x={0} y={0} width="100%" height="100%" fill={`url(#${id})`} />
+      </Svg>
+    </View>
+  );
+}
 
 /** The day, the kept days so far and the stack. In the demo, a way out to a deck of your own. */
 function Header({ deck, demo, compact, onStartOwn, onStack }: { deck: Deck; demo: boolean; compact: boolean; onStartOwn: () => void; onStack: () => void }) {
@@ -605,7 +661,7 @@ function Header({ deck, demo, compact, onStartOwn, onStack }: { deck: Deck; demo
             accessibilityLabel="Demo deck"
             accessibilityHint="Leaves the demo and starts a deck of your own"
             onPress={onStartOwn}
-            hitSlop={{ top: 12, bottom: 12, left: 6, right: 6 }}
+            hitSlop={{ top: 14, bottom: 14, left: 8, right: 8 }}
             style={({ pressed }) => ({ alignSelf: 'flex-start', borderRadius: radius.pill, backgroundColor: t.text, paddingHorizontal: 9, paddingVertical: 2, opacity: pressed ? 0.75 : 1 })}
           >
             <Body size={11} weight="heavy" color={t.bg} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ letterSpacing: 0.6 }}>
@@ -621,7 +677,14 @@ function Header({ deck, demo, compact, onStartOwn, onStack }: { deck: Deck; demo
           {keptLine(deck.totals.kept)}
         </Display>
       </View>
-      <Pressable accessibilityRole="button" accessibilityHint="Opens your stack, tables and card backs" onPress={onStack} hitSlop={10} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${grouped(deck.game.stack)} chips`}
+        accessibilityHint="Opens your stack, tables and card backs"
+        onPress={onStack}
+        hitSlop={10}
+        style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
+      >
         <Chips value={deck.game.stack} size={16} pill />
       </Pressable>
     </View>
@@ -925,13 +988,15 @@ function AllKept({ deck, keptCount, compact = false, under = 0, onReach, onIdea 
         accessibilityRole="button"
         accessibilityHint="Opens the Playbook"
         onPress={onIdea}
-        style={({ pressed }) => [{ borderRadius: radius.lg, padding: space.xl, gap: space.sm, opacity: pressed ? 0.9 : 1 }, raisedStyle(t)]}
+        style={({ pressed }) => [{ borderRadius: radius.lg, padding: space.lg, paddingHorizontal: space.xl, gap: space.xs, opacity: pressed ? 0.9 : 1 }, raisedStyle(t)]}
       >
-        <Label color={t.onRaisedSecondary}>{`Today’s idea · ${deck.idea.reason}`}</Label>
-        <Display size={24} color={t.onRaised}>
+        <Label color={t.onRaisedSecondary} maxFontSizeMultiplier={fontScale.chrome}>{`Today’s idea · ${deck.idea.reason.replace(/\.$/, '')}`}</Label>
+        <Display size={22} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
           {deck.idea.principle.title}
         </Display>
-        <Body color={t.onRaised}>{deck.idea.principle.tryThis}</Body>
+        <Body size={15} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
+          {deck.idea.principle.tryThis}
+        </Body>
       </Pressable>
     </ScrollView>
   );

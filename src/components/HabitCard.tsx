@@ -8,7 +8,7 @@ import { comebackCopy, grouped, identityLine, type ComebackGap } from '@/engine/
 import type { Habit } from '@/lib/types';
 import { withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cardColors, chip, fontScale, fonts, INK, on, radius, space, type Theme } from '@/theme/tokens';
+import { cardColors, chip, fontScale, fonts, INK, on, radius, space, TAP, type Theme } from '@/theme/tokens';
 
 import { SuitGlyph } from './Suit';
 import { CardButton } from './SwipeCard';
@@ -248,7 +248,7 @@ function darkCard(t: Theme): ViewStyle {
  * becoming and the kept days that prove it, then offers the first move, which keeps today on its own.
  * Nothing on it keeps a day by accident: only Done it, the Floor and Ceiling buttons, or a swipe.
  * `compact` keeps only the first move, Done it and the Floor (with a small Ceiling arrow); logging
- * yesterday then moves to the week strip.
+ * yesterday stays on the card only when the screen passes `onLogYesterday`, and is always on the week strip.
  */
 export function ComebackCard({
   habit,
@@ -256,6 +256,7 @@ export function ComebackCard({
   gap,
   saving,
   compact = false,
+  lean = false,
   tight = false,
   onFirstMove,
   onFloor,
@@ -270,12 +271,14 @@ export function ComebackCard({
   /** Keeping anything today also saves yesterday's card. */
   saving?: boolean;
   compact?: boolean;
+  /** Folded with a little less room: the evidence line stays, the why goes. */
+  lean?: boolean;
   /** Folded on a short screen too: no room even for the evidence line. */
   tight?: boolean;
   onFirstMove?: () => void;
   onFloor?: () => void;
   onCeiling?: () => void;
-  /** Yesterday can still be logged, for "Did it, forgot to log". */
+  /** Yesterday can still be logged, for "Did it, forgot to log". Left out where there's no room; the week strip has it too. */
   onLogYesterday?: () => void;
   style?: StyleProp<ViewStyle>;
 }) {
@@ -333,6 +336,14 @@ export function ComebackCard({
     </Press>
   );
 
+  const yesterday = onLogYesterday ? (
+    <Press onPress={onLogYesterday} label="Did it yesterday, forgot to log" testID="comeback-yesterday" style={{ alignSelf: 'center', justifyContent: 'center', paddingHorizontal: space.md, minHeight: TAP }}>
+      <Body weight="heavy" size={14} color={ink} maxFontSizeMultiplier={fontScale.chrome} style={{ textDecorationLine: 'underline', textDecorationColor: line }}>
+        ↺ Did it, forgot to log
+      </Body>
+    </Press>
+  ) : null;
+
   const eyebrow = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
       <SuitGlyph suit={habit.suit} size={14} color={accent} />
@@ -379,17 +390,19 @@ export function ComebackCard({
     return (
       <View style={[darkCard(t), { padding: 14, paddingHorizontal: space.lg, justifyContent: 'space-between', gap: space.sm }, style]}>
         {tight ? null : watermark}
-        <View style={{ gap: tight ? 2 : space.xs }}>
+        {/* If a long name ever needs more room than the card has, these lines give way, never the way in below them. */}
+        <View style={{ gap: tight ? 2 : space.xs, flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>
           {eyebrow}
           <Fit size={tight ? headSize(copy.headline, 24) : headSize(copy.headline, 34)} color={accent} lines={2}>
             {copy.headline}
           </Fit>
           {tight ? null : (
             <Body size={14} weight="bold" color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 19 }}>
-              {`${copy.eyebrow}. ${copy.evidence}`}
+              {/* Straight after who you are, so "say so" backs the headline; "One day off" already names the miss. */}
+              {copy.evidence}
             </Body>
           )}
-          {tight ? null : saving ? (
+          {tight || lean ? null : saving ? (
             <Body size={13} weight="bold" color={quiet} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
               Keep it today and yesterday still gets its card.
             </Body>
@@ -406,6 +419,7 @@ export function ComebackCard({
             {firstMove ? floorButton : doneIt}
             {ceilingButton}
           </View>
+          {yesterday}
         </View>
       </View>
     );
@@ -414,7 +428,7 @@ export function ComebackCard({
   return (
     <View style={[darkCard(t), { padding: space.xl, paddingTop: space.lg, paddingBottom: space.lg, justifyContent: 'space-between', gap: space.md }, style]}>
       {watermark}
-      <View style={{ gap: space.sm }}>
+      <View style={{ gap: space.sm, flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>
         {eyebrow}
         <Body size={14} weight="heavy" color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
           {`${copy.eyebrow}.`}
@@ -441,13 +455,7 @@ export function ComebackCard({
           {firstMove ? floorButton : doneIt}
           {ceilingButton}
         </View>
-        {onLogYesterday ? (
-          <Press onPress={onLogYesterday} label="Did it yesterday, forgot to log" testID="comeback-yesterday" style={{ alignSelf: 'center', justifyContent: 'center', paddingHorizontal: space.md, minHeight: 40 }}>
-            <Body weight="heavy" size={14} color={ink} maxFontSizeMultiplier={fontScale.chrome} style={{ textDecorationLine: 'underline', textDecorationColor: line }}>
-              ↺ Did it, forgot to log
-            </Body>
-          </Press>
-        ) : null}
+        {yesterday}
       </View>
     </View>
   );

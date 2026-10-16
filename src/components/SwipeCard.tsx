@@ -31,6 +31,11 @@ export const DISTANCE = 110;
 const VELOCITY = 900;
 /** How far toward the front the cards behind come while the front card is pulled all the way. */
 export const LIFT = 0.6;
+/**
+ * A card just dealt to the front ignores taps on its buttons this long, so the second tap of a double tap
+ * on Floor can't keep the next card too. Swipes, keys and VoiceOver actions work at once: each is its own act.
+ */
+export const SETTLE_MS = 400;
 
 const SPRING = { damping: 17, stiffness: 190, mass: 0.9 };
 
@@ -117,11 +122,18 @@ export function SwipeCard({
   const own = useSharedValue(0);
   const noteIn = useSharedValue(0);
   const [note, setNote] = useState<string | null>(null);
+  const [settled, setSettled] = useState(false);
   const p = pull ?? own;
   const up = !!allow.up;
   const down = !!allow.down;
   const left = !!allow.left;
   const right = !!allow.right;
+
+  useEffect(() => {
+    if (ghost) return;
+    const id = setTimeout(() => setSettled(true), SETTLE_MS);
+    return () => clearTimeout(id);
+  }, [ghost]);
 
   useEffect(() => {
     if (appear === 'flip') turn.set(withTiming(0, { duration: reduced ? 160 : 420, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.Never }));
@@ -335,7 +347,9 @@ export function SwipeCard({
         accessibilityActions={ghost ? undefined : offered.map((d) => ({ name: d, label: actions?.[d] ?? labels[d] }))}
         onAccessibilityAction={ghost ? undefined : onAction}
       >
-        {children}
+        <View style={StyleSheet.absoluteFill} pointerEvents={settled && !ghost ? 'box-none' : 'none'}>
+          {children}
+        </View>
         {ways.map(({ dir, style, at }) =>
           allow[dir] && labels[dir] ? (
             <Animated.View
