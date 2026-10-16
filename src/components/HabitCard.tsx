@@ -76,6 +76,12 @@ function Identity({ habit, color }: { habit: Habit; color: string }) {
   );
 }
 
+/** A headline's size from its length, so a long identity still fits its lines without being cut. */
+function headSize(text: string, big: number): number {
+  const n = text.length;
+  return n > 34 ? Math.round(big * 0.68) : n > 24 ? Math.round(big * 0.82) : big;
+}
+
 function nameSize(name: string, compact: boolean): number {
   const n = name.trim().length;
   if (compact) return n > 14 ? 30 : n > 9 ? 36 : 42;
@@ -288,7 +294,7 @@ export function ComebackCard({
       onPress={firstMove ? onFirstMove : onFloor}
       label={firstMove ? `Done it: ${firstMove}. Keeps today.` : `Keep the Floor: ${habit.floorLabel}`}
       testID="comeback-done"
-      style={{ minHeight: 48, borderRadius: radius.pill, backgroundColor: accent, paddingVertical: space.md, paddingHorizontal: space.lg, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+      style={{ flex: firstMove ? undefined : 1, minHeight: 48, borderRadius: radius.pill, backgroundColor: accent, paddingVertical: space.md, paddingHorizontal: space.lg, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
     >
       <Body weight="heavy" size={16} color={INK} maxFontSizeMultiplier={fontScale.chrome} numberOfLines={1}>
         {firstMove ? 'Done it' : '↓ Keep the Floor'}
@@ -315,36 +321,15 @@ export function ComebackCard({
     </Press>
   );
 
-  const ceilingButton = (wide: boolean) => (
+  /** The Ceiling, as a round arrow beside the Floor: still a full way in, never the loudest. */
+  const ceilingButton = (
     <Press
       onPress={onCeiling}
       label={`Reach the Ceiling: ${habit.ceilingLabel}`}
       testID="comeback-ceiling"
-      style={{
-        flex: wide ? 1 : undefined,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: space.sm,
-        minHeight: 48,
-        minWidth: 48,
-        borderRadius: radius.pill,
-        borderWidth: 1.5,
-        borderColor: line,
-        padding: 5,
-        paddingRight: wide ? space.md : 5,
-      }}
+      style={{ alignItems: 'center', justifyContent: 'center', minHeight: 48, minWidth: 48, borderRadius: radius.pill, borderWidth: 1.5, borderColor: line, padding: 5 }}
     >
       <Arrow arrow="↑" fg={INK} bg={withAlpha(accent, 0.85)} size={36} />
-      {wide ? (
-        <View style={{ flex: 1 }}>
-          <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
-            Ceiling
-          </Label>
-          <Body weight="heavy" size={14} color={ink} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 18 }}>
-            {habit.ceilingLabel}
-          </Body>
-        </View>
-      ) : null}
     </Press>
   );
 
@@ -396,7 +381,7 @@ export function ComebackCard({
         {tight ? null : watermark}
         <View style={{ gap: tight ? 2 : space.xs }}>
           {eyebrow}
-          <Fit size={tight ? 22 : 30} color={accent} lines={2}>
+          <Fit size={tight ? headSize(copy.headline, 24) : headSize(copy.headline, 34)} color={accent} lines={2}>
             {copy.headline}
           </Fit>
           {tight ? null : (
@@ -404,11 +389,16 @@ export function ComebackCard({
               {`${copy.eyebrow}. ${copy.evidence}`}
             </Body>
           )}
+          {tight || !saving ? null : (
+            <Body size={13} weight="bold" color={quiet} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
+              Keep it today and yesterday still gets its card.
+            </Body>
+          )}
         </View>
         {move(false)}
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           {firstMove ? floorButton : doneIt}
-          {ceilingButton(false)}
+          {ceilingButton}
         </View>
       </View>
     );
@@ -422,7 +412,7 @@ export function ComebackCard({
         <Body size={14} weight="heavy" color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
           {`${copy.eyebrow}.`}
         </Body>
-        <Fit size={copy.headline.length > 22 ? 32 : 38} color={accent} lines={2}>
+        <Fit size={headSize(copy.headline, 40)} color={accent} lines={2}>
           {copy.headline}
         </Fit>
         <Body size={15} weight="bold" color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 20 }}>
@@ -442,7 +432,7 @@ export function ComebackCard({
         {move(true)}
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           {firstMove ? floorButton : doneIt}
-          {ceilingButton(!firstMove)}
+          {ceilingButton}
         </View>
         {onLogYesterday ? (
           <Press onPress={onLogYesterday} label="Did it yesterday, forgot to log" testID="comeback-yesterday" style={{ alignSelf: 'center', justifyContent: 'center', paddingHorizontal: space.md, minHeight: 40 }}>
@@ -475,7 +465,7 @@ export function WelcomeCard({ kept, faces, chips: stack, compact = false, onOpen
         <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
           Welcome back
         </Label>
-        <Fit size={compact ? 34 : 44} color={ink} lines={2}>
+        <Fit size={compact ? 28 : 38} color={ink} lines={compact ? 2 : 3}>
           Everything you built is still here.
         </Fit>
       </View>
@@ -492,9 +482,11 @@ export function WelcomeCard({ kept, faces, chips: stack, compact = false, onOpen
         ))}
       </View>
       <View style={{ gap: space.md }}>
-        <Body size={15} weight="bold" color={ink} maxFontSizeMultiplier={fontScale.chrome}>
-          Nothing was lost. Pick one card to start with; the rest can wait.
-        </Body>
+        {compact ? null : (
+          <Body size={15} weight="bold" color={ink} maxFontSizeMultiplier={fontScale.chrome}>
+            Nothing was lost. Pick one card to start with; the rest can wait.
+          </Body>
+        )}
         {onOpen ? (
           <Press onPress={onOpen} label="Show my cards" testID="welcome-open" style={{ minHeight: 48, borderRadius: radius.pill, backgroundColor: ink, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xl }}>
             <Body weight="heavy" size={16} color={t.raised} maxFontSizeMultiplier={fontScale.chrome}>
