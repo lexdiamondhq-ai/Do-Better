@@ -145,6 +145,16 @@ export function inDeck(h: DealHabit, day: Day): boolean {
   return h.startedOn <= day && (archived === null || day <= archived);
 }
 
+/**
+ * Whether a habit can still be kept on `day`, the day being played now: it has started and hasn't been
+ * archived. A habit archived today still counts in today's deal (see `inDeck`) but can't be kept any more,
+ * so tips never ask for it.
+ */
+export function canKeep(h: DealHabit, day: Day): boolean {
+  const archived = archiveDayOf(h.archivedOn);
+  return h.startedOn <= day && (archived === null || day < archived);
+}
+
 /** Orders two habits for the suit tie-break: the one started first, then the lower id. */
 function earlier(a: DealHabit, b: DealHabit): number {
   return a.startedOn.localeCompare(b.startedOn) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -238,18 +248,23 @@ export function isBlank(day: Day, habits: readonly DealHabit[], checkIns: Readon
   return t.running && t.kept === 0;
 }
 
+/** The rank a day deals from a band starting at `lo`, for this person. Tips use it to say truly whether more would lift today's card. */
+export function dayRank(lo: Rank, day: Day, seed: string): Rank {
+  return rankFor(lo, unit(`${seed}:${day}`), unit(`${seed}:${day}:again`));
+}
+
 /** The day's card before the Joker rule, or null when nothing was kept. */
 export function dealDay(day: Day, habits: readonly DealHabit[], checkIns: ReadonlyMap<string, CheckIns>, seed: string, extra?: { habitId: string; level: Level }): DayCard | null {
   const t = tallyDay(day, habits, checkIns, extra);
   const lo = loOf(t);
   const tier = tierOf(t);
   if (lo === null || tier === null) return null;
-  return { kind: 'card', day, rank: rankFor(lo, unit(`${seed}:${day}`), unit(`${seed}:${day}:again`)), suits: t.suits, ceilingSuits: t.ceilingSuits, tier, lo, rescued: false };
+  return { kind: 'card', day, rank: dayRank(lo, day, seed), suits: t.suits, ceilingSuits: t.ceilingSuits, tier, lo, rescued: false };
 }
 
 /** The card a blank day gets when you come back the next day: the day's own card from the full deck, with no suit. */
 export function savedCard(day: Day, seed: string): DayCard {
-  return { kind: 'card', day, rank: rankFor(2, unit(`${seed}:${day}`), unit(`${seed}:${day}:again`)), suits: [], ceilingSuits: [], tier: 'showed-up', lo: 2, rescued: true };
+  return { kind: 'card', day, rank: dayRank(2, day, seed), suits: [], ceilingSuits: [], tier: 'showed-up', lo: 2, rescued: true };
 }
 
 export type SlotState = 'before' | 'blank' | 'open' | 'future' | 'dealt';

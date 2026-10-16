@@ -15,10 +15,10 @@
  * a big enough stack opens a new table. All of it is worked out from check-ins and calls; none of it is stored.
  */
 
-import { SUIT_INFO, SUITS, type Suit } from './cards';
+import { SUIT_INFO, SUITS, type Rank, type Suit } from './cards';
 import { faceDays, nextFace, suitDays, type FaceInfo } from './court';
 import { addDays, weekday, weekStart, type Day } from './day';
-import { dealWeek, inDeck, keptCards, loOf, rescueWaiting, RIVER_DAYS, riverCard, tallyDay, TOP_LO, type DayCard, type DealHabit, type Slot } from './deal';
+import { canKeep, dayRank, dealWeek, inDeck, keptCards, loOf, rescueWaiting, RIVER_DAYS, riverCard, tallyDay, TOP_LO, type DayCard, type DealHabit, type Slot } from './deal';
 import type { CheckIns } from './kept';
 import { atLeast, bestHand, HAND_LADDER, handsIn, HANDS, makesCall, SUITED_BONUS, SUITED_DAYS, type Hand, type HandKind } from './poker';
 
@@ -222,7 +222,7 @@ export function multiplierFor(p: number): Multiplier {
  * (made means that hand or better), blended with how often a deck of this many habits makes it:
  * p = (made + 4 × baseline) / (weeks + 4).
  */
-export function callPrices(history: readonly Week[], deckSize: number): Partial<Record<HandKind, CallPrice>> {
+export function callPrices(history: readonly Pick<Week, 'hand' | 'live' | 'warmup'>[], deckSize: number): Partial<Record<HandKind, CallPrice>> {
   const recent = history.filter((w) => !w.live && !w.warmup).slice(-CALL_HISTORY);
   const base = CALL_BASELINE[Math.min(6, Math.max(1, deckSize))];
   const out: Partial<Record<HandKind, CallPrice>> = {};
@@ -253,7 +253,7 @@ function priceDay(slots: readonly Slot[], today: Day): Day {
   return first ?? (today < last ? today : last);
 }
 
-type WeekContext = { live: boolean; jokerDays: ReadonlySet<Day>; history: readonly Week[]; warmup: Day | null };
+type WeekContext = { live: boolean; jokerDays: ReadonlySet<Day>; history: readonly Pick<Week, 'hand' | 'live' | 'warmup'>[]; warmup: Day | null };
 
 function playWeek(start: Day, input: GameInput, ctx: WeekContext): { week: Week; prices: Partial<Record<HandKind, CallPrice>> } {
   const { today, habits, checkIns, seed } = input;
@@ -305,10 +305,33 @@ export function playPastWeeks(input: GameInput): Week[] {
   return weeks;
 }
 
-/** Just the week being played, for working out what a single check-in changed. Pass the finished weeks if you have them. */
+/**
+ * The hands of the last finished weeks a call's price looks back on, newest last, without playing the
+ * rest of the history: all a live week needs from the past. Matches `playPastWeeks` for those weeks.
+ */
+function recentHands(input: GameInput, jokerDays: ReadonlySet<Day>, warmup: Day | null): Pick<Week, 'hand' | 'live' | 'warmup'>[] {
+  const first = firstStart(input.habits);
+  if (!first) return [];
+  const out: Pick<Week, 'hand' | 'live' | 'warmup'>[] = [];
+  for (let start = addDays(weekStart(input.today), -7); start >= weekStart(first) && out.length < CALL_HISTORY; start = addDays(start, -7)) {
+    if (start === warmup) continue;
+    const slots = dealWeek(start, input.today, input.habits, input.checkIns, input.seed, jokerDays);
+    const river = riverCard(start, slots, input.seed);
+    const dealt = slots.flatMap((s) => (s.card ? [s.card] : []));
+    out.unshift({ hand: bestHand(river ? [...dealt, river] : dealt), live: false, warmup: false });
+  }
+  return out;
+}
+
+/**
+ * Just the week being played, for working out what a single check-in changed. Pass the finished weeks if
+ * you have them; without them only the weeks behind this week's call prices are dealt, so it stays quick.
+ */
 export function playLiveWeek(input: GameInput, pastWeeks?: readonly Week[]): Week {
-  const history = pastWeeks ?? playPastWeeks(input);
-  return playWeek(weekStart(input.today), input, { live: true, jokerDays: placeJokers(input).days, history, warmup: warmupWeek(input.habits) }).week;
+  const { days: jokerDays } = placeJokers(input);
+  const warmup = warmupWeek(input.habits);
+  const history = pastWeeks ?? recentHands(input, jokerDays, warmup);
+  return playWeek(weekStart(input.today), input, { live: true, jokerDays, history, warmup }).week;
 }
 
 /** Played weeks that count: finished, and not the warm-up. */
@@ -378,7 +401,7 @@ export function playGame(input: GameInput, pastWeeks?: readonly Week[]): Game {
 
   const rescue = rescueWaiting(current.slots, today);
   const firstKept = keptCards(current.slots)[0]?.day ?? null;
-  const callOpen = !current.warmup && habits.some((h) => inDeck(h, today)) && (firstKept === null || firstKept === today);
+  const callOpen = !current.warmup && habits.some((h) => canKeep(h, today)) && (firstKept === null || firstKept === today);
   return {
     weeks,
     current,
@@ -440,7 +463,7 @@ export function callChoices(game: Pick<Game, 'callOdds'>): { safe: CallChoice | 
 /** The best Suited week still within reach: how many Ceiling days one suit has, and how many days could still join. */
 export function suitedDraw(current: Week, input: GameInput): { suit: Suit; have: number; left: number } | null {
   const { today, habits } = input;
-  const playable = new Set(habits.filter((h) => inDeck(h, today)).map((h) => h.suit));
+  const playable = new Set(habits.filter((h) => canKeep(h, today)).map((h) => h.suit));
   let best: { suit: Suit; have: number; left: number } | null = null;
   for (const suit of SUITS) {
     if (!playable.has(suit)) continue;
@@ -463,53 +486,96 @@ function faceWithinReach(input: GameInput): { suit: Suit; face: FaceInfo } | nul
   for (const suit of SUITS) {
     const days = suitDays(habits, checkIns, suit, today);
     if (days.at(-1) === today) continue;
-    const open = habits.some((h) => h.suit === suit && inDeck(h, today) && !checkIns.get(h.id)?.has(today));
+    const open = habits.some((h) => h.suit === suit && canKeep(h, today) && !checkIns.get(h.id)?.has(today));
     const next = nextFace(days.length);
     if (open && next?.needed === 1) return { suit, face: next.face };
   }
   return null;
 }
 
+/** Today's check-ins split by what can still change: Floors that can still reach a Ceiling, and habits not kept yet. */
+type TodayOpen = {
+  /** Kept at the Floor and still in the deck, running before today or started today. */
+  floors: { running: number; fresh: number };
+  /** Not kept yet and still in the deck, running before today. They count toward "everything". */
+  running: DealHabit[];
+  /** Started today and not kept yet. They only count once kept. */
+  fresh: number;
+  /** Archived today with a Floor or nothing: they still count today but can't change. */
+  archived: boolean;
+};
+
+function todayOpen(input: GameInput): TodayOpen {
+  const { today, habits, checkIns } = input;
+  const out: TodayOpen = { floors: { running: 0, fresh: 0 }, running: [], fresh: 0, archived: false };
+  for (const h of habits) {
+    if (!inDeck(h, today)) continue;
+    const level = checkIns.get(h.id)?.get(today);
+    if (level === 'ceiling') continue;
+    const before = h.startedOn < today;
+    if (!canKeep(h, today)) out.archived ||= before || !!level;
+    else if (level) out.floors[before ? 'running' : 'fresh']++;
+    else if (before) out.running.push(h);
+    else out.fresh++;
+  }
+  return out;
+}
+
 /** The fewest more Ceilings today that would lift the card, and the band they would deal from, or null. */
-function ceilingsToLift(t: ReturnType<typeof tallyDay>, rank: number): { more: number; lo: number; all: boolean } | null {
-  const runningFloors = t.kept - t.ceilings - t.freshFloors;
-  for (let more = 1; more <= t.kept - t.ceilings; more++) {
-    let lo = 0;
-    for (let fresh = 0; fresh <= Math.min(more, t.freshFloors); fresh++) {
-      if (more - fresh > runningFloors) continue;
-      lo = Math.max(lo, loOf({ counted: t.counted, kept: t.kept, ceilings: t.ceilings + more, freshFloors: t.freshFloors - fresh }) ?? 0);
+function ceilingsToLift(t: ReturnType<typeof tallyDay>, open: TodayOpen, lifts: (lo: Rank | null) => boolean): { more: number; lo: Rank; all: boolean } | null {
+  const { running, fresh: freshUp } = open.floors;
+  for (let more = 1; more <= running + freshUp; more++) {
+    let lo: Rank | null = null;
+    for (let fresh = 0; fresh <= Math.min(more, freshUp); fresh++) {
+      if (more - fresh > running) continue;
+      const x = loOf({ counted: t.counted, kept: t.kept, ceilings: t.ceilings + more, freshFloors: t.freshFloors - fresh });
+      if (x !== null && (lo === null || x > lo)) lo = x;
     }
-    if (lo > rank) return { more, lo, all: t.ceilings + more === t.kept };
+    if (lifts(lo)) return { more, lo: lo!, all: t.ceilings + more === t.kept };
   }
   return null;
 }
 
-function climbTip(input: GameInput, rank: number): Tip {
-  const { today, habits, checkIns } = input;
+/**
+ * What would lift today's card, worked out from the deal itself: "Keep Walk too and today's card is 5 or
+ * better", or "goes up" when the card was dealt again inside its band and a better band still lifts it. The
+ * card is called locked in only when nothing left to do today could change it.
+ */
+function climbTip(input: GameInput, rank: Rank): Tip {
+  const { today, habits, checkIns, seed } = input;
   const t = tallyDay(today, habits, checkIns);
   const lo = loOf(t) ?? 2;
+  const open = todayOpen(input);
+  const lifts = (to: Rank | null) => to !== null && dayRank(to, today, seed) > rank;
+  const result = (to: Rank) => (to > rank ? `today’s card is ${to} or better` : 'today’s card goes up');
   const locked: Tip = { tone: 'done', text: 'Today’s card is locked in. Each habit you keep still counts in your Court.' };
   if (t.kept < t.counted) {
-    const all = loOf({ counted: t.counted, kept: t.counted, ceilings: t.ceilings, freshFloors: t.freshFloors }) ?? lo;
-    if (rank < all) {
-      const open = habits.filter((h) => inDeck(h, today) && h.startedOn < today && !checkIns.get(h.id)?.has(today));
-      const who = open.length === 1 ? `Keep ${open[0].name?.trim() || 'your last habit'} too` : `Keep the other ${open.length} habits too`;
-      return { tone: 'climb', text: `${who} and today’s card is ${all} or better.` };
+    const keep = open.running;
+    const floors = loOf({ counted: t.counted, kept: t.kept + keep.length, ceilings: t.ceilings, freshFloors: t.freshFloors });
+    if (keep.length && lifts(floors)) {
+      const who = keep.length === 1 ? `Keep ${keep[0].name?.trim() || 'your last habit'} too` : `Keep the other ${keep.length} habits too`;
+      return { tone: 'climb', text: `${who} and ${result(floors!)}.` };
     }
-    if (rank < TOP_LO) return { tone: 'climb', text: `Keep every habit, all at their Ceilings, and today’s card is ${TOP_LO} or better.` };
+    // Everything that can still change, all at the Ceiling, new habits included.
+    const all = keep.length + open.fresh;
+    const up = all + open.floors.running + open.floors.fresh;
+    const top = loOf({ counted: t.counted + open.fresh, kept: t.kept + all, ceilings: t.ceilings + up, freshFloors: t.freshFloors - open.floors.fresh });
+    if (lifts(top)) return { tone: 'climb', text: `${open.archived ? 'Keep every habit you still can' : 'Keep every habit'}, all at their Ceilings, and ${result(top!)}.` };
     return locked;
   }
   if (lo >= TOP_LO) return t.ceilings === t.kept ? { tone: 'done', text: 'Perfect day. Every habit at its Ceiling.' } : locked;
-  const lift = ceilingsToLift(t, rank);
+  const lift = ceilingsToLift(t, open, lifts);
   if (!lift) return locked;
-  const makes = `today’s card ${lift.lo} or better`;
-  if (lift.all) return { tone: 'climb', text: t.counted === 1 ? `Reaching the Ceiling makes ${makes}.` : `Every habit at its Ceiling makes ${makes}.` };
-  return { tone: 'climb', text: lift.more === 1 ? `One more Ceiling makes ${makes}.` : `${lift.more} more Ceilings make ${makes}.` };
+  const news = lift.lo > rank;
+  const makes = news ? `today’s card ${lift.lo} or better` : 'today’s card';
+  if (lift.all) return { tone: 'climb', text: `${t.counted === 1 ? 'Reaching the Ceiling' : 'Every habit at its Ceiling'} ${news ? 'makes' : 'lifts'} ${makes}.` };
+  if (lift.more === 1) return { tone: 'climb', text: `One more Ceiling ${news ? 'makes' : 'lifts'} ${makes}.` };
+  return { tone: 'climb', text: `${lift.more} more Ceilings ${news ? 'make' : 'lift'} ${makes}.` };
 }
 
 function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; callOpen: boolean; faces: readonly FaceEarned[]; waiting: readonly FaceEarned[] }): Tip[] {
   const { today, habits } = input;
-  if (!habits.some((h) => inDeck(h, today))) return [];
+  if (!habits.some((h) => canKeep(h, today))) return [];
   const tips: Tip[] = [];
   const slot = current.slots.find((s) => s.isToday);
   const card: DayCard | null = slot?.card ?? null;
@@ -629,7 +695,11 @@ export function unlocksFor(game: Game, week: Week): { firstOfKind: boolean; back
   return { firstOfKind, backs, tables: TABLES.filter((t) => t.chips > before && t.chips <= after).map((t) => t.key) };
 }
 
-/** Weeks in a chapter. Every 13th played week looks back on the chapter it closes. Nothing resets. */
+/**
+ * Weeks in a chapter. Every 13th played week looks back on the chapter it closes. A played week is a finished
+ * week with a hand, the same count as the Velvet back, so the look-back always lands on a Showdown, even
+ * after weeks away. Nothing resets.
+ */
 export const CHAPTER_WEEKS = 13;
 
 export type ChapterRecap = {
@@ -648,7 +718,7 @@ export type ChapterRecap = {
 
 /** The chapter a finished week closes, when it is the 13th, 26th, ... played week. Null for any other week. */
 export function chapterRecap(game: Game, week: Week): ChapterRecap | null {
-  const played = counting(game.weeks);
+  const played = counting(game.weeks).filter((w) => w.hand);
   const i = played.indexOf(week);
   if (i < 0 || (i + 1) % CHAPTER_WEEKS !== 0) return null;
   const chunk = played.slice(i + 1 - CHAPTER_WEEKS, i + 1);

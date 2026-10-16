@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { addDays, weekDays, type Day } from './day';
-import type { DayCard, DealHabit, Slot } from './deal';
+import { dealDay, type DayCard, type DealHabit, type Slot } from './deal';
 import {
   BACKS,
   CALL_BASELINE,
@@ -56,6 +56,7 @@ function run(from: Day, n: number, level: Level = 'floor'): Record<string, Level
 }
 
 const rankOf = (card: DayCard | null | undefined) => (card?.kind === 'card' ? card.rank : 0);
+const log = (days: Record<string, Record<string, Level>>) => new Map<string, CheckIns>(Object.entries(days).map(([id, d]) => [id, new Map(Object.entries(d))]));
 
 describe('playGame', () => {
   it('plays every week from the first habit to now, and banks only finished ones', () => {
@@ -80,6 +81,27 @@ describe('playGame', () => {
     expect(game.weeks).toEqual([]);
     expect(game.current.hand).toBeNull();
     expect(game.tips).toEqual([]);
+  });
+
+  it('plays the live week alone exactly as the whole game does, warm-up, archives and calls included', () => {
+    const late: DealHabit = { ...read, startedOn: '2026-08-27' };
+    const gone: DealHabit = { ...walk, startedOn: '2026-08-31', archivedOn: '2026-10-21' };
+    const readDays = Object.fromEntries(Array.from({ length: 110 }, (_, i) => [addDays('2026-08-27', i), i % 3 ? 'floor' : 'ceiling'] as const).filter((_, i) => i % 5 !== 2));
+    const walkDays = Object.fromEntries(Array.from({ length: 52 }, (_, i) => [addDays('2026-08-31', i), 'floor' as Level]).filter((_, i) => i % 4 !== 1));
+    const calls = new Map<Day, HandKind>([['2026-09-07', 'two-pair'], ['2026-10-05', 'straight'], ['2026-11-02', 'full-house'], ['2026-12-07', 'pair']]);
+    let before: Week[] = [];
+    for (let day = '2026-08-27'; day <= '2026-12-14'; day = addDays(day, 3)) {
+      const i = input({ habits: [late, gone], today: day, days: { read: readDays, walk: walkDays }, calls });
+      const game = playGame(i);
+      expect(playLiveWeek(i)).toEqual(game.current);
+      expect(playLiveWeek(i, game.weeks)).toEqual(game.current);
+      // A finished week never changes as later days are played, Jokers, prices and the river included,
+      // which is what lets the app keep finished weeks from one render to the next.
+      expect(game.weeks.slice(0, before.length)).toEqual(before);
+      before = game.weeks;
+    }
+    expect(before.length).toBeGreaterThan(12);
+    expect(before.some((w) => w.slots.some((s) => s.card?.kind === 'joker'))).toBe(true);
   });
 
   it('can take the finished weeks back without changing the game', () => {
@@ -481,6 +503,20 @@ describe('tables', () => {
 });
 
 describe('chapters', () => {
+  it('count weeks with a hand, so a chapter never closes on a week away and always lands on a Showdown', () => {
+    // Monday and Tuesday kept for 15 weeks from 6 July, except the 13th week, spent away.
+    const MON = '2026-07-06';
+    const days: Record<string, Level> = {};
+    for (let i = 0; i < 15; i++) if (i !== 12) Object.assign(days, keep(addDays(MON, 7 * i), 'floor', 2));
+    const habit: DealHabit = { ...read, startedOn: MON };
+    const game = playGame(input({ habits: [habit], today: addDays(MON, 7 * 14), days: { read: days } }));
+    expect(game.weeks[12].hand).toBeNull();
+    expect(chapterRecap(game, game.weeks[12])).toBeNull();
+    const recap = chapterRecap(game, game.weeks[13]);
+    expect(recap).toMatchObject({ chapter: 1, start: MON, end: addDays(game.weeks[13].start, 6), dealtDays: 26 });
+    expect(lastShowdown(game)).toBe(game.weeks[13]);
+  });
+
   it('look back on every 13th week played, the warm-up week not counted', () => {
     const late: DealHabit = { ...read, startedOn: '2026-06-26' };
     // A Friday start: the week of 22 June is the warm-up, then 14 weeks with Mondays and Tuesdays kept.
@@ -650,14 +686,82 @@ describe('tips', () => {
   });
 
   it('names the habit still open on a partial day and the real band it would deal from', () => {
+    const today = '2026-10-07';
+    let named = 0;
     for (let i = 0; i < 60; i++) {
-      const game = playGame(input({ seed: `c-${i}`, habits: [read, walk], days: { read: keep(W3, 'floor', 3), walk: keep(W3, 'floor', 2) } }));
+      const seed = `c-${i}`;
+      const game = playGame(input({ seed, habits: [read, walk], days: { read: keep(W3, 'floor', 3), walk: keep(W3, 'floor', 2) } }));
       const rank = rankOf(game.current.slots[2].card);
+      const both = rankOf(dealDay(today, [read, walk], log({ read: { [today]: 'floor' }, walk: { [today]: 'floor' } }), seed));
+      const top = rankOf(dealDay(today, [read, walk], log({ read: { [today]: 'ceiling' }, walk: { [today]: 'ceiling' } }), seed));
       const climb = game.tips.find((t) => t.tone === 'climb' || t.tone === 'done');
-      if (rank < 5) expect(climb).toEqual({ tone: 'climb', text: 'Keep Walk too and today’s card is 5 or better.' });
+      if (rank < 5) {
+        named++;
+        expect(climb).toEqual({ tone: 'climb', text: 'Keep Walk too and today’s card is 5 or better.' });
+      } else if (both > rank) expect(climb).toEqual({ tone: 'climb', text: 'Keep Walk too and today’s card goes up.' });
       else if (rank < 6) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card is 6 or better.' });
+      else if (top > rank) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card goes up.' });
       else expect(climb?.tone).toBe('done');
     }
+    expect(named).toBeGreaterThan(3);
+  });
+
+  it('calls today’s card locked in only when nothing left to do today could lift it, and keeps every promise it makes', () => {
+    const craft: DealHabit = { id: 'craft', suit: 'diamonds', startedOn: W1, archivedOn: null, name: 'Craft' };
+    const deck = [read, walk, craft];
+    const today = '2026-10-07';
+    const levels: (Level | undefined)[] = [undefined, 'floor', 'ceiling'];
+    const states = Array.from({ length: 26 }, (_, m) => deck.map((_, i) => levels[Math.floor((m + 1) / 3 ** i) % 3]));
+    const daysOf = (state: (Level | undefined)[]) => Object.fromEntries(deck.flatMap((h, i) => (state[i] ? [[h.id, { [today]: state[i]! }]] : [])));
+    const tones = new Set<string>();
+    let rose = 0;
+    for (let n = 0; n < 120; n++) {
+      const seed = `lift-${n}`;
+      const rankAt = (state: (Level | undefined)[]) => rankOf(dealDay(today, deck, log(daysOf(state)), seed));
+      const best = rankAt(deck.map(() => 'ceiling'));
+      for (const state of states) {
+        const game = playGame(input({ seed, habits: deck, days: daysOf(state) }));
+        const rank = rankOf(game.current.slots[2].card);
+        expect(rank).toBe(rankAt(state));
+        const tip = game.tips.find((t) => t.tone === 'climb' || t.tone === 'done')!;
+        tones.add(tip.text.replace(/\d+/g, 'N'));
+        if (tip.tone === 'done') expect(best).toBe(rank);
+        else expect(best).toBeGreaterThan(rank);
+        const or = /(\d+) or better/.exec(tip.text);
+        if (or) expect(Number(or[1])).toBeGreaterThan(rank);
+        if (/goes up|lifts/.test(tip.text)) rose++;
+        // "Keep Walk too", "Keep the other 2 habits too": keeping them at the Floor lifts the card.
+        if (/ too and /.test(tip.text)) expect(rankAt(state.map((l) => l ?? 'floor'))).toBeGreaterThan(rank);
+      }
+    }
+    expect(rose).toBeGreaterThan(0);
+    expect(tones).toContain('Today’s card is locked in. Each habit you keep still counts in your Court.');
+    expect(tones).toContain('Every habit at its Ceiling lifts today’s card.');
+  });
+
+  it('never asks for a habit archived today, which still counts but can’t be kept', () => {
+    const today = '2026-10-07';
+    const gone: DealHabit = { ...walk, archivedOn: today };
+    for (let i = 0; i < 60; i++) {
+      const seed = `gone-${i}`;
+      const game = playGame(input({ seed, habits: [read, gone], days: { read: { [today]: 'floor' } } }));
+      const rank = rankOf(game.current.slots[2].card);
+      const tip = game.tips.find((t) => t.tone === 'climb' || t.tone === 'done')!;
+      expect(tip.text).not.toMatch(/Walk|other|Keep every habit,/);
+      const ceiling = rankOf(dealDay(today, [read, gone], log({ read: { [today]: 'ceiling' } }), seed));
+      if (ceiling > rank) expect(tip.text).toMatch(/^Keep every habit you still can, all at their Ceilings, and today’s card (is 4 or better|goes up)\.$/);
+      else expect(tip.tone).toBe('done');
+    }
+  });
+
+  it('never points at a face card, a call or a first card through a deck archived today', () => {
+    const today = '2026-10-07';
+    const nine = Object.fromEntries(weekDays(W2).concat(weekDays(W3).slice(0, 2)).map((d) => [d, 'floor' as Level]));
+    const game = playGame(input({ habits: [{ ...read, archivedOn: today }, walk], days: { read: nine } }));
+    expect(game.tips.some((t) => t.tone === 'face')).toBe(false);
+    const empty = playGame(input({ habits: [{ ...read, archivedOn: today }], days: { read: keep(W2) } }));
+    expect(empty.tips).toEqual([]);
+    expect(empty.callOpen).toBe(false);
   });
 
   it('calls a perfect day by name only when every habit reached its Ceiling', () => {
