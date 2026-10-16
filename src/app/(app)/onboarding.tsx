@@ -215,7 +215,7 @@ export default function Onboarding() {
           })}
 
           <View style={{ backgroundColor: t.cardBack, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}>
-            <Label color={t.onCardBack} style={{ opacity: 0.6 }}>Your north star · optional</Label>
+            <Label color={t.onRaisedSecondary}>Your north star · optional</Label>
             <TextInput
               value={northStar}
               onChangeText={setNorthStar}
@@ -224,7 +224,7 @@ export default function Onboarding() {
               multiline
               style={{ fontFamily: fonts.display, fontSize: 24, color: t.onCardBack, minHeight: 64, textAlignVertical: 'top' }}
             />
-            <Body size={13} color={t.onCardBack} style={{ opacity: 0.6 }}>It sits at the top of your You page, so you see why on the hard days.</Body>
+            <Body size={13} color={t.onRaisedSecondary}>It sits at the top of your You page, so you see why on the hard days.</Body>
           </View>
 
           <Button

@@ -99,6 +99,11 @@ export type Theme = {
    */
   raised: string;
   onRaised: string;
+  /**
+   * Quieter text on a raised surface: eyebrows and captions on the Comeback card or the north star.
+   * Still 4.5:1 on `raised`, so use it instead of fading `onRaised` with opacity.
+   */
+  onRaisedSecondary: string;
   /** The 1px border a raised surface wears. Clear on the light table, where ink stands out anyway. */
   edge: string;
   /** The light catching the top edge of a raised surface, drawn as a 1px inset line. */
@@ -127,6 +132,7 @@ export const themes: { light: Theme; dark: Theme } = {
     onAccent: palette.white,
     raised: palette.ink,
     onRaised: palette.white,
+    onRaisedSecondary: 'rgba(255, 255, 255, 0.6)',
     edge: 'rgba(23, 18, 31, 0)',
     highlight: 'rgba(255, 255, 255, 0.08)',
     cardBack: palette.ink,
@@ -148,6 +154,7 @@ export const themes: { light: Theme; dark: Theme } = {
     onAccent: palette.night,
     raised: palette.nightCard,
     onRaised: palette.moon,
+    onRaisedSecondary: 'rgba(241, 238, 247, 0.6)',
     edge: 'rgba(255, 255, 255, 0.12)',
     highlight: 'rgba(255, 255, 255, 0.10)',
     cardBack: palette.nightCard,
@@ -177,6 +184,8 @@ function table(bg: string, text: string, accent: string, felt: number, vignette:
     onAccent: bg,
     raised,
     onRaised: text,
+    // As faint as 0.6 where the table allows it; the green felt needs a little more.
+    onRaisedSecondary: withAlpha(text, faintestAlpha(text, raised, 4.5, 0.6)),
     edge: withAlpha(text, 0.14),
     highlight: withAlpha(text, 0.12),
     cardBack: raised,

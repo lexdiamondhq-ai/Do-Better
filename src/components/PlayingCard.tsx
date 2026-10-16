@@ -69,11 +69,17 @@ export function faceCardName(card: FaceCard): string {
 
 const list = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 
+/** "a Seven", "an Eight", "an Ace". */
+const aRank = (rank: Rank) => {
+  const name = rankName(rank);
+  return `${/^[AEIOU]/.test(name) ? 'an' : 'a'} ${name}`;
+};
+
 /** What a screen reader says for a card: "Queen of Hearts, also Clubs and Spades", "Seven, saved". */
 export function faceLabel(face: CardFace): string {
   if (face.kind === 'joker') {
     if (!face.as) return 'Joker';
-    return face.as.suit ? `Joker, playing as the ${faceCardName(face.as)}` : `Joker, playing as a ${rankName(face.as.rank)}`;
+    return face.as.suit ? `Joker, playing as the ${faceCardName(face.as)}` : `Joker, playing as ${aRank(face.as.rank)}`;
   }
   const name = faceCardName(face);
   const also = face.also?.length ? `, also ${list(face.also.map((s) => SUIT_INFO[s].name))}` : '';

@@ -308,7 +308,10 @@ export function raisedStyle(t: Theme): ViewStyle {
   };
 }
 
-/** A panel raised off the table: the North Star, the Comeback, the Playbook's tips. Text on it uses `t.onRaised`. */
+/**
+ * A panel raised off the table: the North Star, the Comeback, the Playbook's tips. Text on it uses
+ * `t.onRaised`, and `t.onRaisedSecondary` for quieter lines (never `onRaised` faded with opacity).
+ */
 export function Raised({ style, children, ...rest }: PropsWithChildren<ViewProps & { style?: StyleProp<ViewStyle> }>) {
   const t = useTheme();
   return (

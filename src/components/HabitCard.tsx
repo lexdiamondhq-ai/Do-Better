@@ -66,7 +66,7 @@ export function NeverTwiceCard({ habit, week, saving, style }: { habit: Habit; w
   return (
     <View style={[{ flex: 1, ...raisedStyle(t), borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }, style]}>
       <View style={{ gap: space.md }}>
-        <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{`Comeback · ${habit.name}`}</Label>
+        <Label color={t.onRaisedSecondary}>{`Comeback · ${habit.name}`}</Label>
         <View style={{ flexDirection: 'row', gap: 6 }}>
           {week.map((w, i) => (
             <View

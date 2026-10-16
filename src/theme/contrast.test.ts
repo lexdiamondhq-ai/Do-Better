@@ -1,3 +1,4 @@
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 import { contrast, faintestAlpha, luminance, mix, over, parseColor, withAlpha } from './color';
@@ -105,6 +106,7 @@ describe.each(ALL_THEMES)('the %s table', (_name, t) => {
 
   it('text on a raised surface reaches 4.5:1', () => {
     expect(contrast(t.onRaised, t.raised)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(t.onRaisedSecondary, t.raised)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(t.onCardBack, t.cardBack)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(t.onAccent, t.accent)).toBeGreaterThanOrEqual(4.5);
   });
@@ -124,6 +126,45 @@ describe.each(DARK_THEMES)('raised surfaces on the %s table', (_name, t) => {
     expect(parseColor(t.edge).a).toBeGreaterThan(0);
     // The border, laid over the raised surface, is lighter than the surface itself.
     expect(luminance(over(t.edge, t.raised))).toBeGreaterThan(luminance(t.raised));
+  });
+});
+
+/**
+ * Screens that fade raised-surface text with opacity (`color={t.onCardBack} style={{ opacity: 0.6 }}`),
+ * as "line: opacity". On the green felt a raised surface leaves little room, so a fade that reads on
+ * the kitchen table can drop under 4.5:1 there.
+ */
+function fadedOnRaised(text: string): { line: number; alpha: number }[] {
+  return text.split('\n').flatMap((src, i) => {
+    const m = /color=\{t\.(?:onCardBack|onRaised)\}.*?opacity:\s*(\d*\.?\d+)/.exec(src);
+    return m ? [{ line: i + 1, alpha: parseFloat(m[1]) }] : [];
+  });
+}
+
+describe('raised-surface text in the screens', () => {
+  const SRC = decodeURIComponent(new URL('..', import.meta.url).pathname);
+  const files = ts.sys.readDirectory(SRC, ['.tsx']);
+
+  it('finds a faded label and ignores the quieter token', () => {
+    const text = [
+      '<Label color={t.onCardBack} style={{ opacity: 0.6 }}>Your north star</Label>',
+      '<Body color={t.onRaisedSecondary}>Tap to edit</Body>',
+      '<Body color={t.onRaised} style={{ flexShrink: 1, opacity: .85 }}>Try this</Body>',
+    ].join('\n');
+    expect(fadedOnRaised(text)).toEqual([
+      { line: 1, alpha: 0.6 },
+      { line: 3, alpha: 0.85 },
+    ]);
+  });
+
+  it('never fades it below 4.5:1 on any table: use t.onRaisedSecondary for quieter text', () => {
+    expect(files.length).toBeGreaterThan(10);
+    const tooFaint = files.flatMap((file) =>
+      fadedOnRaised(ts.sys.readFile(file) ?? '').flatMap(({ line, alpha }) =>
+        ALL_THEMES.filter(([, t]) => contrast(withAlpha(t.onRaised, alpha), t.raised) < 4.5).map(([name]) => `${file.slice(SRC.length)}:${line} at ${alpha} on ${name}`),
+      ),
+    );
+    expect(tooFaint).toEqual([]);
   });
 });
 

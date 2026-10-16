@@ -36,7 +36,7 @@ export default function Playbook() {
                 accessibilityRole={r.principle.key === 'commitment' ? 'button' : undefined}
                 style={{ width: 280, backgroundColor: t.cardBack, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}
               >
-                <Label color={t.onCardBack} style={{ opacity: 0.6 }}>{r.reason}</Label>
+                <Label color={t.onRaisedSecondary}>{r.reason}</Label>
                 <Display size={24} color={t.onCardBack}>{r.principle.title}</Display>
                 <Body size={15} color={t.onCardBack} style={{ opacity: 0.85 }}>{r.principle.tryThis}</Body>
               </Pressable>
