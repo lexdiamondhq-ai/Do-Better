@@ -163,6 +163,21 @@ export const PRINCIPLES: Record<PrincipleKey, Principle> = {
   },
 };
 
+export type IdeaGroupKey = 'floor' | 'plays' | 'ceiling' | 'comeback';
+
+export type IdeaGroup = { key: IdeaGroupKey; title: string; about: string; principles: readonly PrincipleKey[] };
+
+/**
+ * Every idea, sorted by the part of a card it helps with: the Floor, When it plays, the Ceiling and the
+ * Comeback. Each idea sits in exactly one group.
+ */
+export const IDEA_GROUPS: readonly IdeaGroup[] = [
+  { key: 'floor', title: 'Start small', about: 'For the Floor: a start so small it always happens.', principles: ['first-move', 'add-first', 'obstacle', 'lead-card', 'clean-page'] },
+  { key: 'plays', title: 'Make it easy to play', about: 'For When it plays: let the day remind you.', principles: ['when-it-plays', 'environment', 'friction', 'pair-up', 'swap', 'sleep'] },
+  { key: 'ceiling', title: 'Reach higher', about: 'For the Ceiling: somewhere for your best days to go.', principles: ['stretch', 'celebrate', 'commitment', 'focus-block', 'focus'] },
+  { key: 'comeback', title: 'Keep coming back', about: 'For the Comeback, and for who the cards make you.', principles: ['comeback', 'return', 'pile', 'identity'] },
+];
+
 /** When in the day a card usually plays. `any` when nothing says. */
 export type PartOfDay = 'morning' | 'midday' | 'evening' | 'any';
 
@@ -256,6 +271,41 @@ const same = (a: string | null | undefined, b: string) => (a ?? '').trim().toLow
 
 export function recipeFor(key: string | null | undefined): Recipe | undefined {
   return key ? RECIPES.find((r) => r.key === key) : undefined;
+}
+
+/** Where a ready-made card stands for this player: in the deck, or only among the cards they archived. */
+export type RecipePlace = { kind: 'in' | 'out'; habitId: string };
+
+/**
+ * Where each ready-made card the player has made stands, by recipe key. A copy in the deck wins; a recipe
+ * that is only archived is `out`, pointing at the copy that left last, so the Playbook can bring that one
+ * back instead of making a second card.
+ */
+export function recipePlaces(habits: readonly { id: string; recipeKey: string | null; archivedAt: string | null }[]): Map<string, RecipePlace> {
+  const places = new Map<string, RecipePlace>();
+  const leftAt = new Map<string, string>();
+  for (const h of habits) {
+    if (!h.recipeKey) continue;
+    const had = places.get(h.recipeKey);
+    if (!h.archivedAt) {
+      if (had?.kind !== 'in') places.set(h.recipeKey, { kind: 'in', habitId: h.id });
+    } else if (!had || (had.kind === 'out' && h.archivedAt > (leftAt.get(h.recipeKey) ?? ''))) {
+      places.set(h.recipeKey, { kind: 'out', habitId: h.id });
+      leftAt.set(h.recipeKey, h.archivedAt);
+    }
+  }
+  return places;
+}
+
+/** The ready-made card each suit's examples come from, for a card that isn't ready-made. */
+const SUIT_EXAMPLE: Record<Suit, string> = { spades: 'walk', hearts: 'reach-out', diamonds: 'write', clubs: 'read' };
+
+/**
+ * Where a card's empty fields take their examples from: its own ready-made card, or else a ready-made
+ * card of its suit. A walking card is never shown "a reader".
+ */
+export function exampleRecipe(recipeKey: string | null | undefined, suit: Suit): Recipe {
+  return recipeFor(recipeKey) ?? recipeFor(SUIT_EXAMPLE[suit])!;
 }
 
 /**
@@ -387,6 +437,9 @@ export type RecommendationContext = {
 /** A field on the edit screen a recommendation can open, ready to type in. */
 export type EditField = 'name' | 'identity' | 'floorLabel' | 'ceilingLabel' | 'twoMinuteLabel' | 'anchor' | 'why';
 
+/** Where the edit screen can open: a field ready to type in, or its Archive button, ringed. */
+export type EditFocus = EditField | 'archive';
+
 /** Where a recommendation goes when it isn't about one card's field. */
 export type RecommendationHref = '/' | '/call' | '/habit/edit' | '/you?sheet=arrange';
 
@@ -396,9 +449,9 @@ export type Recommendation = {
   reason: string;
   /** The line under the title. The principle's own `tryThis` when left out. */
   text?: string;
-  /** The card it's about. With `field`, tapping opens that card's edit screen on that field. */
+  /** The card it's about. With `field`, tapping opens that card's edit screen on that field (or its Archive button). */
   habitId?: string;
-  field?: EditField;
+  field?: EditFocus;
   /** What tapping does, in a few words, without the arrow. Advice with nothing to tap has none. */
   cta?: string;
   href?: RecommendationHref;
@@ -498,12 +551,41 @@ export function recommend(ctx: RecommendationContext): Recommendation[] {
     else if (ctx.ceilingShare30 < 0.1) add('stretch', 'The Ceiling is rarely reached');
   }
 
-  // A big deck that isn't being kept: rest a card. A small deck kept well: a clean page for one more.
-  if (ctx.habitCount > 4 && ctx.keptRate30 !== null && ctx.keptRate30 < 0.7) add('focus', `${ctx.habitCount} cards in your deck`, { cta: 'Pick a card to rest', href: '/you?sheet=arrange' });
+  // A big deck that isn't being kept: rest the card kept least, on the screen that can archive it, but
+  // never a card whose Comeback is waiting today. A small deck kept well: a clean page for one more.
+  if (ctx.habitCount > 4 && ctx.keptRate30 !== null && ctx.keptRate30 < 0.7) {
+    const rest = keptLeast(habits.filter((h) => !h.comeback));
+    add(
+      'focus',
+      `${ctx.habitCount} cards in your deck`,
+      rest
+        ? {
+            text: `${rest.name} was kept ${rest.kept30} of ${rest.days30} days. Archive it for now: its kept days still count in your Court, and it can come back any time.`,
+            cta: `Archive ${rest.name} for now`,
+            habitId: rest.id,
+            field: 'archive',
+          }
+        : // Without the cards to name, the deck can still be put in order, best cards first.
+          { cta: 'Put your best cards first', href: '/you?sheet=arrange' },
+    );
+  }
   if (ctx.habitCount > 0 && ctx.habitCount < 3 && (ctx.keptRate30 === null || ctx.keptRate30 >= 0.7) && isCleanPage(ctx.today)) {
     add('clean-page', isFirstOfMonth(ctx.today) ? 'A new month just started' : 'It’s Monday', { cta: 'Add a card', href: '/habit/edit' });
   }
   return out;
+}
+
+/**
+ * The card kept least over the last 30 days, among cards with enough days to say. On a tie, the one
+ * further down the deck, since the player put the cards that matter most first.
+ */
+export function keptLeast(habits: readonly HabitFacts[]): HabitFacts | null {
+  let least: { h: HabitFacts; r: number } | null = null;
+  for (const h of habits) {
+    const r = rate(h);
+    if (r !== null && (!least || r <= least.r)) least = { h, r };
+  }
+  return least?.h ?? null;
 }
 
 const EVERGREEN: readonly PrincipleKey[] = ['celebrate', 'pile', 'swap', 'pair-up', 'obstacle', 'friction', 'add-first', 'environment', 'focus-block', 'sleep', 'lead-card'];

@@ -9,8 +9,9 @@ import { HabitCard } from '@/components/HabitCard';
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Field, Label } from '@/components/ui';
 import { SUIT_INFO, SUITS } from '@/engine/cards';
-import { inferSuit, ownWhy, PRINCIPLES, recipeFor, type EditField } from '@/engine/playbook';
+import { exampleRecipe, inferSuit, ownWhy, PRINCIPLES, recipeFor, type EditField, type EditFocus } from '@/engine/playbook';
 import { useData } from '@/lib/data';
+import { useAdded } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { draftFromHabit, draftProblem, type Habit, type HabitDraft } from '@/lib/types';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -22,7 +23,7 @@ const BLANK: HabitDraft = { name: '', identity: '', floorLabel: '', ceilingLabel
 const MOMENTS = ['after waking up', 'after my first coffee', 'after lunch', 'after dinner', 'before bed'] as const;
 
 const FIELDS: readonly EditField[] = ['name', 'ceilingLabel', 'floorLabel', 'identity', 'anchor', 'twoMinuteLabel', 'why'];
-const isField = (v: unknown): v is EditField => typeof v === 'string' && (FIELDS as readonly string[]).includes(v);
+const isFocus = (v: unknown): v is EditFocus => typeof v === 'string' && (v === 'archive' || (FIELDS as readonly string[]).includes(v));
 
 type TipText = { title: string; body: string };
 
@@ -68,7 +69,9 @@ function Tip({ tip }: { tip: TipText }) {
 /**
  * Make or edit a card. You write on the card itself: the preview at the top updates as you type. A new
  * card guesses its suit from its name until you pick one, and takes its suit's colour until you pick one.
- * Opened with `focus`, it scrolls to that field and puts the cursor in it, ready to change.
+ * Empty fields show examples from the card's own ready-made card, or from one of its suit.
+ * Opened with `focus`, it scrolls to that field and puts the cursor in it, ready to change, or with
+ * `focus=archive`, to the Archive button, ringed.
  */
 export default function EditHabit() {
   const t = useTheme();
@@ -77,10 +80,11 @@ export default function EditHabit() {
   const navigation = useNavigation();
   const { id, recipe, focus } = useLocalSearchParams<{ id?: string; recipe?: string; focus?: string }>();
   const { state, today, createHabit, updateHabit, archiveHabit } = useData();
+  const { noteAdded } = useAdded();
   const existing = state.status === 'ready' && id ? state.habits.find((h) => h.id === id) : undefined;
   const fromRecipe = existing ? undefined : recipeFor(recipe);
-  const hint = recipeFor(existing?.recipeKey ?? recipe);
-  const target = isField(focus) ? focus : null;
+  // The Archive button can only be opened on a card that is already in the deck.
+  const target = isFocus(focus) && (focus !== 'archive' || existing) ? focus : null;
 
   const [start] = useState<HabitDraft>(() => {
     // A ready-made card's own line is the app talking, not the player: their "why" starts empty.
@@ -96,13 +100,17 @@ export default function EditHabit() {
   const set = (patch: Partial<HabitDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
   const suit = suitPicked ? draft.suit : inferSuit(draft.name, draft.identity);
+  // Until there is a name to guess from, no suit is shown as chosen and nothing claims a guess.
+  const nameless = !draft.name.trim() && !draft.identity.trim();
+  const suitShown = suitPicked || !nameless;
   const color = colorPicked ? draft.color : suitColors[suit].habit;
+  const example = exampleRecipe(draft.recipeKey, suit);
   const final: HabitDraft = { ...draft, suit, color };
   const problem = draftProblem(final);
   // Changed from how it opened, with the same guesses it opened with.
   const startSuit = existing || fromRecipe ? start.suit : inferSuit(start.name, start.identity);
   const dirty = JSON.stringify(final) !== JSON.stringify({ ...start, suit: startSuit, color: existing ? start.color : suitColors[startSuit].habit });
-  // Save stands out once there is something to save.
+  // Both Save buttons stand out once there is something to save. A card with no changes just closes.
   const ready = !problem && (dirty || !existing);
 
   // Once a day before today has been dealt, a new suit would change hands already played. Only a suit
@@ -114,7 +122,7 @@ export default function EditHabit() {
     ? 'Suit · locked, its days are already dealt'
     : guessed
       ? 'Suit · guessed, pick the one that fits'
-      : suitPicked
+      : suitPicked || nameless
         ? 'Suit · the part of you it builds'
         : 'Suit · guessed from the name, tap to choose';
 
@@ -127,7 +135,7 @@ export default function EditHabit() {
   const firstMove = useRef<TextInput>(null);
   const why = useRef<TextInput>(null);
   const scroll = useRef<ScrollView>(null);
-  const tops = useRef<Partial<Record<EditField, number>>>({});
+  const tops = useRef<Partial<Record<EditFocus, number>>>({});
   // Leaving after a save, or after "Discard", goes straight through.
   const leaving = useRef(false);
 
@@ -140,7 +148,8 @@ export default function EditHabit() {
         const y = tops.current[target];
         if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.xxxl), animated: true });
         // Focus once the scroll has settled: a scroll still running can count as a drag and put the keyboard away.
-        timers.push(setTimeout(() => input[target].current?.focus(), y === undefined ? 0 : 450));
+        // The Archive button is only ringed: archiving always asks first.
+        if (target !== 'archive') timers.push(setTimeout(() => input[target].current?.focus(), y === undefined ? 0 : 450));
       }, 450),
     );
     return () => timers.forEach(clearTimeout);
@@ -188,10 +197,19 @@ export default function EditHabit() {
       ask('Almost there', problem);
       return;
     }
+    if (existing && !dirty) {
+      // Nothing changed, so nothing is written.
+      leaving.current = true;
+      router.back();
+      return;
+    }
     setBusy(true);
     try {
       if (existing) await updateHabit(existing.id, final);
-      else await createHabit(final);
+      else {
+        const made = await createHabit(final);
+        noteAdded({ id: made.id, name: made.name, back: false });
+      }
       feel.ceiling();
       leaving.current = true;
       router.back();
@@ -275,13 +293,13 @@ export default function EditHabit() {
       </View>
 
       <Label style={{ marginTop: space.sm }}>The card</Label>
-      {spot('name', <Field label="Name" value={draft.name} onChangeText={(v) => set({ name: v })} placeholder="Read" autoFocus={!existing && !recipe && !target} inputRef={name} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => ceiling.current?.focus()} />)}
+      {spot('name', <Field label="Name" value={draft.name} onChangeText={(v) => set({ name: v })} placeholder={example.name} autoFocus={!existing && !recipe && !target} inputRef={name} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => ceiling.current?.focus()} />)}
 
       <View style={{ gap: space.sm }}>
         <Label>{suitLabel}</Label>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }} accessibilityRole="radiogroup" accessibilityLabel="Suit">
           {SUITS.map((s) => {
-            const on = suit === s;
+            const on = suitShown && suit === s;
             const info = SUIT_INFO[s];
             return (
               <Pressable
@@ -329,22 +347,29 @@ export default function EditHabit() {
         ) : null}
       </View>
 
-      {spot('ceilingLabel', <Field label="Ceiling · a great day" value={draft.ceilingLabel} onChangeText={(v) => set({ ceilingLabel: v })} placeholder="20 pages" inputRef={ceiling} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => floor.current?.focus()} />)}
+      {spot('ceilingLabel', <Field label="Ceiling · a great day" value={draft.ceilingLabel} onChangeText={(v) => set({ ceilingLabel: v })} placeholder={example.ceiling} inputRef={ceiling} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => floor.current?.focus()} />)}
       {spot(
         'floorLabel',
-        <Field label="Floor · still counts" value={draft.floorLabel} onChangeText={(v) => set({ floorLabel: v })} placeholder="1 page" hint="Small enough to do on your worst day. Keeping it keeps the day and deals its card." inputRef={floor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => identity.current?.focus()} />,
+        <Field label="Floor · still counts" value={draft.floorLabel} onChangeText={(v) => set({ floorLabel: v })} placeholder={example.floor} hint="Small enough to do on your worst day. Keeping it keeps the day and deals its card." inputRef={floor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => identity.current?.focus()} />,
       )}
 
       <Label style={{ marginTop: space.md }}>Make it stick</Label>
       {spot(
         'identity',
-        <Field label="I’m…" value={draft.identity} onChangeText={(v) => set({ identity: v })} placeholder="a reader" hint="Every time you keep this card, it counts for this person in your Court." autoCapitalize="none" inputRef={identity} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => anchor.current?.focus()} />,
+        <Field label="I’m…" value={draft.identity} onChangeText={(v) => set({ identity: v })} placeholder={example.identity} hint="Every time you keep this card, it counts for this person in your Court." autoCapitalize="none" inputRef={identity} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => anchor.current?.focus()} />,
       )}
       {spot(
         'anchor',
         <View style={{ gap: space.sm }}>
-          <Field label="When it plays" value={draft.anchor} onChangeText={(v) => set({ anchor: v })} placeholder={hint?.anchor ?? 'after my first coffee'} hint="A moment that already happens every day. Add a time, like 7 am, if it has one." autoCapitalize="none" inputRef={anchor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => firstMove.current?.focus()} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginHorizontal: -space.xl, marginVertical: -4 }} contentContainerStyle={{ paddingHorizontal: space.xl, paddingVertical: 4, gap: space.sm }}>
+          <Field label="When it plays" value={draft.anchor} onChangeText={(v) => set({ anchor: v })} placeholder={example.anchor} hint="A moment that already happens every day. Add a time, like 7 am, if it has one." autoCapitalize="none" inputRef={anchor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => firstMove.current?.focus()} />
+          {/* The moments run edge to edge, except inside the ring a Playbook tip draws, where they scroll within it. */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            style={{ marginHorizontal: target === 'anchor' ? 0 : -space.xl, marginVertical: -4 }}
+            contentContainerStyle={{ paddingHorizontal: target === 'anchor' ? space.xs : space.xl, paddingVertical: 4, gap: space.sm }}
+          >
             {MOMENTS.map((m) => {
               const on = draft.anchor.trim().toLowerCase() === m;
               return (
@@ -390,7 +415,7 @@ export default function EditHabit() {
           label="First move"
           value={draft.twoMinuteLabel}
           onChangeText={(v) => set({ twoMinuteLabel: v })}
-          placeholder={hint?.twoMinute ?? 'Open the book to your bookmark'}
+          placeholder={example.twoMinute}
           hint="Offered the morning after a miss. On that morning, doing just this keeps the day."
           inputRef={firstMove}
           returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => why.current?.focus()}
@@ -402,7 +427,7 @@ export default function EditHabit() {
           label="Why it matters to you"
           value={draft.why}
           onChangeText={(v) => set({ why: v })}
-          placeholder={hint?.prompt ?? 'I want to finish whole books again.'}
+          placeholder={example.prompt}
           hint="In your own words. The card shows it back on the hard days."
           multiline
           inputRef={why}
@@ -440,8 +465,22 @@ export default function EditHabit() {
         </View>
       </View>
 
-      <Button label={existing ? 'Save card' : 'Add to deck'} busy={busy} onPress={save} style={{ marginTop: space.md }} />
-      {existing ? <Button label="Archive card" variant="quiet" onPress={archive} /> : null}
+      <Button label={existing ? 'Save card' : 'Add to deck'} variant={ready ? 'primary' : 'ghost'} busy={busy} onPress={save} style={{ marginTop: space.md }} />
+      {existing ? (
+        <View
+          onLayout={(e) => {
+            tops.current.archive = e.nativeEvent.layout.y;
+          }}
+          style={target === 'archive' ? { borderRadius: radius.lg, borderWidth: 2.5, borderColor: t.text, padding: space.md, gap: space.sm } : null}
+        >
+          {target === 'archive' ? (
+            <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>
+              {`Archived, ${existing.name} leaves Today. Its kept days still count in your Court, and it can come back from You any time.`}
+            </Body>
+          ) : null}
+          <Button label="Archive card" variant={target === 'archive' ? 'ghost' : 'quiet'} onPress={archive} />
+        </View>
+      ) : null}
     </ScrollView>
   );
 }

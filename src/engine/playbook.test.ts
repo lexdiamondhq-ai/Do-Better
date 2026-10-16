@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { SUITS } from './cards';
-import { clockIn, ideaOfTheDay, inferSuit, ownWhy, partOfDay, playsLine, PRINCIPLES, RECIPES, recommend, suggestRecipes, type HabitFacts, type RecommendationContext } from './playbook';
+import { clockIn, exampleRecipe, IDEA_GROUPS, ideaOfTheDay, inferSuit, keptLeast, ownWhy, partOfDay, playsLine, PRINCIPLES, recipePlaces, RECIPES, recommend, suggestRecipes, type HabitFacts, type PrincipleKey, type RecommendationContext } from './playbook';
 
 const calm: RecommendationContext = {
   today: '2026-10-08', // a Thursday
@@ -188,9 +188,31 @@ describe('recommend', () => {
   });
 
   it('suggests resting a card only above four cards and when the deck isn’t being kept', () => {
-    expect(recommend({ ...calm, habitCount: 5, keptRate30: 0.6 }).find((r) => r.principle.key === 'focus')).toMatchObject({ reason: '5 cards in your deck', href: '/you?sheet=arrange' });
+    expect(recommend({ ...calm, habitCount: 5, keptRate30: 0.6 }).find((r) => r.principle.key === 'focus')).toMatchObject({ reason: '5 cards in your deck', cta: 'Put your best cards first', href: '/you?sheet=arrange' });
     expect(recommend({ ...calm, habitCount: 5, keptRate30: 0.75 }).map((r) => r.principle.key)).not.toContain('focus');
     expect(recommend({ ...calm, habitCount: 4, keptRate30: 0.6 }).map((r) => r.principle.key)).not.toContain('focus');
+  });
+
+  it('names the card to rest and opens its Archive button, never a screen that can only reorder', () => {
+    const habits = [
+      facts({ id: 'r', name: 'Read', kept30: 20, days30: 30 }),
+      facts({ id: 'w', name: 'Walk', kept30: 16, days30: 30 }),
+      facts({ id: 'm', name: 'Meditate', kept30: 18, days30: 30 }),
+      facts({ id: 'j', name: 'Journal', kept30: 16, days30: 30 }),
+      facts({ id: 'f', name: 'Focus', kept30: 1, days30: 3 }),
+    ];
+    const rec = recommend({ ...calm, habitCount: 5, keptRate30: 0.6, habits }).find((r) => r.principle.key === 'focus');
+    expect(rec).toMatchObject({ reason: '5 cards in your deck', cta: 'Archive Journal for now', habitId: 'j', field: 'archive' });
+    expect(rec?.href).toBeUndefined();
+    expect(rec?.text).toBe('Journal was kept 16 of 30 days. Archive it for now: its kept days still count in your Court, and it can come back any time.');
+  });
+
+  it('never suggests resting a card on the morning its Comeback is offered', () => {
+    const habits = [facts({ id: 'r', name: 'Read', kept30: 20, days30: 30 }), facts({ id: 'w', name: 'Walk', kept30: 12, days30: 30, comeback: true }), facts({ id: 'j', name: 'Journal', kept30: 16, days30: 30 })];
+    const ctx = { ...calm, habitCount: 5, keptRate30: 0.6, neverTwiceCount: 1, habits };
+    expect(recommend(ctx).find((r) => r.principle.key === 'focus')).toMatchObject({ habitId: 'j', field: 'archive' });
+    const onlyComebacks = habits.map((h) => ({ ...h, comeback: true }));
+    expect(recommend({ ...ctx, habits: onlyComebacks }).find((r) => r.principle.key === 'focus')).toMatchObject({ href: '/you?sheet=arrange', cta: 'Put your best cards first' });
   });
 
   it('starts a new deck with identity and a lead card', () => {
@@ -239,5 +261,63 @@ describe('commitment', () => {
   it('reminds you to call your hand while calls are open', () => {
     expect(recommend({ ...calm, today: '2026-10-12', callPending: true })[0]).toMatchObject({ reason: 'Calls are open', href: '/call', cta: 'Call your hand' });
     expect(recommend({ ...calm, callPending: true, callClosesTonight: true })[0].reason).toBe('Calls close at midnight');
+  });
+});
+
+describe('keptLeast', () => {
+  it('picks the lowest kept rate, the card lower in the deck on a tie, and skips cards too new to say', () => {
+    const habits = [facts({ id: 'a', name: 'A', kept30: 10, days30: 20 }), facts({ id: 'b', name: 'B', kept30: 15, days30: 30 }), facts({ id: 'c', name: 'C', kept30: 0, days30: 4 })];
+    expect(keptLeast(habits)?.id).toBe('b');
+    expect(keptLeast([facts({ id: 'c', name: 'C', kept30: 0, days30: 4 })])).toBeNull();
+    expect(keptLeast([])).toBeNull();
+  });
+});
+
+describe('IDEA_GROUPS', () => {
+  it('puts every idea in exactly one group', () => {
+    const grouped: PrincipleKey[] = IDEA_GROUPS.flatMap((g) => [...g.principles]);
+    expect(new Set(grouped).size).toBe(grouped.length);
+    expect([...grouped].sort()).toEqual(Object.keys(PRINCIPLES).sort());
+  });
+
+  it('keeps each group short enough to read at a glance', () => {
+    for (const g of IDEA_GROUPS) expect(g.principles.length, g.key).toBeLessThanOrEqual(6);
+  });
+});
+
+describe('exampleRecipe', () => {
+  it('uses the card’s own ready-made card for its examples', () => {
+    expect(exampleRecipe('walk', 'clubs').identity).toBe('someone who moves every day');
+    expect(exampleRecipe('reach-out', 'spades').twoMinute).toBe('Open your last chat');
+  });
+
+  it('falls back to a ready-made card of the same suit, so a walking card never suggests “a reader”', () => {
+    expect(exampleRecipe(null, 'spades').identity).toBe('someone who moves every day');
+    expect(exampleRecipe('gone-recipe', 'hearts').identity).toBe('a good friend');
+    expect(exampleRecipe(null, 'diamonds').identity).toBe('a writer');
+    expect(exampleRecipe(undefined, 'clubs').identity).toBe('a reader');
+    for (const suit of SUITS) expect(exampleRecipe(null, suit).suit).toBe(suit);
+  });
+});
+
+describe('recipePlaces', () => {
+  const card = (id: string, recipeKey: string | null, archivedAt: string | null = null) => ({ id, recipeKey, archivedAt });
+
+  it('knows a ready-made card that is only archived, so the Playbook brings it back instead of making a second', () => {
+    const places = recipePlaces([card('w1', 'walk', '2026-09-01T00:00:00.000Z'), card('r1', 'read')]);
+    expect(places.get('walk')).toEqual({ kind: 'out', habitId: 'w1' });
+    expect(places.get('read')).toEqual({ kind: 'in', habitId: 'r1' });
+    expect(places.has('run')).toBe(false);
+  });
+
+  it('prefers the copy in the deck, whatever the order', () => {
+    expect(recipePlaces([card('w2', 'walk'), card('w1', 'walk', '2026-09-01T00:00:00.000Z')]).get('walk')).toEqual({ kind: 'in', habitId: 'w2' });
+    expect(recipePlaces([card('w1', 'walk', '2026-09-01T00:00:00.000Z'), card('w2', 'walk')]).get('walk')).toEqual({ kind: 'in', habitId: 'w2' });
+  });
+
+  it('points at the archived copy that left last, and ignores cards made by hand', () => {
+    const places = recipePlaces([card('w1', 'walk', '2026-08-01T00:00:00.000Z'), card('w2', 'walk', '2026-10-01T00:00:00.000Z'), card('w3', 'walk', '2026-09-01T00:00:00.000Z'), card('x', null, '2026-10-02T00:00:00.000Z')]);
+    expect(places.get('walk')).toEqual({ kind: 'out', habitId: 'w2' });
+    expect(places.size).toBe(1);
   });
 });
