@@ -12,7 +12,6 @@ import { Body, Button, Display, Label, Page, PageTitle, Section } from '@/compon
 import { SUIT_INFO } from '@/engine/cards';
 import type { CourtSuit } from '@/engine/court';
 import { BACKS, TABLES, type TableKey } from '@/engine/game';
-import { HANDS } from '@/engine/poker';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
 import { useDeck, useLook } from '@/lib/deck';
@@ -138,18 +137,17 @@ export default function You() {
       </Section>
 
       <Section title="Card backs" action={<Label>{`${game.backs.size} of ${BACKS.length}`}</Label>}>
-        <Body size={14} color={t.textSecondary}>Each back unlocks the first time you finish a week with its hand or better. Days still to come wear the one you pick.</Body>
+        <Body size={14} color={t.textSecondary}>Each back unlocks its own way, at the Showdown of the week that earns it. Days still to come wear the one you pick.</Body>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space.xl }} contentContainerStyle={{ paddingHorizontal: space.xl, gap: space.md }}>
           {BACKS.map((b) => {
             const open = game.backs.has(b.key);
             const on = myBack === b.key;
-            const secret = HANDS[b.hand].secret && !open;
             return (
               <Pressable
                 key={b.key}
                 disabled={!open}
                 accessibilityRole="radio"
-                accessibilityLabel={`${b.name} card back${open ? '' : `, won with ${secret ? 'a secret hand' : HANDS[b.hand].name}`}`}
+                accessibilityLabel={`${b.name} card back${open ? '' : `. ${b.how}`}`}
                 accessibilityState={{ selected: on, disabled: !open }}
                 onPress={() => {
                   Haptics.selectionAsync();
@@ -162,7 +160,7 @@ export default function You() {
                     <CardBack back={b.key} size="md" />
                     {!open ? (
                       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 12, backgroundColor: 'rgba(10,8,14,0.62)', alignItems: 'center', justifyContent: 'center', padding: 4 }}>
-                        <Body size={11} weight="heavy" color="#FFFFFF" style={{ textAlign: 'center' }}>{secret ? '???' : HANDS[b.hand].name}</Body>
+                        <Body size={11} weight="heavy" color="#FFFFFF" style={{ textAlign: 'center' }}>{b.how}</Body>
                       </View>
                     ) : null}
                   </View>

@@ -122,7 +122,7 @@ export default function Showdown() {
 
   const { game } = deck;
   const unlocks = unlocksFor(game, week);
-  const played = new Map(week.hand?.cards.map((c): [Day, Suit] => [c.day, c.suit]) ?? []);
+  const played = new Map(week.hand?.cards.map((c): [Day, Suit | undefined] => [c.day, c.suit ?? undefined]) ?? []);
   const dealtDays = week.slots.filter((s) => s.card).map((s) => s.day);
 
   const close = () => {
