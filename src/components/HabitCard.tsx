@@ -3,8 +3,8 @@ import { Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'reac
 
 import { SUIT_INFO } from '@/engine/cards';
 import type { Level } from '@/engine/kept';
-import { playsLine } from '@/engine/playbook';
-import { comebackCopy, grouped, identityLine, type ComebackGap } from '@/engine/today';
+import { ownWhy } from '@/engine/playbook';
+import { comebackCopy, grouped, identityLine, whenLine, type ComebackGap } from '@/engine/today';
 import type { Habit } from '@/lib/types';
 import { withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -43,12 +43,29 @@ function Fit({ children, size, color, lines = 2, style }: { children: ReactNode;
 }
 
 /** A tappable row on a card, or the same row as a picture when there is nothing to tap. */
-function Press({ onPress, label, style, children, testID }: { onPress?: () => void; label: string; style?: StyleProp<ViewStyle>; children: ReactNode; testID?: string }) {
+function Press({ onPress, label, hint, style, children, testID }: { onPress?: () => void; label: string; hint?: string; style?: StyleProp<ViewStyle>; children: ReactNode; testID?: string }) {
   if (!onPress) return <View style={style}>{children}</View>;
   return (
-    <CardButton onPress={onPress} label={label} style={style} testID={testID}>
+    <CardButton onPress={onPress} label={label} hint={hint} style={style} testID={testID}>
       {children}
     </CardButton>
+  );
+}
+
+/**
+ * The card's ⋯, top right: opens the card's own page (its calendar, numbers, Edit and Rest). It takes 28
+ * points of the row and reaches a full 44 for the finger. With no handler it is only a picture, so the
+ * cards behind the front one keep the same shape.
+ */
+function OpenButton({ name, onOpen, dot, ring }: { name: string; onOpen?: () => void; dot: string; ring: string }) {
+  return (
+    <Press onPress={onOpen} label={`Open ${name}`} hint="Shows its calendar and numbers, and lets you edit it" testID="card-open" style={{ width: 44, height: 44, margin: -8, alignItems: 'center', justifyContent: 'center' }}>
+      <View aria-hidden style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: ring, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: dot }} />
+        ))}
+      </View>
+    </Press>
   );
 }
 
@@ -63,15 +80,19 @@ function Arrow({ arrow, fg, bg, size = 48 }: { arrow: string; fg: string; bg: st
   );
 }
 
-/** "♣ MIND · YOU'RE A READER": the part of you this card deals for, and who it says you are. */
-function Identity({ habit, color }: { habit: Habit; color: string }) {
+/**
+ * "♣ MIND · YOU'RE A READER": the part of you this card deals for, and who it says you are, on up to two
+ * lines so a longer identity is read whole. `end` sits at the far end of the row (the card's ⋯).
+ */
+function Identity({ habit, color, end }: { habit: Habit; color: string; end?: ReactNode }) {
   const who = identityLine(habit.identity);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
       <SuitGlyph suit={habit.suit} size={14} color={color} />
-      <Label color={color} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
+      <Label color={color} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ flex: 1 }}>
         {`${SUIT_INFO[habit.suit].part}${who ? ` · ${who.replace(/\.$/, '')}` : ''}`}
       </Label>
+      {end}
     </View>
   );
 }
@@ -92,7 +113,8 @@ function nameSize(name: string, compact: boolean): number {
  * The face of a habit card: the Ceiling on top, the name in the middle, the Floor at the bottom, the way
  * the card swipes. Both ways are buttons too, so a tap does what a swipe does. `compact` folds both into
  * one row at the bottom, for short screens. With no handlers it is a picture, as in the edit preview and
- * the cards waiting behind the front one.
+ * the cards waiting behind the front one. `onOpen` adds the ⋯ that opens the card's page (`null` draws
+ * it as a picture, for the cards behind the front one).
  */
 export function HabitCard({
   habit,
@@ -102,6 +124,7 @@ export function HabitCard({
   compact = false,
   onFloor,
   onCeiling,
+  onOpen,
   style,
 }: {
   habit: Habit;
@@ -112,9 +135,11 @@ export function HabitCard({
   compact?: boolean;
   onFloor?: () => void;
   onCeiling?: () => void;
+  onOpen?: (() => void) | null;
   style?: StyleProp<ViewStyle>;
 }) {
   const { c, ink, quiet, tile, edge } = inksOf(habit);
+  const when = whenLine(habit.anchor, habit.whenWhere, tag ?? null);
   const floorKept = level === 'floor';
   const ceilingLabel = `Reach the Ceiling: ${habit.ceilingLabel}`;
   const floorLabel = `Keep the Floor: ${habit.floorLabel}`;
@@ -127,7 +152,7 @@ export function HabitCard({
 
   const middle = (
     <View style={{ gap: compact ? 4 : space.sm }}>
-      <Identity habit={habit} color={quiet} />
+      <Identity habit={habit} color={quiet} end={onOpen !== undefined ? <OpenButton name={habit.name} onOpen={onOpen ?? undefined} dot={ink} ring={tile} /> : null} />
       <Fit size={nameSize(habit.name, compact)} color={ink}>
         {habit.name}
       </Fit>
@@ -136,7 +161,8 @@ export function HabitCard({
           {subtitle}
         </Body>
       ) : null}
-      {tag || habit.anchor ? (
+      {tag || when ? (
+        // "Plays tonight" then "after getting into bed": the tag and the anchor read as one phrase.
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
           {tag ? (
             <View style={{ borderRadius: radius.pill, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: ink }}>
@@ -145,9 +171,9 @@ export function HabitCard({
               </Body>
             </View>
           ) : null}
-          {habit.anchor ? (
+          {when ? (
             <Body size={14} weight="semi" color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
-              {`${playsLine(habit.anchor)}${habit.whenWhere ? ` · ${habit.whenWhere}` : ''}`}
+              {when}
             </Body>
           ) : null}
         </View>
@@ -249,6 +275,7 @@ function darkCard(t: Theme): ViewStyle {
  * Nothing on it keeps a day by accident: only Done it, the Floor and Ceiling buttons, or a swipe.
  * `compact` keeps only the first move, Done it and the Floor (with a small Ceiling arrow); logging
  * yesterday stays on the card only when the screen passes `onLogYesterday`, and is always on the week strip.
+ * The why is the player's own line only (`ownWhy`), the same rule as the habit's page and its editor.
  */
 export function ComebackCard({
   habit,
@@ -258,10 +285,13 @@ export function ComebackCard({
   compact = false,
   lean = false,
   tight = false,
+  tiny = false,
+  roomy = false,
   onFirstMove,
   onFloor,
   onCeiling,
   onLogYesterday,
+  onOpen,
   style,
 }: {
   habit: Habit;
@@ -275,11 +305,17 @@ export function ComebackCard({
   lean?: boolean;
   /** Folded on a short screen too: no room even for the evidence line. */
   tight?: boolean;
+  /** Shorter still: the first move drops its label line, so the headline above it stays whole. */
+  tiny?: boolean;
+  /** Folded, but with room to spare: the words get it (a bigger headline, "Yesterday got away", more of the why). */
+  roomy?: boolean;
   onFirstMove?: () => void;
   onFloor?: () => void;
   onCeiling?: () => void;
   /** Yesterday can still be logged, for "Did it, forgot to log". Left out where there's no room; the week strip has it too. */
   onLogYesterday?: () => void;
+  /** The ⋯ that opens the card's page; `null` draws it as a picture. */
+  onOpen?: (() => void) | null;
   style?: StyleProp<ViewStyle>;
 }) {
   const t = useTheme();
@@ -290,7 +326,7 @@ export function ComebackCard({
   const quiet = t.onRaisedSecondary;
   const accent = c.onDark;
   const line = withAlpha(t.onRaised, 0.22);
-  const why = habit.why?.trim() || null;
+  const why = ownWhy(habit);
 
   const doneIt = (
     <Press
@@ -347,9 +383,10 @@ export function ComebackCard({
   const eyebrow = (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
       <SuitGlyph suit={habit.suit} size={14} color={accent} />
-      <Label color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
+      <Label color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flex: 1 }}>
         {`Comeback · ${habit.name}`}
       </Label>
+      {onOpen !== undefined ? <OpenButton name={habit.name} onOpen={onOpen ?? undefined} dot={ink} ring={withAlpha(t.onRaised, 0.12)} /> : null}
     </View>
   );
 
@@ -367,9 +404,11 @@ export function ComebackCard({
         paddingLeft: big ? space.lg : space.md,
       }}
     >
-      <Label color={accent} maxFontSizeMultiplier={fontScale.chrome}>
-        {firstMove ? 'First move · counts today' : 'The way back in'}
-      </Label>
+      {tiny ? null : (
+        <Label color={accent} maxFontSizeMultiplier={fontScale.chrome}>
+          {firstMove ? 'First move · counts today' : 'The way back in'}
+        </Label>
+      )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
         <Fit size={big ? 24 : 19} color={ink} lines={big && !compact ? 3 : 2} style={{ flex: 1 }}>
           {firstMove ?? habit.floorLabel}
@@ -387,32 +426,48 @@ export function ComebackCard({
 
   if (compact) {
     // Folded: who you are, the first move and Done it, then the Floor. Yesterday is logged from the week strip.
+    // With room to spare the words get it: "Yesterday got away", a bigger headline, more of the why. There is
+    // room to spare on a roomy card, or when nothing sits under the evidence line (no why of the person's own,
+    // no line about saving yesterday). Whatever is still left over sits evenly above and below the words,
+    // never as one gap over the way in.
+    const spare = !lean && !tight && (roomy || (!why && !saving));
+    // The bigger headline only on a roomy card: at 38 a headline that fit one line at 34 can take two.
+    const bigHead = roomy && !lean && !tight;
     return (
-      <View style={[darkCard(t), { padding: 14, paddingHorizontal: space.lg, justifyContent: 'space-between', gap: space.sm }, style]}>
+      <View style={[darkCard(t), { padding: 14, paddingHorizontal: space.lg, gap: space.sm }, style]}>
         {tight ? null : watermark}
         {/* If a long name ever needs more room than the card has, these lines give way, never the way in below them. */}
-        <View style={{ gap: tight ? 2 : space.xs, flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>
+        <View style={{ flex: 1, minHeight: 0, overflow: 'hidden', gap: tight ? 2 : space.xs }}>
           {eyebrow}
-          <Fit size={tight ? headSize(copy.headline, 24) : headSize(copy.headline, 34)} color={accent} lines={2}>
-            {copy.headline}
-          </Fit>
-          {tight ? null : (
-            <Body size={14} weight="bold" color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 19 }}>
-              {/* Straight after who you are, so "say so" backs the headline; "One day off" already names the miss. */}
-              {copy.evidence}
-            </Body>
-          )}
-          {tight || lean ? null : saving ? (
-            <Body size={13} weight="bold" color={quiet} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
-              Keep it today and yesterday still gets its card.
-            </Body>
-          ) : why ? (
-            <Body size={13} weight="semi" color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
-              {`Why: ${why}`}
-            </Body>
-          ) : null}
+          {tight ? null : <View style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }} />}
+          <View style={{ flexShrink: 1, minHeight: 0, gap: tight ? 2 : space.xs }}>
+            {spare ? (
+              <Body size={14} weight="heavy" color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
+                {`${copy.eyebrow}.`}
+              </Body>
+            ) : null}
+            <Fit size={tight ? headSize(copy.headline, 24) : headSize(copy.headline, bigHead ? 38 : 34)} color={accent} lines={2}>
+              {copy.headline}
+            </Fit>
+            {tight ? null : (
+              <Body size={14} weight="bold" color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 19 }}>
+                {/* Straight after who you are, so "say so" backs the headline; "One day off" already names the miss. */}
+                {copy.evidence}
+              </Body>
+            )}
+            {tight || lean ? null : saving ? (
+              <Body size={13} weight="bold" color={quiet} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
+                Keep it today and yesterday still gets its card.
+              </Body>
+            ) : why ? (
+              <Body size={13} weight="semi" color={quiet} numberOfLines={bigHead ? 3 : 2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
+                {`Why: ${why}`}
+              </Body>
+            ) : null}
+          </View>
+          {tight ? null : <View style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }} />}
         </View>
-        {/* The way in stays together at the bottom, under the thumb, with any spare room above it. */}
+        {/* The way in stays together at the bottom, under the thumb. */}
         <View style={{ gap: space.sm }}>
           {move(!tight)}
           <View style={{ flexDirection: 'row', gap: space.sm }}>
