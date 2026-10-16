@@ -10,7 +10,7 @@ import { useData } from '@/lib/data';
 import { useLook } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { gameInput } from '@/lib/play';
-import { share, SHARE_LAYOUT, type HabitLine, type ShareOutcome, type ShareTarget } from '@/lib/share';
+import { share, SHARE_LAYOUT, weekSuit, type HabitLine, type ShareOutcome, type ShareTarget } from '@/lib/share';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontScale, radius, space, TAP } from '@/theme/tokens';
 
@@ -48,6 +48,9 @@ export function ShareButton({
     </>
   );
 }
+
+/** The preview's backdrop: the near-black of the card room with the lights down. */
+const BACKDROP = '#08060C';
 
 const SAID: Partial<Record<ShareOutcome, string>> = {
   copied: 'Copied. Paste it wherever you like.',
@@ -104,11 +107,12 @@ export function SharePreview({ target, visible, onClose }: { target: ShareTarget
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.md, paddingHorizontal: space.xl }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(8, 6, 12, 0.985)' }]} />
+        {/* A solid backdrop, like a photo viewer: the picture is all there is to look at, with nothing ghosting through behind it. */}
+        <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} style={[StyleSheet.absoluteFill, { backgroundColor: BACKDROP }]} />
         <View role="dialog" aria-modal aria-label={target.kind === 'hand' ? 'Share this hand' : 'Share this card'} accessibilityViewIsModal style={{ alignItems: 'center', gap: space.lg, width: '100%', maxWidth: 420 }}>
           <View style={{ width: w, height: h, borderRadius: 12 * scale + 4, overflow: 'hidden', boxShadow: '0px 18px 48px rgba(0, 0, 0, 0.5)' }}>
             <View style={{ width: SHARE_LAYOUT.w, height: SHARE_LAYOUT.h, transform: [{ translateX: -(SHARE_LAYOUT.w * (1 - scale)) / 2 }, { translateY: -(SHARE_LAYOUT.h * (1 - scale)) / 2 }, { scale }] }}>
-              <ShareCard target={shown} habits={habits} back={back} lead={review?.lead ?? null} cardRef={card} />
+              <ShareCard target={shown} habits={habits} back={back} lead={target.kind === 'hand' ? weekSuit(review, target.week.hand) : null} cardRef={card} />
             </View>
           </View>
           {habits.length ? <Toggle label="Show my habits" on={names} onChange={setNames} hint="Puts each habit’s name and kept days on the picture" /> : null}
