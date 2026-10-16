@@ -590,7 +590,7 @@ function Account() {
   const leaveDemo = () =>
     menu('Leave the demo?', 'That was a made-up player ten weeks in. Your own deck deals today.', [
       { text: 'Deal me in', onPress: () => void startOwnDeck() },
-      { text: 'Back to the first screen', onPress: endDemo },
+      { text: 'Back to the first screen', onPress: () => endDemo() },
       { text: 'Keep exploring', style: 'cancel' },
     ]);
 

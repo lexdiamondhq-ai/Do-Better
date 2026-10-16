@@ -49,7 +49,8 @@ export type Step = 'guest' | 'apple' | 'email-send' | 'email-code' | 'save-apple
 type Failure = { code?: unknown; status?: unknown; name?: unknown; message?: unknown };
 
 const MESSAGES: Record<Problem, string> = {
-  'guest-off': 'Starting without an account isn’t switched on yet. Sign in with Apple or your email and your first cards deal straight away.',
+  // Shown where the Apple button may not be (a browser, Expo Go), so it names no way in: the screen shows them.
+  'guest-off': 'A new deck needs an account to live on. It takes a minute, and your first cards deal straight away.',
   'linking-off': 'Saving a guest deck isn’t switched on yet, so this deck stays on this phone for now. Try again later.',
   taken: 'That one already has a deck.',
   code: 'That code didn’t work. Check the newest email and try again.',
@@ -87,6 +88,41 @@ export function friendlyAuthError(e: unknown, step: Step, dev: boolean = typeof 
   const raw = typeof e === 'object' && e !== null && typeof (e as Failure).message === 'string' ? ((e as Failure).message as string) : String(e);
   const message = dev && problem !== 'taken' && raw ? `${MESSAGES[problem]} (${raw})` : MESSAGES[problem];
   return new SignInError(problem, message, raw);
+}
+
+/**
+ * What's wrong with a typed email address, as a sentence, or null when it looks like one. An empty field
+ * and a half-typed address get different words, so a typo never reads as "you typed nothing".
+ */
+export function checkEmail(typed: string): string | null {
+  const address = typed.trim();
+  if (!address) return 'Type your email address first.';
+  if (/\s/.test(address)) return 'Take the space out of your email and try again.';
+  if (!/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[^\s@.]{2,}$/.test(address)) return 'That email looks incomplete. Check it and try again.';
+  return null;
+}
+
+/** Where "Your deck didn't start" can send someone, and whether trying again could help. */
+export type StartFailure = {
+  title: string;
+  message: string;
+  /** A connection problem or a hiccup: the same tap may work in a moment. */
+  retry: boolean;
+  /** The other way in: the account form for a brand-new deck, or the sign-in form. */
+  next: { label: string; opening: 'new' | 'sign-in' };
+};
+
+/** The words and choices for a guest deck that didn't start from the demo. */
+export function deckDidntStart(e: SignInError): StartFailure {
+  if (e.problem === 'guest-off') {
+    return { title: 'Start with an account', message: e.message, retry: false, next: { label: 'Set up my deck', opening: 'new' } };
+  }
+  return {
+    title: 'Your deck didn’t start',
+    message: e.message,
+    retry: e.problem === 'offline' || e.problem === 'other',
+    next: { label: 'Sign in instead', opening: 'sign-in' },
+  };
 }
 
 /** Runs one Supabase auth call, turning its error (returned or thrown) into a `SignInError`. */
