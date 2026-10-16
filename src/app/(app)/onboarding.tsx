@@ -104,7 +104,7 @@ export default function Onboarding() {
   const router = useRouter();
   // Opened from the You tab to read the rules again: just the cards, then back to the game.
   const replay = useLocalSearchParams<{ tour?: string }>().tour === '1';
-  const { createHabit, saveProfile } = useData();
+  const { createHabits, saveProfile } = useData();
   const [step, setStep] = useState(0);
   const [identities, setIdentities] = useState<string[]>([]);
   const [northStar, setNorthStar] = useState('');
@@ -121,10 +121,11 @@ export default function Onboarding() {
   async function finish(recipes: Recipe[]) {
     setBusy(true);
     try {
-      // Each card takes its suit's colour, so a glance at the deck shows which part of you it builds.
-      for (const r of recipes) {
-        await createHabit({ name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color: suitColors[r.suit].habit, suit: r.suit, anchor: r.anchor, whenWhere: '', why: r.why, recipeKey: r.key });
-      }
+      // Each card takes its suit's colour, so a glance at the deck shows which part of you it builds. The
+      // whole deck is one write, so trying again after a failure never makes a card twice.
+      await createHabits(
+        recipes.map((r) => ({ name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color: suitColors[r.suit].habit, suit: r.suit, anchor: r.anchor, whenWhere: '', why: r.why, recipeKey: r.key })),
+      );
       await saveProfile({ northStar, onboarded: true });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/');

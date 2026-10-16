@@ -207,6 +207,46 @@ describe('the ledger', () => {
   });
 });
 
+describe('what the server holds', () => {
+  it('leaves out changes still saving, so the phone never keeps a swipe the server never got', async () => {
+    const ledger = createLedger<State>();
+    const saved = ledger.change(empty, step(lane('read'), 'floor'), async () => {});
+    await saved.done;
+    const upgrade = deferred();
+    const walk = deferred();
+    const a = ledger.change(saved.next, step(lane('read'), 'ceiling'), () => upgrade.promise);
+    const b = ledger.change(a.next, step(lane('walk'), 'floor'), () => walk.promise);
+    // On screen: both swipes. On the server: only the saved Floor.
+    expect(levelIn(b.next.days, 'read', '2026-10-14')).toBe('ceiling');
+    expect(ledger.held(b.next).days).toEqual([{ habitId: 'read', day: '2026-10-14', level: 'floor' }]);
+
+    upgrade.resolve();
+    await a.done;
+    expect(ledger.held(b.next).days).toEqual([{ habitId: 'read', day: '2026-10-14', level: 'ceiling' }]);
+
+    walk.reject(new Error('offline'));
+    const after = settle(b.next, await b.done);
+    expect(ledger.held(after)).toEqual(after);
+    expect(levelIn(after.days, 'walk', '2026-10-14')).toBeNull();
+  });
+
+  it('counts an older save that landed while a newer one is still on its way', async () => {
+    const ledger = createLedger<State>();
+    const first = deferred();
+    const second = deferred();
+    const a = ledger.change(empty, step(lane('read'), 'floor'), () => first.promise);
+    const b = ledger.change(a.next, step(lane('read'), null), () => second.promise);
+    expect(ledger.held(b.next).days).toEqual([]);
+    first.resolve();
+    await a.done;
+    // The Floor reached the server; the undo hasn't yet.
+    expect(levelIn(ledger.held(b.next).days, 'read', '2026-10-14')).toBe('floor');
+    second.resolve();
+    await b.done;
+    expect(ledger.held(b.next).days).toEqual([]);
+  });
+});
+
 describe('check-in rows', () => {
   const rows: CheckInRow[] = [
     { habitId: 'read', day: '2026-10-13', level: 'floor' },

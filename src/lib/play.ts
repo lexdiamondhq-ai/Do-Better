@@ -1,9 +1,10 @@
 import type { Suit } from '@/engine/cards';
 import { newFaces, summarizeCourt, type CourtHabit, type CourtSuit, type FaceInfo } from '@/engine/court';
-import { archivedDay, weekStart, type Day } from '@/engine/day';
+import { archivedDay, canBackfill, weekStart, type Day } from '@/engine/day';
 import type { DayCard, DealHabit } from '@/engine/deal';
 import { dealEvent, playGame, playLiveWeek, playPastWeeks, type DealEvent, type Game, type GameInput, type Week } from '@/engine/game';
 import { indexCheckIns, type Level } from '@/engine/kept';
+import { levelIn } from '@/engine/ledger';
 import type { HandKind } from '@/engine/poker';
 
 import type { Loaded } from './backend';
@@ -16,6 +17,11 @@ export function dealHabits(habits: readonly Habit[], timezone: string): DealHabi
 
 export function courtHabits(habits: readonly Habit[]): CourtHabit[] {
   return habits.map((h) => ({ id: h.id, suit: h.suit, identity: h.identity }));
+}
+
+/** The same account with no deck: no cards, check-ins, prompts or calls, no North Star and not onboarded. */
+export function emptyDeck(data: Loaded): Loaded {
+  return { profile: { ...data.profile, northStar: null, onboardedAt: null }, habits: [], days: [], prompts: [], calls: [] };
 }
 
 /** Everything the game engine needs from the loaded rows. */
@@ -80,6 +86,27 @@ export function playGameFor(data: Loaded, today: Day, seed: string): Game {
   return playGame(input, past.weeks);
 }
 
+// Late check-ins: yesterday, logged after the fact ------------------------------------------------------
+
+export const LATE_ADD_REFUSED = 'Only yesterday can be logged late, once, while its week is still being played.';
+export const LATE_UNDO_REFUSED = 'That day is settled now, so it stays as it is.';
+
+/** How a day logged late on this phone is remembered, so only that back-fill can be taken back. */
+export const lateKey = (habitId: string, day: Day) => `${habitId}:${day}`;
+
+/**
+ * Why a check-in on `day` can't be added or taken back, or null when it can. Today is always open.
+ * Yesterday can be added only where `canBackfill` allows it, for a card in the deck, and only when it is
+ * still empty. Only a back-fill made on this phone (listed in `loggedLate` by `lateKey`) can be taken
+ * back, so a day kept yesterday can't be cleared and logged again at a higher level.
+ */
+export function lateRefusal(data: Loaded, habitId: string, day: Day, today: Day, change: 'add' | 'undo', loggedLate: ReadonlySet<string>): string | null {
+  if (day === today) return null;
+  const habit = data.habits.find((h) => h.id === habitId);
+  if (change === 'add') return habit && canBackfill(day, today, habit) && levelIn(data.days, habitId, day) === null ? null : LATE_ADD_REFUSED;
+  return habit && canBackfill(day, today, habit) && loggedLate.has(lateKey(habitId, day)) ? null : LATE_UNDO_REFUSED;
+}
+
 // Moments: what a check-in did that is worth showing ------------------------------------------------
 
 /** Lifetime kept days worth a moment. Only ever counted up, never as days in a row. */
@@ -109,12 +136,14 @@ type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never;
 export type Moment = WithoutId<GameEvent>;
 
 /**
- * What has been celebrated today, held in memory only. An undo followed by the same check-in again can't
- * replay a face card or a milestone. `best` is the most kept days reached today.
+ * What has been celebrated, held in memory only. An undo followed by the same check-in again can't
+ * replay the first card, a face card or a milestone. `best` is the most kept days reached today.
  */
 export type MomentMemory = { celebrated: Set<string>; best: { day: Day; count: number } | null };
 
 export const newMemory = (): MomentMemory => ({ celebrated: new Set(), best: null });
+
+const FIRST = 'first';
 
 /** The check-in that caused the moments. `day` is today, or yesterday for a back-fill. */
 export type CheckInMade = { habitId: string; level: Level; day: Day };
@@ -160,7 +189,9 @@ export function momentsOf(before: Loaded, after: Loaded, today: Day, seed: strin
     }
   }
 
-  const first = before.days.length === 0;
+  // The first card ever is celebrated once. Undone and made again, it turns over like any other card.
+  const firstEver = before.days.length === 0;
+  const first = firstEver && !memory.celebrated.has(FIRST);
   const { habitId, level } = made;
   if (made.day === today) {
     const deal = dealEvent(was, now);
@@ -172,10 +203,12 @@ export function momentsOf(before: Loaded, after: Loaded, today: Day, seed: strin
   } else {
     const card = cardOn(now, made.day);
     if (card) {
-      const deal: DealEvent = { card, was: first ? null : cardOn(was, made.day), hand: now.hand, handWas: first ? null : was.hand };
+      const deal: DealEvent = { card, was: firstEver ? null : cardOn(was, made.day), hand: now.hand, handWas: firstEver ? null : was.hand };
       out.push(first ? { kind: 'first', habitId, level, deal } : { kind: 'backfill', habitId, level, day: made.day, deal });
     }
   }
+
+  if (out.some((m) => m.kind === 'first')) memory.celebrated.add(FIRST);
 
   if (memory.best?.day !== today) memory.best = { day: today, count: keptDays(before, today) };
   const floor = Math.max(memory.best.count, keptDays(before, today));
@@ -192,6 +225,7 @@ export function momentsOf(before: Loaded, after: Loaded, today: Day, seed: strin
  */
 export function forgetMoments(moments: readonly Moment[], today: Day, memory: MomentMemory): void {
   for (const m of moments) {
+    if (m.kind === 'first') memory.celebrated.delete(FIRST);
     if (m.kind === 'face') memory.celebrated.delete(`face:${m.suit}:${m.face.face}:${today}`);
     if (m.kind === 'rung') memory.celebrated.delete(`rung:${m.suit}:${m.days}:${today}`);
     if (m.kind === 'milestone' && memory.best?.day === today) memory.best.count = Math.min(memory.best.count, m.count - 1);

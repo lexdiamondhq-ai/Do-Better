@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 import { AppState } from 'react-native';
 
-import { archivedAtFor, archivedDay, canBackfill, localDay, msUntilNextDay, weekStart, type Day } from '@/engine/day';
+import { archivedAtFor, archivedDay, localDay, msUntilNextDay, weekStart, type Day } from '@/engine/day';
 import { playGame } from '@/engine/game';
 import type { Level } from '@/engine/kept';
 import { checkInLane, createLedger, levelIn, step, type Lane, type Outcome, type Step } from '@/engine/ledger';
@@ -9,7 +9,7 @@ import type { HandKind } from '@/engine/poker';
 
 import type { Backend, Loaded } from './backend';
 import { cancelCacheWrite, readCache, writeCache } from './cache';
-import { forgetMoments, gameInput, momentsOf, newMemory, type CheckInMade, type GameEvent, type Moment } from './play';
+import { emptyDeck, forgetMoments, gameInput, lateKey, lateRefusal, momentsOf, newMemory, type CheckInMade, type GameEvent, type Moment } from './play';
 import { draftFromHabit, type Habit, type HabitDraft, type RecoveryPrompt, type RecoveryResponse } from './types';
 
 export type { GameEvent } from './play';
@@ -31,10 +31,14 @@ type DataApi = {
   /**
    * Keeps a card at `level`. Leave `day` out for today: the write always goes to the real date, even
    * just after midnight. Pass yesterday to log it late ("Did it, forgot to log"); that only adds a
-   * missing day and only where `canBackfill` allows it, and rejects otherwise.
+   * missing day and only where `canBackfill` allows it, and rejects otherwise. Logging the same level
+   * again is a no-op, so a double tap never shows an error.
    */
   checkIn: (habitId: string, level: Level, day?: Day) => Promise<void>;
-  /** Takes back a check-in: today's unless `day` is a yesterday that `canBackfill` still allows changing. */
+  /**
+   * Takes back a check-in: today's, or with `day`, a back-fill of yesterday made on this phone today
+   * (the undo right after "Did it, forgot to log"). A day kept yesterday itself stays as it is.
+   */
   undoCheckIn: (habitId: string, day?: Day) => Promise<void>;
   /** Makes one card, starting today, at the end of the deck. */
   createHabit: (draft: HabitDraft) => Promise<Habit>;
@@ -58,6 +62,12 @@ type DataApi = {
   saveProfile: (patch: { northStar?: string | null; onboarded?: boolean }) => Promise<void>;
   /** Calls a hand for this week, while calls are open; the screen checks before offering it. */
   callHand: (hand: HandKind) => Promise<void>;
+  /**
+   * Deletes the whole deck on the server: cards, check-ins, prompts, calls, the North Star and the
+   * onboarding mark ("Delete my deck"). On success the app shows an empty account, which goes to
+   * onboarding. Rejects, changing nothing on screen, when the server refuses.
+   */
+  deleteDeck: () => Promise<void>;
 };
 
 type EventsApi = {
@@ -114,6 +124,9 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
     nextId: 1,
     nextToken: 1,
     byToken: new Map<number, { today: Day; events: GameEvent[] }>(),
+    // Tokens whose moments are still being worked out, and which of those already saved or failed.
+    waiting: new Set<number>(),
+    saved: new Set<number>(),
     cancelled: new Set<number>(),
     shown: new Set<number>(),
     memory: newMemory(),
@@ -121,6 +134,8 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
   // Comeback answers given in this session, by the card and the day they kept, so undoing that check-in
   // brings the Comeback back.
   const answered = useRef(new Map<string, Day>());
+  // Yesterdays logged late on this phone today, by `lateKey`: only these can be taken back.
+  const loggedLate = useRef(new Set<string>());
   // When the rows last came from the server, for refreshing after a long time away or a new day.
   const loadedAt = useRef({ at: 0, day: '' });
   const refreshing = useRef<Promise<void> | null>(null);
@@ -135,14 +150,23 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
     };
   }, []);
 
+  /**
+   * Keeps this player's rows on the phone as the server holds them. Changes still saving are left out,
+   * so a swipe that never reached the server can't open as kept after a restart.
+   */
+  const persist = useCallback(() => {
+    const s = store.current;
+    if (alive.current && s.status === 'ready' && backend.kind === 'remote') writeCache(backend.seed, ledger.held(s));
+  }, [backend, ledger]);
+
   const commit = useCallback(
     (next: DataState) => {
       if (!alive.current) return;
       store.current = next;
       setState(next);
-      if (next.status === 'ready' && backend.kind === 'remote') writeCache(backend.seed, next);
+      persist();
     },
-    [backend],
+    [persist],
   );
 
   /** Fresh rows from the server, with every change still saving (or saved since `since`) kept on top. */
@@ -246,11 +270,15 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
     (before: Loaded, after: Loaded, today: Day, made: CheckInMade): number => {
       const m = moments.current;
       const token = m.nextToken++;
+      m.waiting.add(token);
       setTimeout(() => {
+        m.waiting.delete(token);
         if (m.cancelled.delete(token)) return;
+        // A check-in that saved before this ran has nothing left to drop, so it isn't tracked.
+        const done = m.saved.delete(token);
         const fresh = momentsOf(before, after, today, backend.seed, made, m.memory).map((x: Moment) => ({ ...x, id: m.nextId++ }) as GameEvent);
         if (!fresh.length) return;
-        m.byToken.set(token, { today, events: fresh });
+        if (!done) m.byToken.set(token, { today, events: fresh });
         setEvents((e) => [...e, ...fresh]);
       }, 0);
       return token;
@@ -260,17 +288,20 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
 
   /** A check-in saved: its events can no longer be dropped. */
   const confirmed = useCallback((token: number) => {
-    moments.current.byToken.delete(token);
+    const m = moments.current;
+    if (m.waiting.has(token)) m.saved.add(token);
+    else m.byToken.delete(token);
   }, []);
 
   /** Drops the events a failed check-in queued that nobody has seen yet, so the next try can celebrate them. */
   const unannounce = useCallback((token: number) => {
     const m = moments.current;
-    const queued = m.byToken.get(token);
-    if (!queued) {
+    if (m.waiting.has(token)) {
       m.cancelled.add(token);
       return;
     }
+    const queued = m.byToken.get(token);
+    if (!queued) return;
     m.byToken.delete(token);
     const unseen = queued.events.filter((e) => !m.shown.has(e.id));
     forgetMoments(unseen, queued.today, m.memory);
@@ -297,7 +328,11 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
   const settle = useCallback(
     async (done: Promise<Outcome<Loaded>>, onFail?: () => void): Promise<boolean> => {
       const out = await done;
-      if (out.ok) return true;
+      if (out.ok) {
+        // The server has it now, so the copy on the phone can too.
+        persist();
+        return true;
+      }
       onFail?.();
       if (out.revert) {
         update(out.revert);
@@ -305,7 +340,7 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       }
       return false;
     },
-    [update],
+    [update, persist],
   );
 
   const checkIn = useCallback(
@@ -315,13 +350,18 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       const today = syncToday();
       const target = day ?? today;
       const late = target !== today;
-      if (late && (!canBackfill(target, today, s.habits.find((h) => h.id === habitId)) || levelIn(s.days, habitId, target))) {
-        throw new Error('Only yesterday can be logged late, once, while its week is still being played.');
-      }
+      // Already kept at this level (a double tap, or a back-fill tapped twice): nothing to change.
+      if (late && levelIn(s.days, habitId, target) === level) return;
+      const refusal = lateRefusal(s, habitId, target, today, 'add', loggedLate.current);
+      if (refusal) throw new Error(refusal);
       const started = begin(step(checkInLane<Loaded>(habitId, target), level), () => backend.saveDay(habitId, target, level));
       if (!started) return;
+      if (late) loggedLate.current.add(lateKey(habitId, target));
       const token = announce(started.before, started.after, today, { habitId, level, day: target });
-      const saved = await settle(started.done, () => unannounce(token));
+      const saved = await settle(started.done, () => {
+        unannounce(token);
+        if (late) loggedLate.current.delete(lateKey(habitId, target));
+      });
       if (!saved) return;
       confirmed(token);
       // A day logged late was never missed, so its Comeback prompt goes too. No answer is written for it.
@@ -341,9 +381,8 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       if (s.status !== 'ready') return;
       const today = syncToday();
       const target = day ?? today;
-      if (target !== today && !canBackfill(target, today, s.habits.find((h) => h.id === habitId))) {
-        throw new Error('That day is settled now, so it stays as it is.');
-      }
+      const refusal = lateRefusal(s, habitId, target, today, 'undo', loggedLate.current);
+      if (refusal) throw new Error(refusal);
       // Undo brings the Comeback back: an answer this session gave to the Comeback that this check-in kept is cleared too.
       const answerKey = `${habitId}:${target}`;
       const missed = answered.current.get(answerKey);
@@ -362,10 +401,15 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
         const again = begin(step(promptLane(habitId, missed), prompt), () => backend.savePrompt(prompt));
         again?.done.catch(() => {});
       };
-      await Promise.all([settle(started.done).catch((e: unknown) => {
-        restore();
-        throw e;
-      }), cleared ? settle(cleared.done).catch(() => {}) : null]);
+      const [undone] = await Promise.all([
+        settle(started.done).catch((e: unknown) => {
+          restore();
+          throw e;
+        }),
+        cleared ? settle(cleared.done).catch(() => {}) : null,
+      ]);
+      // A back-fill taken back leaves yesterday empty, so it can be logged late again but not undone twice.
+      if (undone && target !== today) loggedLate.current.delete(lateKey(habitId, target));
     },
     [backend, begin, settle, syncToday],
   );
@@ -512,12 +556,24 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
     [backend, begin, settle, today, syncToday],
   );
 
+  const deleteDeck = useCallback(async () => {
+    await backend.deleteDeck();
+    ledger.note(emptyDeck);
+    update(emptyDeck);
+  }, [backend, ledger, update]);
+
+  const reload = useCallback(() => {
+    // Offered after an error: the loading screen shows while the deck is fetched again.
+    if (store.current.status === 'error') commit({ status: 'loading' });
+    setReloadKey((k) => k + 1);
+  }, [commit]);
+
   const api = useMemo<DataApi>(
     () => ({
       state,
       today,
       seed: backend.seed,
-      reload: () => setReloadKey((k) => k + 1),
+      reload,
       refresh,
       checkIn,
       undoCheckIn,
@@ -530,8 +586,9 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       recordPrompt,
       saveProfile,
       callHand,
+      deleteDeck,
     }),
-    [state, today, backend, refresh, checkIn, undoCheckIn, createHabit, createHabits, updateHabit, archiveHabit, restoreHabit, updatePositions, recordPrompt, saveProfile, callHand],
+    [state, today, backend, reload, refresh, checkIn, undoCheckIn, createHabit, createHabits, updateHabit, archiveHabit, restoreHabit, updatePositions, recordPrompt, saveProfile, callHand, deleteDeck],
   );
 
   // Its own context, so a toast coming and going doesn't redraw every screen that reads the deck.

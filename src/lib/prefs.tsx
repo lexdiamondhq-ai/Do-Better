@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 
 import { laterDay, type Day } from '@/engine/day';
 import type { BackKey, TableKey } from '@/engine/game';
@@ -86,7 +86,7 @@ function remindersOf(v: unknown): Reminders {
 }
 
 /** Older saves kept one back and table for everyone on the phone. Nobody can say whose they were, so they go. */
-function parse(raw: string): Prefs {
+export function parse(raw: string): Prefs {
   const saved: unknown = JSON.parse(raw);
   if (!isRecord(saved)) return DEFAULTS;
   const seen: Prefs['seen'] = {};
@@ -119,7 +119,13 @@ export function hasSeen(prefs: Prefs, seed: string, key: string): boolean {
   return prefs.seen[seed]?.[key] === true;
 }
 
-type Patch = Partial<Prefs> | ((prefs: Prefs) => Partial<Prefs>);
+export type Patch = Partial<Prefs> | ((prefs: Prefs) => Partial<Prefs>);
+
+/** `prefs` with `patch` applied. The Showdown watched only ever moves forward. */
+export function applyPatch(prefs: Prefs, patch: Patch): Prefs {
+  const change = typeof patch === 'function' ? patch(prefs) : patch;
+  return { ...prefs, ...change, showdownSeen: forwardOnly(prefs.showdownSeen, change.showdownSeen ?? prefs.showdownSeen) };
+}
 
 type PrefsApi = {
   prefs: Prefs;
@@ -136,26 +142,40 @@ const PrefsContext = createContext<PrefsApi>({ prefs: DEFAULTS, ready: false, se
 export function PrefsProvider({ children }: PropsWithChildren) {
   const [prefs, setState] = useState<Prefs>(DEFAULTS);
   const [ready, setReady] = useState(false);
+  // Changes made before the saved prefs have been read. They are applied on top of the saved prefs when
+  // those arrive, so an early change is neither lost nor saved over everything else as defaults.
+  const early = useRef<Patch[] | null>([]);
 
   useEffect(() => {
     let cancelled = false;
+    const arrive = (saved: Prefs) => {
+      if (cancelled) return;
+      const patches = early.current ?? [];
+      early.current = null;
+      const next = patches.reduce(applyPatch, saved);
+      if (patches.length) AsyncStorage.setItem(KEY, JSON.stringify(next)).catch(() => {});
+      setState(next);
+      setReady(true);
+    };
     AsyncStorage.getItem(KEY)
-      .then((raw) => {
-        if (cancelled) return;
-        if (raw) setState(parse(raw));
-        setReady(true);
-      })
+      .then((raw) => arrive(raw ? parse(raw) : DEFAULTS))
       // Storage that can't be read (or holds something unreadable) falls back to the defaults rather than blocking the app.
-      .catch(() => !cancelled && setReady(true));
+      .catch(() => arrive(DEFAULTS));
     return () => {
       cancelled = true;
     };
   }, []);
 
   const setPrefs = useCallback((patch: Patch) => {
+    const waiting = early.current;
+    if (waiting) {
+      // Shown now, saved once the saved prefs are in.
+      waiting.push(patch);
+      setState((p) => applyPatch(p, patch));
+      return;
+    }
     setState((p) => {
-      const change = typeof patch === 'function' ? patch(p) : patch;
-      const next = { ...p, ...change, showdownSeen: forwardOnly(p.showdownSeen, change.showdownSeen ?? p.showdownSeen) };
+      const next = applyPatch(p, patch);
       AsyncStorage.setItem(KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });

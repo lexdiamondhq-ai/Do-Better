@@ -17,6 +17,7 @@ import { atLeast, handIndex, type HandKind } from '@/engine/poker';
 import { suitColors } from '@/theme/tokens';
 
 import type { Backend, Loaded } from './backend';
+import { emptyDeck } from './play';
 import type { Habit, HabitDay } from './types';
 
 type Plan = { recipe: string; weeks: number; keep: number; ceiling: number };
@@ -271,6 +272,9 @@ export function createDemoBackend(today: Day, options: DemoOptions = { typical: 
     },
     async saveCall(weekStart, hand) {
       state.calls = [...state.calls.filter((c) => c.weekStart !== weekStart), { weekStart, hand }];
+    },
+    async deleteDeck() {
+      Object.assign(state, emptyDeck(state));
     },
   };
 }

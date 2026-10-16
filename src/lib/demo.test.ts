@@ -82,6 +82,13 @@ describe('the demo deck', () => {
     expect(b.data.days.map((d) => ({ ...d, day: addDays(d.day, -7) }))).toEqual(a.data.days);
   });
 
+  it('can delete the whole deck, leaving an account that starts again from onboarding', async () => {
+    const backend = createDemoBackend('2026-10-16');
+    await backend.deleteDeck();
+    const data = await backend.load('UTC');
+    expect(data).toMatchObject({ habits: [], days: [], prompts: [], calls: [], profile: { northStar: null, onboardedAt: null } });
+  });
+
   it('can be a typical player for testing, with the same history and their usual calls', async () => {
     const curated = await open('2026-10-16');
     const typical = await open('2026-10-16', true);

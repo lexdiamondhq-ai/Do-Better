@@ -36,6 +36,11 @@ export interface Backend {
   deletePrompt(habitId: string, missedDay: Day): Promise<void>;
   saveProfile(patch: { northStar?: string | null; onboardedAt?: string }): Promise<void>;
   saveCall(weekStart: Day, hand: HandKind): Promise<void>;
+  /**
+   * Deletes the whole deck: every card (its check-ins and Comeback prompts go with it), every call, the
+   * North Star and the onboarding mark, so the account starts again from nothing. The profile row stays.
+   */
+  deleteDeck(): Promise<void>;
 }
 
 const OUTDATED = new Set(['PGRST204', 'PGRST205', '42P01', '42703']);
@@ -176,6 +181,16 @@ export function supabaseBackend(userId: string): Backend {
         .from('hand_calls')
         .upsert({ owner_id: userId, week_start: weekStart, hand, called_at: new Date().toISOString() }, { onConflict: 'owner_id,week_start' });
       if (error) throw friendly(error);
+    },
+
+    async deleteDeck() {
+      // Row level security lets owners delete these. Deleting a habit deletes its habit_days and recovery_prompts.
+      const habits = await supabase.from('habits').delete().eq('owner_id', userId);
+      if (habits.error) throw friendly(habits.error);
+      const calls = await supabase.from('hand_calls').delete().eq('owner_id', userId);
+      if (calls.error && !OUTDATED.has(calls.error.code)) throw friendly(calls.error);
+      const profile = await supabase.from('profiles').update({ north_star: null, onboarded_at: null }).eq('id', userId);
+      if (profile.error) throw friendly(profile.error);
     },
   };
 }

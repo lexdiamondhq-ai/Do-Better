@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Suit } from '@/engine/cards';
-import { addDays, type Day } from '@/engine/day';
+import { addDays, archivedAtFor, type Day } from '@/engine/day';
 import type { Level } from '@/engine/kept';
 
 import type { Loaded } from './backend';
-import { dealHabits, forgetMoments, gameInput, momentsOf, newMemory, pastKey, type Moment } from './play';
+import { dealHabits, forgetMoments, gameInput, LATE_ADD_REFUSED, LATE_UNDO_REFUSED, lateKey, lateRefusal, momentsOf, newMemory, pastKey, type Moment } from './play';
 import type { Habit, HabitDay } from './types';
 
 // Wednesday 14 October 2026. The week started on Monday the 12th.
@@ -86,6 +86,24 @@ describe('moments a check-in causes', () => {
     expect(moments).toMatchObject([{ kind: 'first', habitId: 'read', deal: { was: null, handWas: null, card: { day: TODAY } } }]);
   });
 
+  it('celebrates the first card once, even when it is undone and made again', () => {
+    const data = loaded([habit('read', 'clubs', TODAY)], []);
+    const after = plus(data, 'read', TODAY);
+    const memory = newMemory();
+    expect(kinds(momentsOf(data, after, TODAY, SEED, { habitId: 'read', level: 'floor', day: TODAY }, memory))).toEqual(['first']);
+    // Undo leaves no days at all again, but the second swipe is an ordinary deal.
+    const again = momentsOf(data, after, TODAY, SEED, { habitId: 'read', level: 'floor', day: TODAY }, memory);
+    expect(again).toMatchObject([{ kind: 'deal', deal: { was: null, card: { day: TODAY } } }]);
+  });
+
+  it('celebrates the first card again when the first try never saved', () => {
+    const data = loaded([habit('read', 'clubs', TODAY)], []);
+    const after = plus(data, 'read', TODAY);
+    const memory = newMemory();
+    forgetMoments(momentsOf(data, after, TODAY, SEED, { habitId: 'read', level: 'floor', day: TODAY }, memory), TODAY, memory);
+    expect(kinds(momentsOf(data, after, TODAY, SEED, { habitId: 'read', level: 'floor', day: TODAY }, memory))).toEqual(['first']);
+  });
+
   it("says yesterday was saved when it's logged late", () => {
     const data = loaded([habit('read', 'clubs', '2026-10-01')], kept('read', '2026-10-05', 8));
     const moments = momentsOf(data, plus(data, 'read', YESTERDAY), TODAY, SEED, { habitId: 'read', level: 'floor', day: YESTERDAY }, newMemory());
@@ -151,5 +169,41 @@ describe('archived cards', () => {
     const older = habit('read', 'clubs', '2026-09-01', { archivedAt: '2026-10-13T03:30:00.000Z' });
     expect(dealHabits([older], 'America/New_York')[0].archivedOn).toBe('2026-10-12');
     expect(dealHabits([older], 'Europe/London')[0].archivedOn).toBe('2026-10-13');
+  });
+});
+
+describe('logging yesterday late', () => {
+  const read = habit('read', 'clubs', '2026-10-01');
+  const data = loaded([read, habit('old', 'spades', '2026-10-01', { archivedAt: archivedAtFor(TODAY) }), habit('new', 'hearts', TODAY)], kept('read', '2026-10-05', 7));
+  const none = new Set<string>();
+
+  it('never limits today', () => {
+    expect(lateRefusal(data, 'read', TODAY, TODAY, 'add', none)).toBeNull();
+    expect(lateRefusal(data, 'read', TODAY, TODAY, 'undo', none)).toBeNull();
+  });
+
+  it('adds yesterday only while it is empty, for a card that was running and is still in the deck', () => {
+    expect(lateRefusal(data, 'read', YESTERDAY, TODAY, 'add', none)).toBeNull();
+    expect(lateRefusal(plus(data, 'read', YESTERDAY), 'read', YESTERDAY, TODAY, 'add', none)).toBe(LATE_ADD_REFUSED);
+    expect(lateRefusal(data, 'read', '2026-10-12', TODAY, 'add', none)).toBe(LATE_ADD_REFUSED);
+    expect(lateRefusal(data, 'old', YESTERDAY, TODAY, 'add', none)).toBe(LATE_ADD_REFUSED);
+    expect(lateRefusal(data, 'new', YESTERDAY, TODAY, 'add', none)).toBe(LATE_ADD_REFUSED);
+    // A card that isn't in this deck at all.
+    expect(lateRefusal(data, 'gone', YESTERDAY, TODAY, 'add', none)).toBe(LATE_ADD_REFUSED);
+  });
+
+  it('never reopens Sunday from Monday', () => {
+    const monday = loaded([read], []);
+    expect(lateRefusal(monday, 'read', '2026-10-18', '2026-10-19', 'add', none)).toBe(LATE_ADD_REFUSED);
+  });
+
+  it('takes back only a back-fill made on this phone, so yesterday can never be cleared and logged higher', () => {
+    const withYesterday = plus(data, 'read', YESTERDAY);
+    // Kept yesterday itself: it stays.
+    expect(lateRefusal(withYesterday, 'read', YESTERDAY, TODAY, 'undo', none)).toBe(LATE_UNDO_REFUSED);
+    // Logged late today on this phone: the undo is allowed.
+    expect(lateRefusal(withYesterday, 'read', YESTERDAY, TODAY, 'undo', new Set([lateKey('read', YESTERDAY)]))).toBeNull();
+    // And never once its week is over.
+    expect(lateRefusal(withYesterday, 'read', '2026-10-18', '2026-10-19', 'undo', new Set([lateKey('read', '2026-10-18')]))).toBe(LATE_UNDO_REFUSED);
   });
 });

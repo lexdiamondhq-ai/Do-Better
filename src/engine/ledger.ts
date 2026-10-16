@@ -61,6 +61,11 @@ export type Ledger<S> = {
   replay: (fetched: S, since: number) => S;
   /** Changes still waiting for the server. */
   pending: () => number;
+  /**
+   * `state` as the server holds it: every change still waiting for the server taken back. For anything
+   * kept on the phone, so a swipe that never reached the server can't come back as kept after a restart.
+   */
+  held: (state: S) => S;
 };
 
 type Entry<S> = { seq: number; apply: (state: S) => S; status: 'pending' | 'saved' | 'failed'; settledAt: number };
@@ -150,6 +155,12 @@ export function createLedger<S>(keep = 100): Ledger<S> {
         .reduce((s, e) => e.apply(s), fetched);
     },
     pending: () => log.filter((e) => e.status === 'pending').length,
+    held(state) {
+      // Each key in flight has one way back to what the server holds, and each touches only its own key.
+      let s = state;
+      for (const put of onServer.values()) s = put(s);
+      return s;
+    },
   };
 }
 
