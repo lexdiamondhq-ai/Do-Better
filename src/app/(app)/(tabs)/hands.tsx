@@ -20,7 +20,7 @@ import { useDeck, useLook } from '@/lib/deck';
 import { shortDate, weekOf, weekRange } from '@/lib/format';
 import { gameInput } from '@/lib/play';
 import { usePrefs } from '@/lib/prefs';
-import { feltFor, handLines, riverLine, type Felt } from '@/lib/share';
+import { callWindow, feltFor, firstShowdownDate, hallLine, handLines, riverLine, showdownWhen, type Felt } from '@/lib/share';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
 import { fontScale, radius, space, suitColors } from '@/theme/tokens';
 
@@ -45,7 +45,7 @@ export default function Hands() {
   const router = useRouter();
   const deck = useDeck();
   const { back } = useLook();
-  const { state, today, seed } = useData();
+  const { state, today, seed, refresh } = useData();
   const { prefs } = usePrefs();
   const [count, setCount] = useState(PAGE);
   const [sharing, setSharing] = useState<Week | null>(null);
@@ -62,7 +62,8 @@ export default function Hands() {
   const seen = prefs.showdownSeen[seed];
   const latest = lastShowdown(game);
   const away = seen && latest ? finished.filter((w) => w.hand && !w.warmup && w.start > seen && w.start < latest.start) : [];
-  const replay = (w: Week) => router.push({ pathname: '/showdown', params: { week: w.start } });
+  // A replay: its chips are in the stack already, so the Showdown plays again without paying again.
+  const replay = (w: Week) => router.push({ pathname: '/showdown', params: { week: w.start, replay: '1' } });
   // Holding a Hall row shares the best week that ended on that hand.
   const shareBest = (entry: HallEntry) => {
     const best = entry.best && game.weeks.find((w) => w.start === entry.best?.week && w.hand && !w.warmup);
@@ -70,7 +71,7 @@ export default function Hands() {
   };
 
   return (
-    <Page header={<PageTitle eyebrow={weekOf(current.start)} title="Your hand" right={<RulesButton topic="week" />} />}>
+    <Page header={<PageTitle eyebrow={weekOf(current.start)} title="Your hand" right={<RulesButton topic="week" />} />} onRefresh={refresh}>
       <ThisWeek game={game} back={back} felt={feltFor(t, lead)} today={today} />
 
       <CallPanel game={game} onCall={() => router.push('/call')} />
@@ -104,8 +105,8 @@ export default function Hands() {
         {weeks.length === 0 ? (
           <Body color={t.textSecondary}>
             {current.warmup
-              ? 'Your first Showdown is next Sunday night, when your first full week ends. Every week you finish waits here, to replay or share.'
-              : 'Your first Showdown is Sunday at midnight. Every week you finish waits here, to replay or share.'}
+              ? `Your first Showdown is ${firstShowdownDate(current.start)} at midnight, when your first full week ends. Every week you finish waits here, to replay or share.`
+              : `Your first Showdown is ${weekday(today) === 6 ? 'tonight' : 'Sunday'} at midnight. Every week you finish waits here, to replay or share.`}
           </Body>
         ) : (
           <View style={{ gap: space.sm }}>
@@ -157,7 +158,7 @@ function ThisWeek({ game, back, felt, today }: { game: Game; back: BackKey; felt
             <View style={{ gap: space.sm }}>
               <Display size={30}>Getting to know your deck.</Display>
               <Body weight="bold" color={felt.theme.textSecondary}>
-                This week’s cards count in your Court and your kept days. Your first full hand is dealt on Monday, and its Showdown is next Sunday night.
+                {`This week’s cards count in your Court and your kept days. Your first full hand is dealt on Monday, and its Showdown is ${firstShowdownDate(current.start)} at midnight.`}
               </Body>
             </View>
           ) : hand ? (
@@ -179,7 +180,7 @@ function ThisWeek({ game, back, felt, today }: { game: Game; back: BackKey; felt
                 </Body>
                 <Chips value={current.chips} size={16} pill />
                 <Body weight="bold" color={felt.theme.textSecondary}>
-                  on Sunday
+                  {showdownWhen(today)}
                 </Body>
               </View>
             </>
@@ -253,7 +254,7 @@ function CallPanel({ game, onCall }: { game: Game; onCall: () => void }) {
               Call this week’s hand.
             </Display>
             <Body weight="bold" color={t.onRaisedSecondary}>
-              Pick the hand you think this week will make. Make it or better by Sunday and it pays again. Miss and you lose nothing.
+              {`Pick the hand you think this week will make. Make it or better by Sunday and it pays again. Miss and you lose nothing. ${callWindow(game.current).line}`}
             </Body>
             <Button label="See this week’s calls" onPress={onCall} colors={{ bg: t.onRaised, fg: t.raised }} />
           </>
@@ -267,20 +268,22 @@ function CallPanel({ game, onCall }: { game: Game; onCall: () => void }) {
   }
   const onTrack = makesCall(hand, call);
   const pays = HANDS[call].chips * callMultiplier;
+  const closes = callWindow(game.current);
   return (
     <Pressable
       onPress={game.callOpen ? onCall : undefined}
       disabled={!game.callOpen}
       accessibilityRole={game.callOpen ? 'button' : undefined}
-      accessibilityHint={game.callOpen ? 'Change your call until midnight' : undefined}
+      accessibilityHint={game.callOpen ? `Change your call. ${closes.line}` : undefined}
       style={({ pressed }) => [{ borderRadius: radius.lg, padding: space.lg, gap: space.md, opacity: pressed ? 0.85 : 1 }, raisedStyle(t)]}
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.md }}>
-        <Label color={t.onRaisedSecondary}>{game.callOpen ? 'Your call · change it until midnight' : 'Your call'}</Label>
+        <Label color={t.onRaisedSecondary}>Your call</Label>
         {pays > 0 ? <Chips value={pays} size={14} pill sign /> : null}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-        <HandRow faces={EXAMPLES[call]} size="xs" overlap={0.4} highlight="called" />
+        {/* The check means made: it waits until this week's hand makes the call. */}
+        <HandRow faces={EXAMPLES[call]} size="xs" overlap={0.4} highlight={onTrack ? 'called' : undefined} />
         <View style={{ flex: 1, gap: 2 }}>
           <Display size={24} color={t.onRaised}>
             {HANDS[call].name}
@@ -302,6 +305,11 @@ function CallPanel({ game, onCall }: { game: Game; onCall: () => void }) {
           {onTrack ? 'Your hand already makes it. Hold on to it through Sunday.' : `Not made yet. ${HANDS[call].how}`}
         </Body>
       </View>
+      {game.callOpen ? (
+        <Body size={13} weight="bold" color={t.onRaisedSecondary}>
+          {`Tap to change it. ${closes.line}`}
+        </Body>
+      ) : null}
     </Pressable>
   );
 }
@@ -311,11 +319,7 @@ function HallRow({ entry, back, onShare }: { entry: HallEntry; back: BackKey; on
   const info = HANDS[entry.kind];
   const spotted = entry.count > 0;
   const hidden = info.secret && !spotted;
-  const said = hidden
-    ? 'Secret hand. A Joker helps.'
-    : spotted
-      ? `Spotted in ${entry.count} ${entry.count === 1 ? 'week' : 'weeks'}${entry.ended ? ` · your${NBSP}hand${NBSP}in${NBSP}${entry.ended}` : ''}`
-      : 'Not spotted yet';
+  const said = hidden ? 'Secret hand. A Joker helps.' : hallLine(entry);
   const since = spotted && entry.first ? `. First spotted ${shortDate(entry.first)}` : '';
   return (
     <Pressable
