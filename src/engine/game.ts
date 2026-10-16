@@ -9,7 +9,7 @@
  */
 
 import { SUIT_INFO, SUITS, type Suit } from './cards';
-import { faceDays, nextFace, type FaceInfo } from './court';
+import { faceDays, nextFace, suitDays, type FaceInfo } from './court';
 import { addDays, weekday, weekStart, type Day } from './day';
 import { dealWeek, rescueWaiting, tallyDay, tierOf, type DayCard, type DealHabit, type Slot } from './deal';
 import type { CheckIns } from './kept';
@@ -220,20 +220,15 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** The next face card a suit could earn today, if keeping its remaining habits gets there. */
-function faceWithinReach(input: GameInput): { suit: Suit; face: FaceInfo; needed: number } | null {
+/** The next face card a suit could earn today: one more day kept in that suit gets there, and a habit in it is still open. */
+function faceWithinReach(input: GameInput): { suit: Suit; face: FaceInfo } | null {
   const { today, habits, checkIns } = input;
   for (const suit of SUITS) {
-    let votes = 0;
-    let open = 0;
-    for (const h of habits) {
-      if (h.suit !== suit) continue;
-      const days = checkIns.get(h.id);
-      for (const day of days?.keys() ?? []) if (day <= today) votes++;
-      if (live(h, today) && !days?.has(today)) open++;
-    }
-    const next = nextFace(votes);
-    if (next && next.needed <= open) return { suit, face: next.face, needed: next.needed };
+    const days = suitDays(habits, checkIns, suit, today);
+    if (days.at(-1) === today) continue;
+    const open = habits.some((h) => h.suit === suit && live(h, today) && !checkIns.get(h.id)?.has(today));
+    const next = nextFace(days.length);
+    if (open && next?.needed === 1) return { suit, face: next.face };
   }
   return null;
 }
@@ -258,9 +253,8 @@ function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; cal
     );
   } else if (reach) {
     const { name, part } = SUIT_INFO[reach.suit];
-    const keep = reach.needed === 1 ? `Keep one more ${part} habit` : `Keep ${reach.needed} more ${part} habits`;
     const prize = jokerThisWeek ? '' : ' and a Joker';
-    tips.push({ tone: 'face', text: `${keep} today to earn the ${reach.face.name} of ${name}${prize}.` });
+    tips.push({ tone: 'face', text: `Keep a ${part} habit today to earn the ${reach.face.name} of ${name}${prize}.` });
   }
 
   if (!card) {
