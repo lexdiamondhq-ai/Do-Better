@@ -13,13 +13,12 @@ import { weekday } from '@/engine/day';
 import { weekTotal, type BackKey } from '@/engine/game';
 import { HANDS } from '@/engine/poker';
 import { weekOf } from '@/lib/format';
-import { feltFor, FOOTER, habitLine, handLines, SHARE_LAYOUT, suitedLine, type HabitLine, type ShareTarget } from '@/lib/share';
+import { chipText, feltFor, FOOTER, habitLine, handLines, identityPhrase, SHARE_INSET, SHARE_LAYOUT, SHARE_TEXT_WIDTH, stampSize, suitedLine, type HabitLine, type ShareTarget } from '@/lib/share';
 import { withAlpha } from '@/theme/color';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
 
 const { w: W, h: H } = SHARE_LAYOUT;
-const FRAME = 14;
-const PAD = 22;
+const { frame: FRAME, border: BORDER, pad: PAD } = SHARE_INSET;
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 /** The share card is a picture: its words stay the size they were drawn at, whatever the phone's text size. */
 const FIXED = 1;
@@ -38,7 +37,7 @@ export function ShareCard({ target, habits, back, lead = null, cardRef }: { targ
   const id = useId().replace(/[^a-zA-Z0-9]/g, '');
   return (
     <View ref={cardRef} collapsable={false} style={{ width: W, height: H, backgroundColor: colors.bg, padding: FRAME }}>
-      <View style={{ flex: 1, borderRadius: 22, overflow: 'hidden', backgroundColor: felt.bg, borderWidth: 2, borderColor: withAlpha(colors.accent, 0.7) }}>
+      <View style={{ flex: 1, borderRadius: 22, overflow: 'hidden', backgroundColor: felt.bg, borderWidth: BORDER, borderColor: withAlpha(colors.accent, 0.7) }}>
         <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
           <Defs>
             <RadialGradient id={`share${id}`} cx="50%" cy="34%" rx="80%" ry="55%" fx="50%" fy="34%">
@@ -95,11 +94,12 @@ function HandSide({ target, habits }: { target: Extract<ShareTarget, { kind: 'ha
       <Top right={weekOf(week.start)} />
       <HandFan faces={playedFaces(hand.cards)} size="md" width={86} spread={0.55} tilt={8} style={{ marginTop: 6 }} />
       <View style={{ alignItems: 'center' }}>
-        <Display size={44} maxFontSizeMultiplier={FIXED} numberOfLines={1} style={{ textAlign: 'center' }}>
+        {/* A picture can't wrap or scroll, so the stamp is sized to fit its line: "Three of a kind" whole, never "Three of a ki…". */}
+        <Display size={stampSize(lines.name, SHARE_TEXT_WIDTH, 44)} maxFontSizeMultiplier={FIXED} numberOfLines={1} style={{ textAlign: 'center' }}>
           {lines.name}
         </Display>
         {lines.detail ? (
-          <Display size={20} color={t.textSecondary} maxFontSizeMultiplier={FIXED} numberOfLines={1} style={{ textAlign: 'center' }}>
+          <Display size={stampSize(lines.detail, SHARE_TEXT_WIDTH, 20)} color={t.textSecondary} maxFontSizeMultiplier={FIXED} numberOfLines={1} style={{ textAlign: 'center' }}>
             {lines.detail}
           </Display>
         ) : null}
@@ -156,23 +156,31 @@ function HandSide({ target, habits }: { target: Extract<ShareTarget, { kind: 'ha
 function FaceSide({ target }: { target: Extract<ShareTarget, { kind: 'face' }> }) {
   const t = useTheme();
   const { name, part } = SUIT_INFO[target.suit];
-  const who = target.identities[0];
+  const who = identityPhrase(target.identities, 'me', 1);
+  const title = `${target.face.name} of ${name}`;
   return (
     <View style={{ flex: 1, gap: 16 }}>
       <Top right="The Court" />
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 18 }}>
         <PlayingCard face={faceOfCourt(target.suit, target.face)} size="xl" width={176} style={{ transform: [{ rotate: '-3deg' }] }} />
         <View style={{ alignItems: 'center', gap: 4 }}>
-          <Display size={34} maxFontSizeMultiplier={FIXED} style={{ textAlign: 'center' }}>
-            {`${target.face.name} of ${name}`}
+          <Display size={stampSize(title, SHARE_TEXT_WIDTH, 34)} maxFontSizeMultiplier={FIXED} numberOfLines={1} style={{ textAlign: 'center' }}>
+            {title}
           </Display>
           <Display size={20} color={t.textSecondary} maxFontSizeMultiplier={FIXED} style={{ textAlign: 'center' }}>
             {target.face.title}
           </Display>
         </View>
-        <Body size={15} weight="bold" maxFontSizeMultiplier={FIXED} style={{ textAlign: 'center' }}>
-          {who ? `${target.days} ${part} days as ${who}.` : `${target.days} ${part} days.`}
-        </Body>
+        <View style={{ alignItems: 'center', gap: 2 }}>
+          <Body size={15} weight="heavy" maxFontSizeMultiplier={FIXED} style={{ textAlign: 'center' }}>
+            {`${chipText(target.days)} ${part} days`}
+          </Body>
+          {who ? (
+            <Body size={15} weight="bold" color={t.textSecondary} maxFontSizeMultiplier={FIXED} numberOfLines={2} style={{ textAlign: 'center' }}>
+              {`“${who}.”`}
+            </Body>
+          ) : null}
+        </View>
       </View>
       <Footer />
     </View>

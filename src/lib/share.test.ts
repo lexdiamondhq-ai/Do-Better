@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SUITS } from '@/engine/cards';
 import type { DayCard } from '@/engine/deal';
 import type { Week } from '@/engine/game';
-import { bestHand } from '@/engine/poker';
+import { bestHand, HAND_LADDER, HANDS, type HandKind } from '@/engine/poker';
 import { contrast } from '@/theme/color';
 import { tables, themes, type Theme } from '@/theme/tokens';
 
@@ -40,7 +40,28 @@ vi.mock('react-native-view-shot', () => ({
   },
 }));
 
-const { callLine, feltFor, FOOTER, handLines, riverLine, share, shareCaption, suitedLine, weekLine } = await import('./share');
+const {
+  callHistoryLine,
+  callLine,
+  callWindow,
+  chipText,
+  feltFor,
+  firstShowdownDay,
+  FOOTER,
+  hallLine,
+  handLines,
+  identityPhrase,
+  riverLine,
+  share,
+  SHARE_TEXT_WIDTH,
+  shareCaption,
+  showdownWhen,
+  stampSize,
+  stampWidth,
+  suitedLine,
+  weekLine,
+  weekSuit,
+} = await import('./share');
 
 const card = (day: string, rank: number, suits: DayCard['suits'] = ['clubs'], ceilingSuits: DayCard['suits'] = []): DayCard =>
   ({ kind: 'card', day, rank, suits, ceilingSuits, tier: 'kept-all', lo: 5, rescued: false }) as DayCard;
@@ -108,6 +129,120 @@ describe('the hand in words', () => {
     expect(weekLine({ dealt: 1, ceilings: 0, lead: null })).toBe('1 day dealt');
     expect(weekLine({ dealt: 3, ceilings: 1, lead: 'hearts' })).toBe('3 days dealt · 1 Ceiling · People led the week');
   });
+
+  it('never names two suits for one week: a Suited week lets its Suited line say who showed up', () => {
+    // Mind on the most days, but five Craft Ceiling days: the week is Suited in Diamonds.
+    const craft = twoPair.map((c) => ({ ...c, ceilingSuits: ['diamonds'] }) as DayCard);
+    const hand = bestHand(craft);
+    expect(hand?.suited?.suit).toBe('diamonds');
+    const line = weekLine({ dealt: 7, ceilings: 9, lead: 'clubs' }, hand);
+    expect(line).toBe('7 days dealt · 9 Ceilings');
+    expect(line).not.toMatch(/led the week/);
+    // The felt follows the same suit the words name.
+    expect(weekSuit({ lead: 'clubs' }, hand)).toBe('diamonds');
+    expect(weekSuit({ lead: 'clubs' }, bestHand(twoPair))).toBe('clubs');
+    expect(weekSuit(null, null)).toBeNull();
+    // A week that isn't Suited still says who led.
+    expect(weekLine({ dealt: 7, ceilings: 9, lead: 'clubs' }, bestHand(twoPair))).toMatch(/Mind led the week$/);
+  });
+});
+
+describe('the stamp', () => {
+  it('knows "Three of a kind" at 44 points runs past the share card, the way it was cut off', () => {
+    expect(stampWidth('Three of a kind', 44)).toBeGreaterThan(SHARE_TEXT_WIDTH);
+  });
+
+  it.each(HAND_LADDER.map((k) => [HANDS[k].name, k] as const))('fits %s whole on the share card', (name) => {
+    const size = stampSize(name, SHARE_TEXT_WIDTH, 44);
+    expect(stampWidth(name, size)).toBeLessThanOrEqual(SHARE_TEXT_WIDTH);
+    // Still a stamp, not small print.
+    expect(size).toBeGreaterThanOrEqual(34);
+  });
+
+  it('keeps short names at full size, and fits every line under a hand', () => {
+    expect(stampSize('Pair', SHARE_TEXT_WIDTH, 44)).toBe(44);
+    for (const detail of ['Ace to Five in Diamonds', 'Ten to Ace in Diamonds', 'Queens and Eights', 'Kings over Sevens']) {
+      expect(stampWidth(detail, stampSize(detail, SHARE_TEXT_WIDTH, 20))).toBeLessThanOrEqual(SHARE_TEXT_WIDTH);
+    }
+    for (const face of ['Queen of Diamonds', 'Jack of Spades', 'King of Hearts']) {
+      expect(stampWidth(face, stampSize(face, SHARE_TEXT_WIDTH, 34))).toBeLessThanOrEqual(SHARE_TEXT_WIDTH);
+    }
+  });
+});
+
+describe('when things happen', () => {
+  it('says the Showdown is tonight on Sunday, and on Sunday any other day', () => {
+    expect(showdownWhen('2026-10-25')).toBe('tonight');
+    expect(showdownWhen('2026-10-21')).toBe('on Sunday');
+    expect(showdownWhen('2026-10-19')).toBe('on Sunday');
+  });
+
+  it('dates the first Showdown of a warm-up deck exactly: the Sunday the first full week ends', () => {
+    // Warm-up week of Monday 12 October: the first full week is 19 to 25 October.
+    expect(firstShowdownDay('2026-10-12')).toBe('2026-10-25');
+  });
+
+  it('says when a call closes the same way everywhere', () => {
+    const open = { slots: [{ day: '2026-10-19', state: 'today', card: null, isToday: true }] } as unknown as Week;
+    const kept = { slots: [{ day: '2026-10-19', state: 'today', card: card('2026-10-19', 9), isToday: true }] } as unknown as Week;
+    expect(callWindow(open)).toEqual({ until: 'your first kept day ends', line: 'Open until your first kept day ends.' });
+    expect(callWindow(kept)).toEqual({ until: 'midnight', line: 'Calls close at midnight.' });
+  });
+});
+
+describe('a call’s history', () => {
+  const ended = (kind: HandKind | null, contains: HandKind[] = kind ? [kind] : [], extra: Partial<Week> = {}) =>
+    ({ hand: kind ? ({ kind } as Week['hand']) : null, live: false, warmup: false, contains: new Set(contains), ...extra }) as Week;
+
+  it('agrees with the Hall when only a higher hand came up', () => {
+    // Eight weeks, one of them Five Kings: it beats a Royal flush but never held one.
+    const weeks = [...Array.from({ length: 7 }, () => ended('pair')), ended('five-of-a-kind', ['five-of-a-kind', 'four-of-a-kind', 'three-of-a-kind', 'pair'])];
+    expect(callHistoryLine('royal-flush', weeks)).toBe('Not spotted in 8 weeks. A higher hand beat it in 1.');
+    expect(callHistoryLine('straight-flush', weeks)).toBe('Not spotted in 8 weeks. A higher hand beat it in 1.');
+    expect(callHistoryLine('four-of-a-kind', weeks)).toBe('Made in 1 of your last 8 weeks.');
+    expect(callHistoryLine('pair', weeks)).toBe('Made in 8 of your last 8 weeks.');
+  });
+
+  it('says this or better when some weeks made it with a higher hand that never held it', () => {
+    const weeks = [ended('royal-flush', ['royal-flush', 'straight-flush', 'straight']), ended('five-of-a-kind', ['five-of-a-kind']), ended('pair')];
+    expect(callHistoryLine('straight-flush', weeks)).toBe('Made this or better in 2 of your last 3 weeks.');
+  });
+
+  it('says plainly when a hand wasn’t made, and looks back only eight finished weeks', () => {
+    expect(callHistoryLine('full-house', [ended('pair'), ended('two-pair', ['two-pair', 'pair'])])).toBe('Not made in your last 2 weeks.');
+    expect(callHistoryLine('full-house', [ended('pair')])).toBe('Not made last week.');
+    expect(callHistoryLine('pair', [ended('pair')])).toBe('Made last week.');
+    expect(callHistoryLine('pair', [])).toBe('No finished weeks yet, so it’s priced for a deck your size.');
+    const old = [ended('full-house'), ...Array.from({ length: 8 }, () => ended('pair'))];
+    expect(callHistoryLine('full-house', old)).toBe('Not made in your last 8 weeks.');
+    // The warm-up week and the live week never count.
+    expect(callHistoryLine('pair', [ended('pair', ['pair'], { warmup: true }), ended('pair', ['pair'], { live: true })])).toMatch(/^No finished weeks/);
+  });
+});
+
+describe('the Hall of Hands in words', () => {
+  it('says what spotted and paid mean', () => {
+    expect(hallLine({ count: 0, ended: 0 })).toBe('Not spotted yet');
+    expect(hallLine({ count: 3, ended: 0 })).toBe('Spotted in 3 weeks');
+    expect(hallLine({ count: 3, ended: 1 })).toBe('Spotted in 3 weeks · paid as your hand in 1');
+    expect(hallLine({ count: 1, ended: 1 })).toBe('Spotted in 1 week · it paid as your hand');
+    expect(hallLine({ count: 4, ended: 4 })).toBe('Spotted in 4 weeks · paid as your hand each time');
+  });
+});
+
+describe('who the days were for', () => {
+  it('frames any “I’m …” answer so it reads naturally', () => {
+    expect(identityPhrase(['strong'])).toBe('I’m strong');
+    expect(identityPhrase(['strong', 'calm'], 'you')).toBe('You’re strong and calm');
+    expect(identityPhrase(['a reader', 'someone who shows up', 'kind'], 'me', 3)).toBe('I’m a reader, someone who shows up and kind');
+    expect(identityPhrase(['a reader', 'someone who shows up', 'kind'])).toBe('I’m a reader and someone who shows up');
+    // Typed with its "I’m", or with a full stop, it still reads once.
+    expect(identityPhrase(["I'm strong."])).toBe('I’m strong');
+    expect(identityPhrase(['I’m a reader'])).toBe('I’m a reader');
+    expect(identityPhrase(['i am someone who moves'])).toBe('I’m someone who moves');
+    expect(identityPhrase([])).toBeNull();
+    expect(identityPhrase(['  '])).toBeNull();
+  });
 });
 
 describe('the call line', () => {
@@ -152,7 +287,8 @@ describe('the river line', () => {
   it('counts the days still needed while the week can reach them', () => {
     // Thursday with nothing kept yet: Thursday to Sunday is four days, and two are needed.
     expect(riverLine(live(2), '2026-10-15').detail).toBe('2 more days you keep something earn an eighth card, turned on Sunday.');
-    expect(riverLine(live(1), '2026-10-18').detail).toBe('1 more day you keep something earns an eighth card, turned on Sunday.');
+    // On Sunday itself the river turns tonight.
+    expect(riverLine(live(1), '2026-10-18').detail).toBe('1 more day you keep something earns an eighth card, turned tonight.');
     // Four needed on Thursday, today still open: just reachable.
     expect(riverLine(live(4), '2026-10-15').detail).toMatch(/^4 more days/);
   });
@@ -199,7 +335,21 @@ describe('the share caption', () => {
     const face = { face: 'king', letter: 'K', name: 'King', title: 'This is who I am', votes: 100 } as const;
     const text = shareCaption({ kind: 'face', suit: 'spades', face, identities: ['someone who moves every day'], days: 100 });
     expect(text).toContain('King of Spades: This is who I am.');
-    expect(text).toContain('100 Body days as someone who moves every day.');
+    expect(text).toContain('100 Body days. I’m someone who moves every day.');
+    // An adjective reads as naturally as a noun.
+    const strong = shareCaption({ kind: 'face', suit: 'spades', face, identities: ['strong'], days: 1000 });
+    expect(strong).toContain('1,000 Body days. I’m strong.');
+    expect(strong).not.toMatch(/as strong|for strong/);
+    expect(shareCaption({ kind: 'face', suit: 'spades', face, identities: [], days: 10 })).toContain('10 Body days.');
+  });
+
+  it('writes chips the way the screens do', () => {
+    expect(chipText(1080)).toBe('1,080');
+    expect(chipText(140)).toBe('140');
+    expect(chipText(12500)).toBe('12,500');
+    const big = shareCaption({ kind: 'hand', week: week(twoPair, { chips: 800, call: 'two-pair', madeCall: true, callMultiplier: 1, bonus: 280 }) });
+    expect(big).toContain('+1,080 chips.');
+    expect(big).not.toContain('+1080');
   });
 });
 

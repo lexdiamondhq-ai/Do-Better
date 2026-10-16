@@ -5,13 +5,13 @@ import { captureRef } from 'react-native-view-shot';
 
 import { rankName, rankPlural, SUIT_INFO, type Rank, type Suit } from '@/engine/cards';
 import type { FaceInfo } from '@/engine/court';
-import { weekday, type Day } from '@/engine/day';
-import type { Week, WeekReview } from '@/engine/game';
-import { HANDS, type Hand } from '@/engine/poker';
+import { addDays, weekday, type Day } from '@/engine/day';
+import { CALL_HISTORY, type HallEntry, type Week, type WeekReview } from '@/engine/game';
+import { atLeast, HANDS, type Hand, type HandKind } from '@/engine/poker';
 import { faintestAlpha, mix, withAlpha } from '@/theme/color';
 import { suitColors, type Theme } from '@/theme/tokens';
 
-import { weekOf } from './format';
+import { longDate, weekOf } from './format';
 
 /**
  * Sunday's words and sharing. The lines the Showdown, the Hands tab and the share card say about a week
@@ -33,6 +33,10 @@ export type HabitLine = { name: string; kept: number; days: number };
 export const SHARE_SIZE = { w: 1080, h: 1920 } as const;
 /** The size the share card is laid out at, in points. It is captured at SHARE_SIZE pixels. */
 export const SHARE_LAYOUT = { w: 360, h: 640 } as const;
+/** The card's coloured frame, the felt's border inside it, and the felt's padding, in points. */
+export const SHARE_INSET = { frame: 14, border: 2, pad: 22 } as const;
+/** How wide a line of words can be on the share card. */
+export const SHARE_TEXT_WIDTH = SHARE_LAYOUT.w - 2 * (SHARE_INSET.frame + SHARE_INSET.border + SHARE_INSET.pad);
 
 export const FOOTER = 'Do Better · Habits, dealt as cards. No streaks.';
 
@@ -76,12 +80,20 @@ export function suitedLine(hand: Pick<Hand, 'suited'> | null): string | null {
   return `Suited in ${name}: ${hand.suited.days} ${part} Ceiling days`;
 }
 
-/** How the week went, in one line: "6 days dealt · 8 Ceilings · Craft led the week". */
-export function weekLine(review: Pick<WeekReview, 'dealt' | 'ceilings' | 'lead'>): string {
+/**
+ * How the week went, in one line: "6 days dealt · 8 Ceilings · Craft led the week". A Suited week leaves
+ * out who led: its Suited line already names the part of you that showed up, so one week never names two.
+ */
+export function weekLine(review: Pick<WeekReview, 'dealt' | 'ceilings' | 'lead'>, hand: Pick<Hand, 'suited'> | null = null): string {
   const parts = [`${review.dealt} ${review.dealt === 1 ? 'day' : 'days'} dealt`];
   if (review.ceilings > 0) parts.push(`${review.ceilings} ${review.ceilings === 1 ? 'Ceiling' : 'Ceilings'}`);
-  if (review.lead) parts.push(`${SUIT_INFO[review.lead].part} led the week`);
+  if (review.lead && !hand?.suited) parts.push(`${SUIT_INFO[review.lead].part} led the week`);
   return parts.join(' · ');
+}
+
+/** The suit a finished week is coloured by: its Suited suit when it has one, otherwise the suit that led. */
+export function weekSuit(review: Pick<WeekReview, 'lead'> | null, hand: Pick<Hand, 'suited'> | null): Suit | null {
+  return hand?.suited?.suit ?? review?.lead ?? null;
 }
 
 export type CallLine = { kind: 'made' | 'missed' | 'none'; title: string; detail: string | null; chips: number };
@@ -112,7 +124,119 @@ export function riverLine(week: Pick<Week, 'river' | 'slots'>, today: Day): { ti
   const keptToday = week.slots.some((s) => s.day === today && s.card);
   const left = 6 - weekday(today) + (keptToday ? 0 : 1);
   if (need > left) return { title: 'The river card', detail: 'Five days you keep something earn an eighth card. Too few days are left this week, so it’s back in play on Monday.' };
-  return { title: 'The river card', detail: `${need} more ${need === 1 ? 'day' : 'days'} you keep something ${need === 1 ? 'earns' : 'earn'} an eighth card, turned on Sunday.` };
+  return { title: 'The river card', detail: `${need} more ${need === 1 ? 'day' : 'days'} you keep something ${need === 1 ? 'earns' : 'earn'} an eighth card, turned ${showdownWhen(today)}.` };
+}
+
+/** When this week's Showdown plays, from today: "tonight" on Sunday, "on Sunday" any other day. */
+export function showdownWhen(today: Day): string {
+  return weekday(today) === 6 ? 'tonight' : 'on Sunday';
+}
+
+/** The Sunday of the first Showdown, for a deck in its warm-up week: the end of the first full week, which starts the Monday after. */
+export function firstShowdownDay(warmupStart: Day): Day {
+  return addDays(warmupStart, 13);
+}
+
+/** That Sunday as the phone writes it: "Sunday, October 25". */
+export function firstShowdownDate(warmupStart: Day): string {
+  return longDate(firstShowdownDay(warmupStart));
+}
+
+/**
+ * When an open call closes, said the same way on every screen. A call stays open until the end of the
+ * first day this week you keep something: once this week has a card (today's) that is midnight, and
+ * before that, the end of whichever day you first keep something.
+ */
+export function callWindow(week: Pick<Week, 'slots'>): { until: string; line: string } {
+  return week.slots.some((s) => s.card)
+    ? { until: 'midnight', line: 'Calls close at midnight.' }
+    : { until: 'your first kept day ends', line: 'Open until your first kept day ends.' };
+}
+
+/**
+ * How often your last weeks made a hand, for the call card: "Made in 3 of your last 8 weeks". A call is
+ * made by that hand or better, so when only a higher hand came up the line says so, and agrees with the
+ * Hall of Hands, which shows the hand itself as not spotted.
+ */
+export function callHistoryLine(kind: HandKind, weeks: readonly Pick<Week, 'hand' | 'live' | 'warmup' | 'contains'>[]): string {
+  const recent = weeks.filter((w) => !w.live && !w.warmup).slice(-CALL_HISTORY);
+  const of = recent.length;
+  if (of === 0) return 'No finished weeks yet, so it’s priced for a deck your size.';
+  const made = recent.filter((w) => w.hand && atLeast(w.hand.kind, kind)).length;
+  const spotted = recent.filter((w) => w.contains.has(kind)).length;
+  if (made === 0) return of === 1 ? 'Not made last week.' : `Not made in your last ${of} weeks.`;
+  if (spotted === 0) return of === 1 ? 'Not spotted last week, but a higher hand beat it.' : `Not spotted in ${of} weeks. A higher hand beat it in ${made}.`;
+  if (spotted >= made) return of === 1 ? 'Made last week.' : `Made in ${made} of your last ${of} weeks.`;
+  return `Made this or better in ${made} of your last ${of} weeks.`;
+}
+
+/**
+ * A Hall of Hands row in words: how many weeks the hand turned up in, and in how many it was the hand
+ * that paid. "Spotted in 3 weeks · paid as your hand in 1".
+ */
+export function hallLine(entry: Pick<HallEntry, 'count' | 'ended'>): string {
+  const { count, ended } = entry;
+  if (count === 0) return 'Not spotted yet';
+  const spotted = `Spotted in ${count} ${count === 1 ? 'week' : 'weeks'}`;
+  if (!ended) return spotted;
+  if (ended >= count) return count === 1 ? `${spotted} · it paid as your hand` : `${spotted} · paid as your hand each time`;
+  return `${spotted} · paid as your hand in ${ended}`;
+}
+
+/** Chips the way every screen writes them: "1,080". */
+export function chipText(value: number): string {
+  return Math.round(value)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/**
+ * Who the days were for, from the "I’m …" answers, in a voice: "I’m strong", "You’re a reader and
+ * someone who shows up". Reads the same whether or not the answer was typed with its "I’m". Null with
+ * no answers.
+ */
+export function identityPhrase(identities: readonly string[], voice: 'me' | 'you' = 'me', max = 2): string | null {
+  const clean = identities
+    .map((s) => s.trim().replace(/^(i\s*[’']\s*m|im|i am)\s+/i, '').replace(/[\s.!,;]+$/, ''))
+    .filter(Boolean)
+    .slice(0, max);
+  if (!clean.length) return null;
+  const list = clean.length === 1 ? clean[0] : `${clean.slice(0, -1).join(', ')} and ${clean[clean.length - 1]}`;
+  return `${voice === 'me' ? 'I’m' : 'You’re'} ${list}`;
+}
+
+// The stamp ------------------------------------------------------------------------------------------
+
+/**
+ * Fredoka Bold's advance widths, in thousandths of the font size, measured from the font itself: enough
+ * to size a stamp so it never runs past the edge of a picture that can't scroll or wrap.
+ */
+const STAMP_WIDTHS: Record<string, number> = {
+  a: 557, b: 554, c: 503, d: 554, e: 535, f: 419, g: 546, h: 563, i: 251, j: 234, k: 512, l: 311, m: 791,
+  n: 566, o: 558, p: 541, q: 543, r: 432, s: 457, t: 429, u: 568, v: 577, w: 737, x: 538, y: 576, z: 545,
+  A: 711, B: 609, C: 631, D: 655, E: 603, F: 613, G: 719, H: 650, I: 239, J: 531, K: 597, L: 569, M: 809,
+  N: 670, O: 721, P: 595, Q: 782, R: 604, S: 542, T: 640, U: 675, V: 728, W: 947, X: 689, Y: 638, Z: 598,
+  ' ': 235, '’': 220, "'": 193, '-': 403,
+};
+/** Display type is set 1% tight: a hundredth of the size taken off after every letter. */
+const TRACKING = 0.01;
+
+/** How wide `text` sets in display type at `size` points. A character not in the table counts as wide as a W. */
+export function stampWidth(text: string, size: number): number {
+  let em = 0;
+  let n = 0;
+  for (const ch of text) {
+    em += (STAMP_WIDTHS[ch] ?? 950) / 1000;
+    n++;
+  }
+  return size * (em - TRACKING * n);
+}
+
+/** The biggest display size, up to `max`, at which `text` fits on one line `width` points wide, with a little room to spare. */
+export function stampSize(text: string, width: number, max: number, min = Math.round(max * 0.55)): number {
+  const per = stampWidth(text, 1);
+  if (per <= 0) return max;
+  return Math.max(min, Math.min(max, Math.floor((width * 0.96) / per)));
 }
 
 /** A habit's week: "Read 6/7". */
@@ -130,12 +254,12 @@ export function shareCaption(target: ShareTarget, habits?: readonly HabitLine[])
   if (target.kind === 'face') {
     const { name, part } = SUIT_INFO[target.suit];
     lines.push(`${target.face.name} of ${name}: ${target.face.title}.`);
-    const who = target.identities[0];
-    lines.push(who ? `${target.days} ${part} days as ${who}.` : `${target.days} ${part} days.`);
+    const who = identityPhrase(target.identities, 'me', 1);
+    lines.push(who ? `${chipText(target.days)} ${part} days. ${who}.` : `${chipText(target.days)} ${part} days.`);
   } else {
     const { week } = target;
     const total = week.chips + week.suitedBonus + week.bonus;
-    lines.push(week.hand ? `${weekOf(week.start)}: ${week.hand.title}. +${total} chips.` : `${weekOf(week.start)}: no cards this week.`);
+    lines.push(week.hand ? `${weekOf(week.start)}: ${week.hand.title}. +${chipText(total)} chips.` : `${weekOf(week.start)}: no cards this week.`);
     if (week.call && week.madeCall) lines.push(`Called ${HANDS[week.call].name} and made it.`);
     const suited = suitedLine(week.hand);
     if (suited) lines.push(`${suited}.`);
