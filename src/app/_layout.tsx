@@ -10,14 +10,32 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AskHost } from '@/components/Ask';
-import { AuthProvider, useAuth } from '@/lib/auth';
+import { AuthProvider, onSignOut, useAuth } from '@/lib/auth';
+import { clearCache, hideSplash } from '@/lib/cache';
 import { PrefsProvider, usePrefs } from '@/lib/prefs';
 import { resumeMusicAfterTap, setSoundSettings } from '@/lib/sound';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 
 SplashScreen.preventAutoHideAsync();
+// The splash lifts with a short fade once the deck, sign-in or an error is ready to show.
+SplashScreen.setOptions({ fade: true, duration: 250 });
+
+/** However long loading takes, the splash never stays up longer than this. */
+const SPLASH_LIMIT_MS = 3000;
 
 export default function RootLayout() {
+  useEffect(() => {
+    const limit = setTimeout(hideSplash, SPLASH_LIMIT_MS);
+    // A player's rows kept on this phone leave with them.
+    const off = onSignOut(() => {
+      clearCache();
+    });
+    return () => {
+      clearTimeout(limit);
+      off();
+    };
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
@@ -35,7 +53,8 @@ export default function RootLayout() {
 
 /**
  * Sends signed-out users to sign-in and signed-in users into the app, once the stored session and the
- * fonts are ready. Someone trying the demo deck counts as signed in.
+ * fonts are ready. Someone trying the demo deck counts as signed in. For a signed-in player the splash
+ * stays up until the tabs have the deck (see the tabs layout); for everyone else it lifts here.
  */
 function Gate() {
   const t = useTheme();
@@ -50,7 +69,7 @@ function Gate() {
 
   useEffect(() => {
     if (!ready) return;
-    SplashScreen.hideAsync();
+    if (!signedIn) hideSplash();
     if (!signedIn && !inAuth) router.replace('/sign-in');
     else if (signedIn && inAuth) router.replace('/');
   }, [ready, signedIn, inAuth, router]);
