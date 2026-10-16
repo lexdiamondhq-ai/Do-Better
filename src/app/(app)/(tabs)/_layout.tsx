@@ -18,16 +18,16 @@ export default function TabsLayout() {
   const router = useRouter();
   const { state, reload, seed } = useData();
   const { demo } = useAuth();
-  const { prefs, ready: prefsReady } = usePrefs();
+  const { prefs, ready: prefsReady, seeShowdown } = usePrefs();
   const deck = useDeck();
-  // The Showdown opens once per finished week. The demo deck plays it every time you open it.
+  // The Showdown opens once per finished week, the demo deck's too: opening the demo again goes to Today.
   const opened = useRef<string | null>(null);
 
   const needsOnboarding = !!deck && !deck.profile.onboardedAt && deck.cards.length === 0 && deck.archived.length === 0;
   const showdown = deck ? lastShowdown(deck.game) : null;
   // Only a week later than the last one watched, so a clock moved back across a date line can't reopen a settled week.
   const seen = prefs.showdownSeen[seed];
-  const pending = showdown && prefsReady && !needsOnboarding && (demo || !seen || showdown.start > seen) ? showdown.start : null;
+  const pending = showdown && prefsReady && !needsOnboarding && (!seen || showdown.start > seen) ? showdown.start : null;
   // Everything needed to choose the first screen: the deck (or an error) and the saved prefs.
   const settled = state.status === 'error' || (!!deck && prefsReady);
 
@@ -37,10 +37,14 @@ export default function TabsLayout() {
     if (!settled) return;
     if (pending && opened.current !== pending) {
       opened.current = pending;
-      router.push({ pathname: '/showdown', params: { week: pending } });
+      // The demo's Showdown is a sample week: `sample` tells the Showdown to say so. It is marked seen
+      // as it opens, because the Showdown doesn't mark the demo's weeks itself.
+      if (demo) seeShowdown(seed, pending);
+      router.push({ pathname: '/showdown', params: demo ? { week: pending, sample: '1' } : { week: pending } });
       setTimeout(hideSplash, 350);
-    } else hideSplash();
-  }, [settled, pending, router]);
+      // Marking the week seen clears `pending` on the next render; the timer above still hides the splash.
+    } else if (!opened.current) hideSplash();
+  }, [settled, pending, router, demo, seed, seeShowdown]);
 
   if (state.status === 'error') {
     return (
