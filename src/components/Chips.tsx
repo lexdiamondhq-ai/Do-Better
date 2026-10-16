@@ -1,7 +1,8 @@
 import { Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-import { chip, fonts } from '@/theme/tokens';
+import { useTheme } from '@/theme/ThemeProvider';
+import { chip, fontScale, fonts } from '@/theme/tokens';
 
 /** 1240 → "1,240". Done by hand so it reads the same on every phone. */
 export function formatChips(value: number): string {
@@ -33,8 +34,12 @@ export function ChipIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-/** A count of chips with the chip beside it: on a gold pill, or bare on the table. */
+/**
+ * A count of chips with the chip beside it: on a gold pill, or bare on the table in the table's text
+ * colour. A chip count is a picture of a number, so it keeps its size whatever the phone's text size.
+ */
 export function Chips({ value, size = 16, pill, color, sign, style }: { value: number; size?: number; pill?: boolean; color?: string; sign?: boolean; style?: StyleProp<ViewStyle> }) {
+  const t = useTheme();
   const label = `${sign && value > 0 ? '+' : ''}${formatChips(value)}`;
   return (
     <View
@@ -47,7 +52,14 @@ export function Chips({ value, size = 16, pill, color, sign, style }: { value: n
       ]}
     >
       <ChipIcon size={size * 1.25} />
-      <Text style={{ fontFamily: fonts.display, fontSize: size, lineHeight: size * 1.15, color: pill ? chip.ink : color, fontVariant: ['tabular-nums'] }}>{label}</Text>
+      <Text
+        allowFontScaling={false}
+        maxFontSizeMultiplier={fontScale.graphic}
+        selectable={false}
+        style={{ fontFamily: fonts.display, fontSize: size, lineHeight: size * 1.15, color: pill ? chip.ink : (color ?? t.text), fontVariant: ['tabular-nums'] }}
+      >
+        {label}
+      </Text>
     </View>
   );
 }

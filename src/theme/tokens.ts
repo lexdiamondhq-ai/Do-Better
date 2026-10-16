@@ -59,7 +59,7 @@ export const cardFace = {
   ink: INK,
   edge: 'rgba(23, 18, 31, 0.14)',
   faint: 'rgba(23, 18, 31, 0.5)',
-  saved: '#EEEAF5',
+  saved: '#F5F2F9',
   savedInk: '#4A4258',
 } as const;
 
