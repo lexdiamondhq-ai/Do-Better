@@ -69,12 +69,13 @@ type Empty = { key: string; day: string; arc: Spot };
  * Where everything sits: the week face down in a 4 + 3 arc with the river below it, and the fan the best
  * five fly into. Cards are drawn at fan size and scaled down in the arc, so they stay sharp as they grow.
  */
-function stageGeometry(width: number, lift = 0) {
+function stageGeometry(width: number, lift = 0, count = 5) {
   const gutter = space.xl;
   const fanW = fanCardWidth(width - gutter * 2);
   const ratio = CARD_SIZES.lg.h / CARD_SIZES.lg.w;
   const fanH = Math.round(fanW * ratio);
-  const fan = fanLayout(5, fanW, fanH, 0.55, 9);
+  // A week with fewer than five cards still fans them from the middle.
+  const fan = fanLayout(Math.max(1, count), fanW, fanH, 0.55, 9);
   const fanLeft = (width - fan.width) / 2;
   const gap = 10;
   const aw = Math.min(80, Math.floor((width - gutter * 2 - gap * 3) / 4));
@@ -182,7 +183,7 @@ function Table({ week, game }: { week: Week; game: Game }) {
   const felt = feltFor(base, review?.lead ?? null);
   // The face-down week sits a little above the middle of the felt below the heading, wherever there's room.
   const room = height - insets.top - insets.bottom - 170;
-  const geo = stageGeometry(width, Math.round(Math.min(110, Math.max(0, (room - stageGeometry(width).revealHeight) * 0.4))));
+  const geo = stageGeometry(width, Math.round(Math.min(110, Math.max(0, (room - stageGeometry(width).revealHeight) * 0.4))), week.hand?.cards.length ?? 5);
   const { items, empty } = stageItems(week, geo);
   const riverIndex = items.findIndex((i) => i.river);
   const playable = !!week.hand && !week.warmup;

@@ -95,7 +95,8 @@ export function callLine(week: Pick<Week, 'hand' | 'call' | 'madeCall' | 'bonus'
   const called = `You called ${HANDS[week.call].name}.`;
   if (!week.madeCall) return { kind: 'missed', title: 'Not this time.', detail: `${called} A missed call costs nothing.`, chips: 0 };
   if (week.callMultiplier === 0) return { kind: 'made', title: 'Called it.', detail: `${called} A sure thing, so nothing extra.`, chips: 0 };
-  const title = ['', 'Called it. The safe call, paid ×1.', 'Called it. A stretch, paid ×2.', 'Called it. A long shot, paid ×3.'][week.callMultiplier];
+  // A no-break space keeps "paid ×2" together when the line wraps.
+  const title = ['', 'Called it. The safe call, paid\u00A0×1.', 'Called it. A stretch, paid\u00A0×2.', 'Called it. A long shot, paid\u00A0×3.'][week.callMultiplier];
   return { kind: 'made', title, detail: called, chips: week.bonus };
 }
 

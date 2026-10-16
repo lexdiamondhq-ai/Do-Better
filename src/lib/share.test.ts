@@ -112,10 +112,10 @@ describe('the hand in words', () => {
 
 describe('the call line', () => {
   it('says what a made call paid, by its multiplier', () => {
-    expect(callLine(week(twoPair, { call: 'two-pair', madeCall: true, callMultiplier: 1, bonus: 50 }))).toMatchObject({ kind: 'made', title: 'Called it. The safe call, paid ×1.', chips: 50 });
+    expect(callLine(week(twoPair, { call: 'two-pair', madeCall: true, callMultiplier: 1, bonus: 50 }))).toMatchObject({ kind: 'made', title: 'Called it. The safe call, paid\u00A0×1.', chips: 50 });
     expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 0 }))).toMatchObject({ title: 'Called it.', detail: 'You called Pair. A sure thing, so nothing extra.', chips: 0 });
-    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 2, bonus: 60 }))?.title).toBe('Called it. A stretch, paid ×2.');
-    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 3, bonus: 90 }))?.title).toBe('Called it. A long shot, paid ×3.');
+    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 2, bonus: 60 }))?.title).toBe('Called it. A stretch, paid\u00A0×2.');
+    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 3, bonus: 90 }))?.title).toBe('Called it. A long shot, paid\u00A0×3.');
   });
 
   it('says a missed call costs nothing, and no call how to get one', () => {
