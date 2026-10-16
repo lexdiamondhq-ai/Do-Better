@@ -125,6 +125,17 @@ export function neverTwiceDay(startedOn: Day, today: Day, checkIns: CheckIns): D
   return yesterday;
 }
 
+/**
+ * What keeping a card says to its Comeback, wherever the card is kept: Today, the list, a pill or the
+ * card's own page. Null when there is nothing to answer: no Comeback waiting (`missed` is null) or a
+ * late log for an earlier day rather than a keep today. Doing just the first move answers it with the
+ * first move; a Floor or a Ceiling answers it with the Floor.
+ */
+export function comebackAnswer(missed: Day | null, keptOn: Day, today: Day, firstMove = false): { missedDay: Day; response: 'floor_only' | 'two_minute' } | null {
+  if (!missed || keptOn !== today) return null;
+  return { missedDay: missed, response: firstMove ? 'two_minute' : 'floor_only' };
+}
+
 /** Misses that were followed by a kept day: the comebacks. An unkept first day was never a miss, so it isn't one. */
 export function bounceBacks(startedOn: Day, upTo: Day, checkIns: CheckIns): number {
   let count = 0;

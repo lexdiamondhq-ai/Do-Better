@@ -1,10 +1,10 @@
-import { createContext, useCallback, useContext, useMemo, type PropsWithChildren } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 
 import { summarizeCourt, type CourtSuit } from '@/engine/court';
 import { addDays, type Day } from '@/engine/day';
 import { bandOf, tallyDay, tierOf, type Band, type DayCard, type Tier } from '@/engine/deal';
 import type { BackKey, Game, TableKey } from '@/engine/game';
-import { daysAway, indexCheckIns, masteryOf, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level, type Mastery } from '@/engine/kept';
+import { comebackAnswer, daysAway, indexCheckIns, masteryOf, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level, type Mastery } from '@/engine/kept';
 import { ideaOfTheDay, partOfDay, recommend, type HabitFacts, type PartOfDay, type Recommendation, type RecommendationContext } from '@/engine/playbook';
 
 import { CueScheduler } from './cues';
@@ -35,6 +35,8 @@ export type Deck = {
   /** Active habits in deck order. */
   cards: HabitView[];
   archived: Habit[];
+  /** Kept days on each archived card, by habit id. They still count in the Court. */
+  archivedKept: Readonly<Record<string, number>>;
   game: Game;
   /** Today's card so far, and the tier it was dealt from. */
   todayCard: DayCard | null;
@@ -130,6 +132,7 @@ function useComputedDeck(): Deck | null {
       });
     }
     const keptToday = cards.filter((c) => c.today).length;
+    const archived = state.habits.filter((h) => h.archivedAt);
     const firstStart = state.habits.reduce<Day | null>((min, h) => (min === null || h.startedOn < min ? h.startedOn : min), null);
     const away = kept > 0 && daysAway(byHabit.values(), today, firstStart) >= AWAY_BLANK_DAYS;
     const ctx: RecommendationContext = {
@@ -151,7 +154,8 @@ function useComputedDeck(): Deck | null {
       today,
       profile: state.profile,
       cards,
-      archived: state.habits.filter((h) => h.archivedAt),
+      archived,
+      archivedKept: Object.fromEntries(archived.map((h) => [h.id, byHabit.get(h.id)?.size ?? 0])),
       game,
       todayCard,
       todayTier,
@@ -175,19 +179,62 @@ function useComputedDeck(): Deck | null {
 
 const DeckContext = createContext<Deck | null>(null);
 
+/** A card that just joined the deck, new or brought back, for a screen to say so. */
+export type Added = { id: string; name: string; back: boolean };
+
+type AddedApi = { added: Added | null; noteAdded: (card: Added) => void; clearAdded: () => void };
+
+const AddedContext = createContext<AddedApi>({ added: null, noteAdded: () => {}, clearAdded: () => {} });
+
+/** How long a "just added" note waits for a screen to show it. */
+const ADDED_FOR_MS = 6000;
+
 /** Works the deck out once per change, for every screen under it, and keeps the phone's reminders in step with it. */
 export function DeckProvider({ children }: PropsWithChildren) {
   const deck = useComputedDeck();
+  const [added, setAdded] = useState<Added | null>(null);
+  useEffect(() => {
+    if (!added) return;
+    const timer = setTimeout(() => setAdded(null), ADDED_FOR_MS);
+    return () => clearTimeout(timer);
+  }, [added]);
+  const addedApi = useMemo<AddedApi>(() => ({ added, noteAdded: setAdded, clearAdded: () => setAdded(null) }), [added]);
   return (
     <DeckContext.Provider value={deck}>
-      <CueScheduler deck={deck} />
-      {children}
+      <AddedContext.Provider value={addedApi}>
+        <CueScheduler deck={deck} />
+        {children}
+      </AddedContext.Provider>
     </DeckContext.Provider>
   );
 }
 
 export function useDeck(): Deck | null {
   return useContext(DeckContext);
+}
+
+/** The card that just joined the deck, for a moment, and the way to note one. */
+export function useAdded(): AddedApi {
+  return useContext(AddedContext);
+}
+
+/**
+ * Keeps a card at a level, and answers its Comeback when one is waiting, the same from every screen.
+ * `day` is for a late log of an earlier day, which answers nothing. `firstMove` is a keep made by doing
+ * just the card's first move. Resolves once the check-in is saved; a Comeback answer that fails to save
+ * is let go, as it is only a record of how the day was kept.
+ */
+export function useKeep(): (view: HabitView, level: Level, opts?: { day?: Day; firstMove?: boolean }) => Promise<void> {
+  const { checkIn, recordPrompt, today } = useData();
+  return useCallback(
+    (view, level, opts = {}) => {
+      const saved = checkIn(view.habit.id, level, opts.day);
+      const answer = comebackAnswer(view.neverTwice, opts.day ?? today, today, opts.firstMove);
+      if (answer) recordPrompt(view.habit.id, answer.missedDay, answer.response).catch(() => {});
+      return saved;
+    },
+    [checkIn, recordPrompt, today],
+  );
 }
 
 /** The card back and table this player picked. Until a pick is unlocked, the classic back and the kitchen table. */

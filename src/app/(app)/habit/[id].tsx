@@ -16,7 +16,7 @@ import { addDays, canBackfill, daysBetween, weekStart, type Day } from '@/engine
 import { best30, bounceBacks, calendarWeeks, keptBetween, MASTERY, type CalendarDay, type Level } from '@/engine/kept';
 import { ownWhy, playsLine, PRINCIPLES, recipeFor, type EditField } from '@/engine/playbook';
 import { useData } from '@/lib/data';
-import { useDeck, type HabitView } from '@/lib/deck';
+import { useDeck, useKeep, type HabitView } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { monthDay, shortDay } from '@/lib/format';
 import { playSound } from '@/lib/sound';
@@ -31,7 +31,8 @@ export default function HabitDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const deck = useDeck();
-  const { checkIn, undoCheckIn, refresh } = useData();
+  const { undoCheckIn, refresh } = useData();
+  const keepCard = useKeep();
   const [refreshing, setRefreshing] = useState(false);
   const view = deck?.cards.find((c) => c.habit.id === id);
 
@@ -57,12 +58,13 @@ export default function HabitDetail() {
   const edit = (focus?: EditField) => router.push({ pathname: '/habit/edit', params: focus ? { id: habit.id, focus } : { id: habit.id } });
   const fail = (e: unknown) => ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
 
-  function keep(level: Level, day?: Day) {
+  /** The same keep as Today's, so a Comeback waiting on this card is answered here too. */
+  const keep = (level: Level, day?: Day) => {
     if (level === 'ceiling') feel.ceiling();
     else feel.floor();
     playSound(level);
-    checkIn(habit.id, level, day).catch(fail);
-  }
+    keepCard(view, level, { day }).catch(fail);
+  };
 
   function undo() {
     feel.tick();
@@ -334,10 +336,17 @@ function Header({
   );
 }
 
-/** Floor and Ceiling, kept from here as well as from Today. Once kept, how it went and a way to take it back. */
+/** Labels longer than this stack the two buttons, so each one reads in full across the card. */
+const STACK_AT = 30;
+
+/**
+ * Floor and Ceiling, kept from here as well as from Today. Once kept, how it went and a way to take it
+ * back. Every label is shown in full: a long one stacks the buttons, Ceiling on top like the swipe up.
+ */
 function KeepButtons({ view, level, onKeep, onUndo }: { view: HabitView; level: Level | null; onKeep: (level: Level) => void; onUndo: () => void }) {
   const { habit } = view;
   const c = cardColors[habit.color];
+  const stacked = Math.max(habit.floorLabel.trim().length, habit.ceilingLabel.trim().length) > STACK_AT;
   const half = (kind: Level, title: string, value: string, done: boolean) => {
     const solid = kind === 'ceiling';
     const bg = solid ? c.ink : c.soft;
@@ -356,12 +365,12 @@ function KeepButtons({ view, level, onKeep, onUndo }: { view: HabitView; level: 
             {title}
           </Label>
         </View>
-        <Body weight="heavy" size={typeScale.text.md} color={fg} numberOfLines={3} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 19 }}>
+        <Body weight="heavy" size={typeScale.text.md} color={fg} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 19 }}>
           {value}
         </Body>
       </>
     );
-    const style = { flex: 1, minHeight: 84, borderRadius: 20, paddingHorizontal: space.lg, paddingVertical: space.md, gap: 4, backgroundColor: bg, justifyContent: 'center' as const };
+    const style = { flex: stacked ? undefined : 1, minHeight: stacked ? 64 : 84, borderRadius: 20, paddingHorizontal: space.lg, paddingVertical: space.md, gap: 4, backgroundColor: bg, justifyContent: 'center' as const };
     if (done) return <View style={style}>{content}</View>;
     return (
       <Pressable
@@ -384,7 +393,7 @@ function KeepButtons({ view, level, onKeep, onUndo }: { view: HabitView; level: 
           </Display>
           <View style={{ flex: 1 }}>
             <Label color={c.bg}>Ceiling reached today</Label>
-            <Body weight="heavy" size={typeScale.text.md} color={c.bg} numberOfLines={2}>
+            <Body weight="heavy" size={typeScale.text.md} color={c.bg}>
               {habit.ceilingLabel}
             </Body>
           </View>
@@ -395,10 +404,17 @@ function KeepButtons({ view, level, onKeep, onUndo }: { view: HabitView; level: 
   }
   return (
     <View style={{ gap: space.sm }}>
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        {half('floor', level === 'floor' ? 'Floor kept' : 'Floor', habit.floorLabel, level === 'floor')}
-        {half('ceiling', level === 'floor' ? 'Reach up' : 'Ceiling', habit.ceilingLabel, false)}
-      </View>
+      {stacked ? (
+        <View style={{ gap: space.sm }}>
+          {half('ceiling', level === 'floor' ? 'Reach up' : 'Ceiling', habit.ceilingLabel, false)}
+          {half('floor', level === 'floor' ? 'Floor kept' : 'Floor', habit.floorLabel, level === 'floor')}
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          {half('floor', level === 'floor' ? 'Floor kept' : 'Floor', habit.floorLabel, level === 'floor')}
+          {half('ceiling', level === 'floor' ? 'Reach up' : 'Ceiling', habit.ceilingLabel, false)}
+        </View>
+      )}
       {level === 'floor' ? <UndoLink ink={c.ink} onPress={onUndo} /> : null}
     </View>
   );

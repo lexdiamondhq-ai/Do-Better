@@ -6,6 +6,8 @@
  * - Nothing until the player tapped "Remind me" and the phone allowed it.
  * - The whole plan is replaced whenever it changes and whenever the app comes back to the front.
  * - Signing out, switching account or leaving the demo cancels everything at once.
+ * - Reminders are each player's own choice: after a sign-out or a switch of account they are off, and
+ *   the next player on this phone is asked for themselves.
  */
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -18,7 +20,7 @@ import { lastShowdown } from '@/engine/game';
 import { onSignOut, useAuth } from './auth';
 import { useData } from './data';
 import type { Deck } from './deck';
-import { usePrefs, type Prefs } from './prefs';
+import { usePrefs, type Prefs, type Reminders } from './prefs';
 
 type Notifications = typeof import('expo-notifications');
 type NotificationResponse = import('expo-notifications').NotificationResponse;
@@ -90,10 +92,28 @@ async function cancelAll() {
   }
 }
 
-onSignOut(() => {
+// Set while the scheduler is on screen: switches reminders off in this phone's settings.
+let resetReminders: (() => void) | null = null;
+
+/** Reminders as the next player on this phone finds them: off, and not yet asked. Times stay as they were. */
+export function signedOutReminders(r: Reminders): Reminders {
+  return { ...r, on: false, asked: false };
+}
+
+/** Lets the scheduler switch reminders off when a player leaves. Returns the way to let go. */
+export function bindReminderReset(reset: () => void): () => void {
+  resetReminders = reset;
+  return () => {
+    if (resetReminders === reset) resetReminders = null;
+  };
+}
+
+onSignOut((who) => {
   generation++;
   applied = null;
   enqueue(cancelAll);
+  // The phone's permission stays, but the choice was this player's. The demo never turns reminders on.
+  if (!who.demo) resetReminders?.();
 });
 
 function signature(cues: readonly Cue[] | null): string {
@@ -211,11 +231,13 @@ function respond(response: NotificationResponse | null, coldStart: boolean, N: N
  * Keeps the phone's reminders in step with the deck. Rendered once, inside DeckProvider. Renders nothing.
  */
 export function CueScheduler({ deck }: { deck: Deck | null }) {
-  const { prefs, ready } = usePrefs();
+  const { prefs, ready, setPrefs } = usePrefs();
   const { demo } = useAuth();
   const { seed } = useData();
   const now = useNow();
   const on = prefs.reminders.on && !demo && native;
+
+  useEffect(() => bindReminderReset(() => setPrefs((p) => ({ reminders: signedOutReminders(p.reminders) }))), [setPrefs]);
 
   // The plan, rebuilt on every change. A short pause lets a burst of check-ins settle first.
   useEffect(() => {
