@@ -531,24 +531,29 @@ function Table({ deck }: { deck: Deck }) {
           {pills}
           <View style={{ flex: 1, marginHorizontal: space.lg, marginTop: hasCards && front ? (compact ? space.lg : space.xl) : space.md }}>
             <View style={{ flex: 1 }} onLayout={(e) => setDeckHeight(Math.round(e.nativeEvent.layout.height))}>
-              {front ? (
-                <>
-                  {behind
-                    .map((item, i) => ({ item, depth: i + 1 }))
-                    .reverse()
-                    .map(({ item, depth }) => (
-                      <DeckCard key={`deck:${item.kind}:${item.id}`} depth={depth} pull={pull}>
-                        {face(item, views.get(item.id) ?? null, false)}
-                      </DeckCard>
-                    ))}
-                  {card(front, true)}
-                </>
-              ) : hasCards ? (
-                <AllKept deck={deck} keptCount={keptCount} onReach={floorKept.some((c) => !reach?.skipped.includes(c.habit.id)) ? startReach : null} onIdea={() => router.push('/playbook')} />
+              {front ? null : hasCards ? (
+                <AllKept deck={deck} keptCount={keptCount} compact={compact} under={bottomPad} onReach={floorKept.some((c) => !reach?.skipped.includes(c.habit.id)) ? startReach : null} onIdea={() => router.push('/playbook')} />
               ) : (
                 <EmptyDeck onCreate={() => router.push('/habit/edit')} />
               )}
-              {leaving.map((play) => card(play, false))}
+              {
+                // One keyed list for the deck, the front card and the cards still leaving, so a played card keeps
+                // its place (and its motion) as it turns from the front card into a ghost.
+                [
+                  ...(front
+                    ? behind
+                        .map((item, i) => ({ item, depth: i + 1 }))
+                        .reverse()
+                        .map(({ item, depth }) => (
+                          <DeckCard key={`deck:${item.kind}:${item.id}`} depth={depth} pull={pull}>
+                            {face(item, views.get(item.id) ?? null, false)}
+                          </DeckCard>
+                        ))
+                    : []),
+                  ...(front ? [card(front, true)] : []),
+                  ...leaving.map((play) => card(play, false)),
+                ]
+              }
               {burst ? (
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                   <Burst key={burst.n} kind={burst.kind} color={burst.color} onDone={() => setBurst(null)} />
@@ -867,7 +872,7 @@ function Progress({ front, kept, total, reaching }: { front: Play; kept: number;
 // When the deck is done --------------------------------------------------------------------------------
 
 /** Every card kept: today's card, the hand it makes, and something worth doing next. */
-function AllKept({ deck, keptCount, onReach, onIdea }: { deck: Deck; keptCount: number; onReach: (() => void) | null; onIdea: () => void }) {
+function AllKept({ deck, keptCount, compact = false, under = 0, onReach, onIdea }: { deck: Deck; keptCount: number; compact?: boolean; under?: number; onReach: (() => void) | null; onIdea: () => void }) {
   const t = useTheme();
   const card = deck.todayCard;
   const week = deck.game.current;
@@ -876,16 +881,17 @@ function AllKept({ deck, keptCount, onReach, onIdea }: { deck: Deck; keptCount: 
   const north = deck.profile.northStar?.trim();
   const joker = card?.kind === 'joker';
   return (
-    <ScrollView style={{ marginHorizontal: -space.sm }} contentContainerStyle={{ gap: space.lg, paddingBottom: space.lg, paddingTop: space.sm, paddingHorizontal: space.sm }} showsVerticalScrollIndicator={false}>
+    // `under` lets the page run on under the floating tab bar, so nothing looks cut off where it stops.
+    <ScrollView style={{ marginHorizontal: -space.sm, marginBottom: -under }} contentContainerStyle={{ gap: space.lg, paddingBottom: under + space.lg, paddingTop: space.sm, paddingHorizontal: space.sm }} showsVerticalScrollIndicator={false}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
         {card ? (
           <View accessible accessibilityLabel={`Today’s card: ${faceLabel(faceOfDay(card))}`} style={{ transform: [{ rotate: '-6deg' }], marginLeft: space.xs }}>
-            <PlayingCard face={faceOfDay(card)} size="lg" />
+            <PlayingCard face={faceOfDay(card)} size={compact ? 'md' : 'lg'} />
           </View>
         ) : null}
         <View style={{ flex: 1, gap: space.xs }}>
           <Label maxFontSizeMultiplier={fontScale.chrome}>{card ? `Today’s card · ${faceLabel(faceOfDay(card))}` : 'Today'}</Label>
-          <Display size={40} header maxFontSizeMultiplier={fontScale.chrome}>
+          <Display size={compact ? 32 : 40} header maxFontSizeMultiplier={fontScale.chrome}>
             {copy.title}
           </Display>
           <Body size={15} weight="bold" maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 20 }}>

@@ -285,19 +285,30 @@ export function SwipeCard({
     };
   });
 
-  const stamp = (dir: SwipeDirection) => {
+  // Each style reads the shared values itself: Reanimated only re-runs a style for values read in its own body.
+  const stamp = (dir: SwipeDirection, dx: number, dy: number, note: number) => {
     'worklet';
-    const dx = x.get();
-    const dy = y.get();
     const vertical = Math.abs(dy) >= Math.abs(dx);
     const along = dir === 'up' ? (vertical ? -dy : 0) : dir === 'down' ? (vertical ? dy : 0) : dir === 'left' ? (vertical ? 0 : -dx) : vertical ? 0 : dx;
-    return interpolate(along, [24, DISTANCE], [0, 1], 'clamp') * (1 - noteIn.get());
+    return interpolate(along, [24, DISTANCE], [0, 1], 'clamp') * (1 - note);
   };
   // Each stamp comes from the edge its way leads to: the Ceiling drops from the top, the Floor rises from the bottom.
-  const upStyle = useAnimatedStyle(() => ({ opacity: stamp('up'), transform: [{ translateY: -14 * (1 - stamp('up')) }, { rotate: '-9deg' }, { scale: 0.84 + 0.16 * stamp('up') }] }));
-  const downStyle = useAnimatedStyle(() => ({ opacity: stamp('down'), transform: [{ translateY: 14 * (1 - stamp('down')) }, { rotate: '7deg' }, { scale: 0.84 + 0.16 * stamp('down') }] }));
-  const leftStyle = useAnimatedStyle(() => ({ opacity: stamp('left'), transform: [{ rotate: '-12deg' }, { scale: 0.84 + 0.16 * stamp('left') }] }));
-  const rightStyle = useAnimatedStyle(() => ({ opacity: stamp('right'), transform: [{ rotate: '12deg' }, { scale: 0.84 + 0.16 * stamp('right') }] }));
+  const upStyle = useAnimatedStyle(() => {
+    const v = stamp('up', x.get(), y.get(), noteIn.get());
+    return { opacity: v, transform: [{ translateY: -14 * (1 - v) }, { rotate: '-9deg' }, { scale: 0.84 + 0.16 * v }] };
+  });
+  const downStyle = useAnimatedStyle(() => {
+    const v = stamp('down', x.get(), y.get(), noteIn.get());
+    return { opacity: v, transform: [{ translateY: 14 * (1 - v) }, { rotate: '7deg' }, { scale: 0.84 + 0.16 * v }] };
+  });
+  const leftStyle = useAnimatedStyle(() => {
+    const v = stamp('left', x.get(), y.get(), noteIn.get());
+    return { opacity: v, transform: [{ rotate: '-12deg' }, { scale: 0.84 + 0.16 * v }] };
+  });
+  const rightStyle = useAnimatedStyle(() => {
+    const v = stamp('right', x.get(), y.get(), noteIn.get());
+    return { opacity: v, transform: [{ rotate: '12deg' }, { scale: 0.84 + 0.16 * v }] };
+  });
   const noteStyle = useAnimatedStyle(() => ({ opacity: noteIn.get(), transform: [{ rotate: '-6deg' }, { scale: 0.8 + 0.2 * noteIn.get() }] }));
 
   const ways: { dir: SwipeDirection; style: typeof upStyle; at: ViewStyle }[] = [

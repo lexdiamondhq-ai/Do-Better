@@ -130,7 +130,7 @@ export function HabitCard({
           {subtitle}
         </Body>
       ) : null}
-      {tag || (!compact && habit.anchor) ? (
+      {tag || habit.anchor ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
           {tag ? (
             <View style={{ borderRadius: radius.pill, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: ink }}>
@@ -139,7 +139,7 @@ export function HabitCard({
               </Body>
             </View>
           ) : null}
-          {!compact && habit.anchor ? (
+          {habit.anchor ? (
             <Body size={14} weight="semi" color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
               {`${playsLine(habit.anchor)}${habit.whenWhere ? ` · ${habit.whenWhere}` : ''}`}
             </Body>

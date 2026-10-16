@@ -8,7 +8,7 @@ import type { Slot } from '@/engine/deal';
 import type { BackKey, Week } from '@/engine/game';
 import { withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
-import { fonts } from '@/theme/tokens';
+import { fonts, TAP } from '@/theme/tokens';
 
 import { CardBack } from './CardBack';
 import { CARD_SIZES, CardSlot, faceLabel, faceOfDay, PlayingCard, type CardSize } from './PlayingCard';
@@ -20,11 +20,11 @@ function describe(slot: Slot, playAs: Suit | undefined, rescue: Day | null): str
   if (slot.card) return `${faceLabel(faceOfDay(slot.card, playAs))}${playAs ? ', in your hand' : ''}`;
   if (slot.state === 'open') return 'not dealt yet';
   if (slot.state === 'future') return 'still to come';
-  if (slot.state === 'blank') return slot.day === rescue ? 'missed, and can still be saved today' : 'missed';
+  if (slot.state === 'blank') return slot.day === rescue ? 'no card yet, and it can still be saved today' : 'no card';
   return 'no cards yet';
 }
 
-/** The whole week in one sentence, for VoiceOver: "Monday, 8 of Clubs. Tuesday, missed. Today, not dealt yet. 3 days to come." */
+/** The whole week in one sentence, for VoiceOver: "Monday, 8 of Clubs. Tuesday, no card. Today, not dealt yet. 3 days to come." */
 export function describeWeek(week: Week, rescue: Day | null): string {
   const played = new Map(week.hand?.cards.map((c): [Day, Suit | undefined] => [c.day, c.suit ?? undefined]) ?? []);
   const parts: string[] = [];
@@ -96,8 +96,12 @@ export function WeekStrip({
     else if (late || saving)
       card = (
         <CardSlot size={size} color={t.text} style={{ backgroundColor: withAlpha(t.text, 0.08) }}>
-          <Text style={{ fontFamily: fonts.display, fontSize: Math.round(s.w * 0.42), color: t.text }}>↺</Text>
-          <Text style={{ fontFamily: fonts.bodyHeavy, fontSize: 8, letterSpacing: 0.6, color: t.text }}>{late ? 'LOG' : 'SAVE'}</Text>
+          <Text allowFontScaling={false} style={{ fontFamily: fonts.display, fontSize: Math.round(s.w * 0.42), color: t.text }}>
+            ↺
+          </Text>
+          <Text allowFontScaling={false} style={{ fontFamily: fonts.bodyHeavy, fontSize: 8, letterSpacing: 0.6, color: t.text }}>
+            {late ? 'LOG' : 'SAVE'}
+          </Text>
         </CardSlot>
       );
     else card = <CardSlot size={size} color={slot.state === 'blank' ? t.dashed : t.border} dashed={slot.state === 'blank'} />;
@@ -105,7 +109,9 @@ export function WeekStrip({
     const body = (
       <>
         {card}
-        <Text style={{ fontFamily: slot.isToday ? fonts.bodyHeavy : fonts.bodyBold, fontSize: 11, letterSpacing: 0.6, color: slot.isToday ? t.text : t.textSecondary }}>{slot.isToday ? `${letter}•` : letter}</Text>
+        <Text allowFontScaling={false} style={{ fontFamily: slot.isToday ? fonts.bodyHeavy : fonts.bodyBold, fontSize: 11, letterSpacing: 0.6, color: slot.isToday ? t.text : t.textSecondary }}>
+          {slot.isToday ? `${letter}•` : letter}
+        </Text>
       </>
     );
     return { slot, late, body };
@@ -129,32 +135,44 @@ export function WeekStrip({
   );
 
   const lateSlot = slots.find((x) => x.late);
-  if (!lateSlot || !onYesterday) return strip;
-  const index = week.slots.indexOf(lateSlot.slot);
+  // Yesterday already has a card from another habit: a small ↺ on its corner still logs one that was kept but never logged.
+  const keptYesterday = onYesterday && !lateSlot ? week.slots.find((x) => x.day === yesterday && x.card) : undefined;
+  if (!onYesterday || (!lateSlot && !keptYesterday)) return strip;
+  const target = lateSlot?.slot ?? keptYesterday!;
+  const index = week.slots.indexOf(target);
+  const place = { left: `${(index / (week.slots.length - 1)) * 100}%` as const, marginLeft: -(s.w * index) / (week.slots.length - 1) };
   // Yesterday's button sits over its place in the strip, so it can be found and pressed on its own.
   return (
     <View>
       {strip}
-      <Pressable
-        onPress={onYesterday}
-        accessibilityRole="button"
-        accessibilityLabel="Log yesterday"
-        accessibilityHint="For a card you kept yesterday but never logged"
-        hitSlop={6}
-        testID="strip-yesterday"
-        style={({ pressed }) => ({
-          position: 'absolute',
-          top: 0,
-          left: `${(index / (week.slots.length - 1)) * 100}%`,
-          marginLeft: -(s.w * index) / (week.slots.length - 1),
-          alignItems: 'center',
-          gap: 5,
-          width: s.w,
-          opacity: pressed ? 0.7 : 1,
-        })}
-      >
-        {lateSlot.body}
-      </Pressable>
+      {lateSlot ? (
+        <Pressable
+          onPress={onYesterday}
+          accessibilityRole="button"
+          accessibilityLabel="Log yesterday"
+          accessibilityHint="For a card you kept yesterday but never logged"
+          hitSlop={6}
+          testID="strip-yesterday"
+          style={({ pressed }) => ({ position: 'absolute', top: 0, ...place, alignItems: 'center', gap: 5, width: s.w, opacity: pressed ? 0.7 : 1 })}
+        >
+          {lateSlot.body}
+        </Pressable>
+      ) : (
+        <Pressable
+          onPress={onYesterday}
+          accessibilityRole="button"
+          accessibilityLabel="Log yesterday"
+          accessibilityHint="For a card you kept yesterday but never logged"
+          testID="strip-yesterday"
+          style={({ pressed }) => ({ position: 'absolute', top: -10, ...place, width: s.w + 12, height: TAP, alignItems: 'flex-end', opacity: pressed ? 0.7 : 1 })}
+        >
+          <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: t.text, borderWidth: 2, borderColor: t.bg, alignItems: 'center', justifyContent: 'center' }}>
+            <Text allowFontScaling={false} style={{ fontFamily: fonts.display, fontSize: 13, lineHeight: 15, color: t.bg }}>
+              ↺
+            </Text>
+          </View>
+        </Pressable>
+      )}
     </View>
   );
 }
