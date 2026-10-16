@@ -10,7 +10,7 @@ import { CardSlot, PlayingCard, type CardFace } from '@/components/PlayingCard';
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Label } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
-import { dealMeIn, sendEmailCode, SignInError, signInWithApple, verifyEmailCode } from '@/lib/signIn';
+import { checkEmail, dealMeIn, sendEmailCode, SignInError, signInWithApple, verifyEmailCode } from '@/lib/signIn';
 import { useTheme } from '@/theme/ThemeProvider';
 import { SUITS } from '@/engine/cards';
 import { cardColors, fontScale, fonts, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
@@ -18,18 +18,40 @@ import { cardColors, fontScale, fonts, radius, space, suitColors, TAP, typeScale
 /** Expo Go doesn't ship the native Apple sign-in button, so it can only be offered in a real build. */
 const APPLE = Platform.OS === 'ios' && Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
 
-type Mode = 'start' | 'sign-in';
+/**
+ * `start` is the hero with "Deal me in". `sign-in` welcomes a returning player back. `new` is for a
+ * brand-new player when a deck can't start without an account: same form, words for someone new.
+ */
+type Mode = 'start' | 'sign-in' | 'new';
+
+/** The header over the form, for a returning player or a new one. */
+const FORM: Record<Exclude<Mode, 'start'>, { eyebrow: string; title: string; about: string }> = {
+  'sign-in': {
+    eyebrow: 'Welcome back',
+    title: 'Pick up your deck.',
+    about: APPLE ? 'Use the Apple ID or the email you saved your deck with.' : 'Use the email you saved your deck with. We’ll send a 6-digit code.',
+  },
+  new: {
+    eyebrow: 'Your first deal',
+    title: APPLE ? 'Start your deck.' : 'Start with your email.',
+    about: APPLE
+      ? 'Use your Apple ID or your email, so your deck is safe from the first card. Your first cards deal straight away.'
+      : 'Your deck lives on your email, safe from the first card. We’ll send a 6-digit code, then your first cards deal straight away.',
+  },
+};
 
 /**
  * The first screen. "Deal me in" starts a deck with no account; the demo is one tap away; a returning
- * player signs in with Apple or a 6-digit email code. The Gate moves on once a session exists.
+ * player signs in with Apple or a 6-digit email code. When a deck can't start without an account, a new
+ * player gets the same form with words for someone new. The Gate moves on once a session exists.
  */
 export default function SignIn() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const { startDemo } = useAuth();
-  const [mode, setMode] = useState<Mode>('start');
+  const { startDemo, opening } = useAuth();
+  // Leaving the demo with "Sign in instead" opens straight on the form.
+  const [mode, setMode] = useState<Mode>(opening);
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
@@ -45,9 +67,13 @@ export default function SignIn() {
       await action();
     } catch (e) {
       const problem = e instanceof SignInError ? e : null;
+      if (problem?.problem === 'guest-off') {
+        // With guest decks switched off, the only way in is an account. That isn't the player's mistake,
+        // so it's no red notice: the form opens with words for someone new and says what to do.
+        setMode('new');
+        return;
+      }
       setNotice(problem?.message || 'Something went wrong. Try again.');
-      // With guest decks switched off, the only way in is an account: show it.
-      if (problem?.problem === 'guest-off') setMode('sign-in');
     } finally {
       setBusy(null);
     }
@@ -57,7 +83,8 @@ export default function SignIn() {
     return run('email', async () => {
       const address = email.trim();
       if (!codeSent) {
-        if (!/^\S+@\S+\.\S+$/.test(address)) throw new SignInError('email', 'Type your email address first.', '');
+        const wrong = checkEmail(address);
+        if (wrong) throw new SignInError('email', wrong, '');
         await sendEmailCode(address);
         setCodeSent(true);
         return;
@@ -101,7 +128,7 @@ export default function SignIn() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.lg, paddingHorizontal: space.xl, gap: compact ? space.md : space.lg }}
       >
-        {mode === 'sign-in' ? (
+        {mode !== 'start' ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back"
@@ -121,7 +148,7 @@ export default function SignIn() {
         )}
 
         {/* While typing, the email field and its button get the room. */}
-        {keyboard && mode === 'sign-in' ? null : <HeroLoop calm={mode === 'sign-in'} />}
+        {keyboard && mode !== 'start' ? null : <HeroLoop calm={mode !== 'start'} />}
 
         {mode === 'start' ? (
           <>
@@ -156,12 +183,12 @@ export default function SignIn() {
         ) : (
           <>
             <View style={{ gap: space.sm }}>
-              <Label>Welcome back</Label>
+              <Label>{FORM[mode].eyebrow}</Label>
               <Display size={compact ? 32 : 40} header>
-                Pick up your deck.
+                {FORM[mode].title}
               </Display>
               <Body size={typeScale.text.md} color={t.textSecondary}>
-                {APPLE ? 'Use the Apple ID or the email you saved your deck with.' : 'Use the email you saved your deck with. We’ll send a 6-digit code.'}
+                {FORM[mode].about}
               </Body>
             </View>
             {noticeView}
@@ -169,7 +196,7 @@ export default function SignIn() {
               {APPLE ? (
                 <>
                   <AppleAuthentication.AppleAuthenticationButton
-                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                    buttonType={mode === 'new' ? AppleAuthentication.AppleAuthenticationButtonType.CONTINUE : AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
                     buttonStyle={t.scheme === 'dark' ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
                     cornerRadius={radius.pill}
                     style={{ height: 54 }}
@@ -214,7 +241,7 @@ export default function SignIn() {
                   onSubmitEditing={emailStep}
                 />
               )}
-              <Button label={codeSent ? 'Sign in' : 'Email me a code'} variant={APPLE ? 'ghost' : 'primary'} busy={busy === 'email'} disabled={!!busy && busy !== 'email'} onPress={emailStep} />
+              <Button label={codeSent ? (mode === 'new' ? 'Start my deck' : 'Sign in') : 'Email me a code'} variant={APPLE ? 'ghost' : 'primary'} busy={busy === 'email'} disabled={!!busy && busy !== 'email'} onPress={emailStep} />
               {codeSent ? (
                 <Pressable
                   accessibilityRole="button"
@@ -290,14 +317,20 @@ const slot = (i: number) => {
 };
 /** How far the dealt card drops from where the habit card turned over into its open slot. */
 const DROP = slot(2).top - (HABIT.h / 2 + 56 - FAN_H / 2);
+/** Calm, the Read card has gone: what shows starts at the "Straight" caption, this far down the stage. */
+const CALM_TOP = 34;
 
 /**
  * The game in one loop: a Read card is swiped down for its Floor, turns over into the 7 of Clubs and
  * drops into the gap in a hand, which makes a Straight. It measures its box and scales to fit, so
  * nothing is clipped on a small phone. Still, on the finished hand, under Reduce Motion.
+ *
+ * Calm (over a form), it holds the finished hand and is only as tall as that hand, so the form sits
+ * right under it instead of below a band of empty table.
  */
 function HeroLoop({ calm }: { calm?: boolean }) {
   const t = useTheme();
+  const { width } = useWindowDimensions();
   const reduced = useReducedMotion();
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   const p = useSharedValue(0.7);
@@ -317,16 +350,25 @@ function HeroLoop({ calm }: { calm?: boolean }) {
     const { width, height } = e.nativeEvent.layout;
     setBox((b) => (b && Math.abs(b.w - width) < 1 && Math.abs(b.h - height) < 1 ? b : { w: width, h: height }));
   };
-  const scale = box ? Math.max(0.35, Math.min(1.3, box.w / STAGE.w, box.h / STAGE.h)) : 0;
+  // The part of the stage that shows: all of it, or from the caption down when calm.
+  const from = calm ? CALM_TOP : 0;
+  const shown = STAGE.h - from;
+  const scale = box ? Math.max(0.35, Math.min(1.3, box.w / STAGE.w, box.h / shown)) : 0;
+  // The stage scales about its own middle; this puts the middle of what shows in the middle of the box.
+  const stageTop = box ? box.h / 2 - STAGE.h / 2 - ((from + STAGE.h) / 2 - STAGE.h / 2) * scale : 0;
+  // As tall as the calm hand at the width it gets (the screen less its side margins), and no taller.
+  const calmHeight = Math.ceil(Math.min(1.3, (width - space.xl * 2) / STAGE.w) * shown);
 
   return (
-    <View onLayout={onLayout} style={{ flex: 1, minHeight: 120 }} aria-hidden accessible={false} importantForAccessibility="no-hide-descendants">
+    // Only art: it never takes a touch, so the Back link above it stays tappable where the stage reaches up.
+    <View onLayout={onLayout} style={{ flex: 1, minHeight: 120, maxHeight: calm ? calmHeight : undefined, pointerEvents: 'none' }} aria-hidden accessible={false} importantForAccessibility="no-hide-descendants">
       {box ? (
-        <View style={{ position: 'absolute', width: STAGE.w, height: STAGE.h, left: (box.w - STAGE.w) / 2, top: (box.h - STAGE.h) / 2, transform: [{ scale }] }}>
+        <View style={{ position: 'absolute', width: STAGE.w, height: STAGE.h, left: (box.w - STAGE.w) / 2, top: stageTop, transform: [{ scale }] }}>
           <View style={{ position: 'absolute', left: -14, right: -14, top: STAGE.h - FAN_H - 40, height: FAN_H + 46, borderRadius: radius.pill, backgroundColor: t.surface }} />
           <Fan p={p} dashed={t.dashed} />
           <Caption p={p} />
-          <Habit p={p} />
+          {/* Calm, the Read card has already been played; it would only flash above the hand while the loop settles. */}
+          {calm ? null : <Habit p={p} />}
           <Dealt p={p} />
         </View>
       ) : null}

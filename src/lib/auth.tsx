@@ -6,8 +6,14 @@ import { localDay } from '@/engine/day';
 
 import type { Backend } from './backend';
 import { createDemoBackend } from './demo';
-import { dealMeIn, friendlyAuthError } from './signIn';
+import { dealMeIn, deckDidntStart, friendlyAuthError } from './signIn';
 import { supabase } from './supabase';
+
+/**
+ * Which form the first screen opens on: the hero with "Deal me in", the sign-in form for a returning
+ * player, or the account form for a brand-new deck when a deck can't start without one.
+ */
+export type Opening = 'start' | 'sign-in' | 'new';
 
 type AuthState = {
   session: Session | null;
@@ -24,12 +30,16 @@ type AuthApi = AuthState & {
    * The deck lives with this phone's guest user, so signing out or deleting the app loses it.
    */
   guest: boolean;
+  /** Which form the first screen opens on, the next time it shows. */
+  opening: Opening;
   startDemo: () => void;
-  endDemo: () => void;
+  /** Leaves the demo for the first screen, opened on `opening` (the hero when left out). */
+  endDemo: (opening?: Opening) => void;
   /**
    * Leaves the demo and starts the player's own deck as a guest, straight into the first-run tour. If
    * a guest deck can't start (anonymous sign-ins switched off, no connection), it says so and offers
-   * to sign in instead, keeping the demo open meanwhile. Never rejects.
+   * to try again (when that could help), to sign in, or to start with an account, keeping the demo
+   * open meanwhile. Never rejects.
    */
   startOwnDeck: () => Promise<void>;
 };
@@ -61,11 +71,12 @@ function signedOut(who: SignedOut) {
   }
 }
 
-const AuthContext = createContext<AuthApi>({ session: null, user: null, ready: false, demo: null, guest: false, startDemo: () => {}, endDemo: () => {}, startOwnDeck: async () => {} });
+const AuthContext = createContext<AuthApi>({ session: null, user: null, ready: false, demo: null, guest: false, opening: 'start', startDemo: () => {}, endDemo: () => {}, startOwnDeck: async () => {} });
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<Omit<AuthState, 'demo'>>({ session: null, user: null, ready: false });
   const [demo, setDemo] = useState<Backend | null>(null);
+  const [opening, setOpening] = useState<Opening>('start');
   // The account signed in a moment ago, to notice when it leaves.
   const current = useRef<string | null>(null);
 
@@ -74,6 +85,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const id = session?.user?.id ?? null;
       if (current.current && current.current !== id) signedOut({ userId: current.current, demo: false });
       current.current = id;
+      // Whoever comes to the first screen after this starts on the hero again.
+      if (id) setOpening('start');
       setState({ session, user: session?.user ?? null, ready: true });
     };
     supabase.auth.getSession().then(({ data }) => seen(data.session));
@@ -82,31 +95,35 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   const api = useMemo<AuthApi>(() => {
-    const endDemo = () => {
+    const endDemo = (next: Opening = 'start') => {
       signedOut({ userId: null, demo: true });
+      setOpening(next);
       setDemo(null);
+    };
+    const startOwnDeck = async () => {
+      try {
+        // The guest deck starts first and the demo closes after, so a failure leaves the visitor where they were.
+        if (!state.session) await dealMeIn();
+        if (demo) endDemo();
+      } catch (e) {
+        const failed = deckDidntStart(friendlyAuthError(e, 'guest'));
+        ask(failed.title, failed.message, [
+          ...(failed.retry ? [{ text: 'Try again', onPress: () => void startOwnDeck() }] : []),
+          { text: failed.next.label, onPress: () => endDemo(failed.next.opening) },
+          { text: 'Keep exploring', style: 'cancel' as const },
+        ]);
+      }
     };
     return {
       ...state,
       demo,
       guest: state.user?.is_anonymous === true,
+      opening,
       startDemo: () => setDemo(createDemoBackend(localDay(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'))),
       endDemo,
-      startOwnDeck: async () => {
-        try {
-          // The guest deck starts first and the demo closes after, so a failure leaves the visitor where they were.
-          if (!state.session) await dealMeIn();
-          if (demo) endDemo();
-        } catch (e) {
-          const problem = friendlyAuthError(e, 'guest');
-          ask(problem.problem === 'guest-off' ? 'Sign in to start your deck' : 'Your deck didn’t start', problem.message, [
-            { text: 'Keep exploring', style: 'cancel' },
-            { text: 'Sign in instead', onPress: endDemo },
-          ]);
-        }
-      },
+      startOwnDeck,
     };
-  }, [state, demo]);
+  }, [state, demo, opening]);
 
   return <AuthContext.Provider value={api}>{children}</AuthContext.Provider>;
 }

@@ -104,11 +104,53 @@ describe('sign-in problems', () => {
     expect(release).toBeInstanceOf(SignInError);
     expect(release.problem).toBe('guest-off');
     expect(release.message).not.toMatch(/Anonymous sign-ins are disabled/);
-    expect(release.message).toMatch(/Sign in with Apple or your email/);
+    // It can show where there is no Apple button, so it names no way in, and never a setting being "switched on".
+    expect(release.message).toMatch(/first cards deal straight away/);
+    expect(release.message).not.toMatch(/Apple|switched|enabled|anonymous/i);
     expect(release.raw).toBe('Anonymous sign-ins are disabled');
     expect(friendlyAuthError(e, 'guest', true).message).toMatch(/\(Anonymous sign-ins are disabled\)$/);
     // "Already has a deck" is answered by the screen, so it never carries the raw text.
     expect(friendlyAuthError({ code: 'email_exists', message: 'Email exists' }, 'save-email', true).message).toBe('That one already has a deck.');
+  });
+});
+
+describe('a typed email address', () => {
+  it('asks for one when the field is empty', () => {
+    expect(signIn.checkEmail('')).toBe('Type your email address first.');
+    expect(signIn.checkEmail('   ')).toBe('Type your email address first.');
+  });
+
+  it('calls a half-typed address incomplete, not missing', () => {
+    for (const typo of ['alex@gmail', 'alex.gmail.com', 'alex@', '@gmail.com', 'alex@gmail.', 'alex@gmail.c', 'alex@@gmail.com']) {
+      expect(signIn.checkEmail(typo), typo).toBe('That email looks incomplete. Check it and try again.');
+    }
+  });
+
+  it('points at a stray space', () => {
+    expect(signIn.checkEmail('alex @gmail.com')).toMatch(/space/);
+  });
+
+  it('lets a real address through, spaces around it trimmed', () => {
+    for (const ok of ['alex@gmail.com', ' alex@gmail.com ', 'a.b+tag@mail.example.co.uk', 'x@y.io']) expect(signIn.checkEmail(ok), ok).toBeNull();
+  });
+});
+
+describe('a guest deck that didn’t start from the demo', () => {
+  const failure = (problem: 'guest-off' | 'offline' | 'busy' | 'other') => signIn.deckDidntStart(new SignInError(problem, `message for ${problem}`, ''));
+
+  it('offers to try again only when that could work', () => {
+    expect(failure('offline').retry).toBe(true);
+    expect(failure('other').retry).toBe(true);
+    expect(failure('busy').retry).toBe(false);
+    expect(failure('guest-off').retry).toBe(false);
+  });
+
+  it('sends someone with no way to start a guest deck to the new-deck form, never “welcome back”', () => {
+    expect(failure('guest-off')).toMatchObject({ title: 'Start with an account', next: { opening: 'new' } });
+  });
+
+  it('opens the sign-in form itself for “Sign in instead”', () => {
+    expect(failure('offline')).toMatchObject({ title: 'Your deck didn’t start', message: 'message for offline', next: { label: 'Sign in instead', opening: 'sign-in' } });
   });
 });
 

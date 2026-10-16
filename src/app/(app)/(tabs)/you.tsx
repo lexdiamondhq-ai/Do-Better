@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { Linking, Platform, Pressable, ScrollView, Share, TextInput, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { Linking, Pressable, ScrollView, TextInput, View, useColorScheme, useWindowDimensions } from 'react-native';
 
 import { ArrangeDeck } from '@/components/ArrangeDeck';
 import { ask, menu } from '@/components/Ask';
@@ -19,8 +19,9 @@ import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
 import { useDeck, useLook } from '@/lib/deck';
 import * as feel from '@/lib/feel';
+import { sendInvite } from '@/lib/invite';
 import { usePrefs } from '@/lib/prefs';
-import { playSound } from '@/lib/sound';
+import { playSound, setSoundSettings } from '@/lib/sound';
 import { supabase } from '@/lib/supabase';
 import type { Habit } from '@/lib/types';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
@@ -119,7 +120,7 @@ export default function You() {
 
       <Rows>
         <Row label="How it plays" detail="Every rule in a line" onPress={() => setRules(true)} />
-        <Row label="Deal a friend in" detail="Send them the app" onPress={dealAFriendIn} />
+        <Row label="Deal a friend in" detail="Send them the app" onPress={() => void dealAFriendIn()} />
       </Rows>
 
       <Account />
@@ -136,12 +137,12 @@ export default function You() {
   );
 }
 
-function dealAFriendIn() {
+/** Opens the share sheet with the pitch; where there is none, copies it and says so. Every tap gets an answer. */
+async function dealAFriendIn() {
   feel.tick();
-  const pitch = 'I’m keeping my habits with Do Better. Every day you keep one deals a playing card, and every week plays as a poker hand. No streaks to break.';
-  // iOS shares the link as its own item next to the words; Android only shares the message, so the link goes in it.
-  const content = !TESTFLIGHT_URL ? { message: pitch } : Platform.OS === 'ios' ? { message: pitch, url: TESTFLIGHT_URL } : { message: `${pitch}\n${TESTFLIGHT_URL}` };
-  Share.share(content).catch(() => {});
+  const outcome = await sendInvite(TESTFLIGHT_URL);
+  if (outcome === 'copied') ask('Copied', 'The invite is on your clipboard. Paste it to a friend wherever you talk.');
+  else if (outcome === 'failed') ask('Couldn’t open sharing', 'This device didn’t let Do Better share or copy. Tell a friend to look for Do Better.');
 }
 
 /* ---------------------------------------------------------------- north star */
@@ -152,6 +153,7 @@ function NorthStar({ northStar }: { northStar: string | null }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [height, setHeight] = useState(NORTH_STAR_MIN);
 
   async function save() {
     setBusy(true);
@@ -179,7 +181,11 @@ function NorthStar({ northStar }: { northStar: string | null }) {
             placeholder="I’m becoming someone who…"
             placeholderTextColor={t.onRaisedSecondary}
             keyboardAppearance={t.scheme}
-            style={{ fontFamily: fonts.display, fontSize: 28, lineHeight: 32, color: t.onRaised, minHeight: 80 }}
+            selectionColor={t.onRaised}
+            // It grows with the sentence, up to six lines, so the start of it never scrolls out of view.
+            onContentSizeChange={(e) => setHeight(Math.min(NORTH_STAR_MAX, Math.max(NORTH_STAR_MIN, Math.ceil(e.nativeEvent.contentSize.height))))}
+            scrollEnabled={height >= NORTH_STAR_MAX}
+            style={{ fontFamily: fonts.display, fontSize: 28, lineHeight: 32, color: t.onRaised, height, padding: 0, textAlignVertical: 'top', outlineWidth: 0 }}
           />
           <View style={{ flexDirection: 'row', gap: space.sm }}>
             <Button label="Save" busy={busy} onPress={save} colors={{ bg: t.onRaised, fg: t.raised }} style={{ flex: 1 }} />
@@ -192,6 +198,7 @@ function NorthStar({ northStar }: { northStar: string | null }) {
           accessibilityHint="Edit your north star"
           onPress={() => {
             setDraft(northStar ?? '');
+            setHeight(NORTH_STAR_MIN);
             setEditing(true);
           }}
           style={{ gap: space.sm }}
@@ -207,6 +214,10 @@ function NorthStar({ northStar }: { northStar: string | null }) {
     </View>
   );
 }
+
+/** The north star editor: two lines to begin with, six at most. */
+const NORTH_STAR_MIN = 64;
+const NORTH_STAR_MAX = 192;
 
 /* ---------------------------------------------------------------- the Court */
 
@@ -293,8 +304,9 @@ function CourtColumn({ suit, cardW, piles, onFind }: { suit: CourtSuit; cardW: n
             <Display size={typeScale.display.sm} maxFontSizeMultiplier={fontScale.chrome}>
               {formatChips(suit.votes)}
             </Display>
-            <Body size={11} weight="heavy" color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome} style={{ textAlign: 'center' }}>
-              {next ? `${next.needed} to the ${next.face.name}` : 'Every face'}
+            {/* Short enough for one line in a column on the narrowest phone ("1 to the Queen" wrapped at 375 points). */}
+            <Body size={11} weight="heavy" color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome} numberOfLines={2} style={{ textAlign: 'center' }}>
+              {next ? `${next.needed} to ${next.face.name}` : 'Every face'}
             </Body>
           </>
         )}
@@ -517,7 +529,8 @@ function Archived({ archived }: { archived: Habit[] }) {
                 </Body>
                 <Body size={12} color={t.textSecondary} numberOfLines={1}>{`${SUIT_INFO[h.suit].part} · ${h.floorLabel}`}</Body>
               </View>
-              <Button label="Return to deck" variant="quiet" busy={busy === h.id} disabled={!!busy && busy !== h.id} onPress={() => restore(h)} style={{ paddingHorizontal: space.md }} />
+              {/* The row's one action, solid in the card's own colour so it never reads as switched off. */}
+              <Button label="Return to deck" variant="quiet" colors={{ bg: c.bg, fg: c.ink }} busy={busy === h.id} disabled={!!busy && busy !== h.id} onPress={() => restore(h)} style={{ paddingHorizontal: space.md }} />
             </View>
           );
         })}
@@ -529,6 +542,9 @@ function Archived({ archived }: { archived: Habit[] }) {
 function Feel() {
   const t = useTheme();
   const { prefs, setPrefs } = usePrefs();
+  // Turning a setting on plays one sample of it. The setting reaches the sound and haptics modules
+  // through an effect after the next render, too late for the sample, so it is passed on here first.
+  const music = prefs.music;
   return (
     <Section title="Sound and feel">
       <Rows>
@@ -539,7 +555,9 @@ function Feel() {
           on={prefs.sounds}
           onChange={(sounds) => {
             setPrefs({ sounds });
-            if (sounds) playSound('tap');
+            if (!sounds) return;
+            setSoundSettings({ sounds: true, music });
+            playSound('tap');
           }}
         />
         <Toggle
@@ -548,7 +566,9 @@ function Feel() {
           on={prefs.haptics}
           onChange={(haptics) => {
             setPrefs({ haptics });
-            if (haptics) feel.tick();
+            if (!haptics) return;
+            feel.setFeelSettings({ haptics: true });
+            feel.tick();
           }}
         />
       </Rows>
@@ -590,7 +610,7 @@ function Account() {
   const leaveDemo = () =>
     menu('Leave the demo?', 'That was a made-up player ten weeks in. Your own deck deals today.', [
       { text: 'Deal me in', onPress: () => void startOwnDeck() },
-      { text: 'Back to the first screen', onPress: endDemo },
+      { text: 'Back to the first screen', onPress: () => endDemo() },
       { text: 'Keep exploring', style: 'cancel' },
     ]);
 
@@ -619,7 +639,7 @@ function Account() {
         {PRIVACY_URL ? <Row label="Privacy" detail="What Do Better keeps, and why" onPress={() => Linking.openURL(PRIVACY_URL).catch(() => {})} /> : null}
         {FEEDBACK_EMAIL ? <Row label="Send feedback" detail="Straight to the person who makes it" onPress={() => Linking.openURL(`mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent('Do Better feedback')}`).catch(() => {})} /> : null}
         <Row label="Delete my deck" detail={demo ? 'Start the demo from the first deal' : 'Cards, kept days, hands and calls'} danger onPress={confirmDelete} />
-        {demo ? <Row label="Leave the demo" onPress={leaveDemo} /> : <Row label={guest ? 'Save my deck first' : 'Sign out'} detail={guest ? 'Signing out deletes this deck' : undefined} onPress={signOut} />}
+        {demo ? <Row label="Leave the demo" onPress={leaveDemo} /> : <Row label="Sign out" detail={guest ? 'Your deck isn’t saved yet' : undefined} onPress={signOut} />}
       </Rows>
       <SaveSheet visible={saving} onClose={() => setSaving(false)} />
     </Section>
