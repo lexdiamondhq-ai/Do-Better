@@ -127,6 +127,7 @@ export function createDemoBackend(today: Day): Backend {
     calls,
   };
   const copy = (): Loaded => ({ ...state, habits: [...state.habits], days: [...state.days], prompts: [...state.prompts], calls: [...state.calls] });
+  let made = 0;
 
   return {
     seed: pickSeed(today, habits, days),
@@ -140,22 +141,22 @@ export function createDemoBackend(today: Day): Backend {
     async deleteDay(habitId, day) {
       state.days = state.days.filter((d) => !(d.habitId === habitId && d.day === day));
     },
-    async createHabit(draft, startedOn, position) {
-      const habit: Habit = {
+    async createHabits(drafts, startedOn, position) {
+      const habits = drafts.map<Habit>((draft, i) => ({
         ...draft,
         suitSet: true,
-        id: `demo-${Date.now()}`,
+        id: `demo-new-${++made}`,
         identity: draft.identity.trim() || null,
         twoMinuteLabel: draft.twoMinuteLabel.trim() || null,
         anchor: draft.anchor.trim() || null,
         whenWhere: draft.whenWhere.trim() || null,
         why: draft.why.trim() || null,
-        position,
+        position: position + i,
         startedOn,
         archivedAt: null,
-      };
-      state.habits = [...state.habits, habit];
-      return habit;
+      }));
+      state.habits = [...state.habits, ...habits];
+      return habits;
     },
     async updateHabit(id, draft) {
       const old = state.habits.find((h) => h.id === id);
@@ -175,6 +176,10 @@ export function createDemoBackend(today: Day): Backend {
     },
     async archiveHabit(id, archivedAt) {
       state.habits = state.habits.map((h) => (h.id === id ? { ...h, archivedAt } : h));
+    },
+    async updatePositions(moves) {
+      const to = new Map(moves.map((m) => [m.id, m.position]));
+      state.habits = state.habits.map((h) => (to.has(h.id) ? { ...h, position: to.get(h.id)! } : h));
     },
     async savePrompt(prompt) {
       const old = state.prompts.find((p) => p.habitId === prompt.habitId && p.missedDay === prompt.missedDay);

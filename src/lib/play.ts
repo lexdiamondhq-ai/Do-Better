@@ -1,6 +1,6 @@
 import type { Suit } from '@/engine/cards';
 import { newFaces, summarizeCourt, type CourtHabit, type CourtSuit, type FaceInfo } from '@/engine/court';
-import { localDay, weekStart, type Day } from '@/engine/day';
+import { archivedDay, weekStart, type Day } from '@/engine/day';
 import type { DayCard, DealHabit } from '@/engine/deal';
 import { dealEvent, playGame, playLiveWeek, playPastWeeks, type DealEvent, type Game, type GameInput, type Week } from '@/engine/game';
 import { indexCheckIns, type Level } from '@/engine/kept';
@@ -11,7 +11,7 @@ import type { Habit } from './types';
 
 /** Habits as the deal sees them. An archived habit leaves the deck on the local day it was archived. */
 export function dealHabits(habits: readonly Habit[], timezone: string): DealHabit[] {
-  return habits.map((h) => ({ id: h.id, suit: h.suit, startedOn: h.startedOn, archivedOn: h.archivedAt ? localDay(new Date(h.archivedAt), timezone) : null }));
+  return habits.map((h) => ({ id: h.id, suit: h.suit, startedOn: h.startedOn, archivedOn: h.archivedAt ? archivedDay(h.archivedAt, timezone) : null }));
 }
 
 export function courtHabits(habits: readonly Habit[]): CourtHabit[] {

@@ -20,9 +20,13 @@ export interface Backend {
   load(timezone: string): Promise<Loaded>;
   saveDay(habitId: string, day: Day, level: Level): Promise<void>;
   deleteDay(habitId: string, day: Day): Promise<void>;
-  createHabit(draft: HabitDraft, startedOn: Day, position: number): Promise<Habit>;
+  /** Makes every card in one write, so a retry after a failure can't leave half a deck behind. Positions count up from `position`. */
+  createHabits(drafts: readonly HabitDraft[], startedOn: Day, position: number): Promise<Habit[]>;
   updateHabit(id: string, draft: HabitDraft): Promise<Habit>;
-  archiveHabit(id: string, archivedAt: string): Promise<void>;
+  /** Sets or clears `archived_at`. The app writes the local day encoded by `archivedAtFor`. */
+  archiveHabit(id: string, archivedAt: string | null): Promise<void>;
+  /** Moves cards to new places in the deck. */
+  updatePositions(moves: readonly { id: string; position: number }[]): Promise<void>;
   savePrompt(prompt: RecoveryPrompt): Promise<void>;
   /** Takes back the answer to a Comeback prompt, so the Comeback shows again. The prompt itself stays. */
   clearPrompt(habitId: string, missedDay: Day): Promise<void>;
@@ -42,7 +46,7 @@ function friendly(error: { code?: string; message: string }): Error {
   return new Error(error.message);
 }
 
-/** Supabase caps a select at 1,000 rows, so page through check-ins. */
+/** Supabase caps a select at 1,000 rows, so page through check-ins, in an order with no ties so no row is skipped or repeated. */
 async function fetchAllDays(userId: string): Promise<HabitDay[]> {
   const out: HabitDay[] = [];
   const page = 1000;
@@ -52,6 +56,7 @@ async function fetchAllDays(userId: string): Promise<HabitDay[]> {
       .select('habit_id, day, level')
       .eq('owner_id', userId)
       .order('day', { ascending: true })
+      .order('habit_id', { ascending: true })
       .range(from, from + page - 1);
     if (error) throw friendly(error);
     for (const r of data ?? []) out.push({ habitId: r.habit_id, day: r.day, level: r.level });
@@ -101,14 +106,12 @@ export function supabaseBackend(userId: string): Backend {
       if (error) throw friendly(error);
     },
 
-    async createHabit(draft, startedOn, position) {
-      const { data, error } = await supabase
-        .from('habits')
-        .insert({ ...draftToRow(draft), owner_id: userId, started_on: startedOn, position })
-        .select('*')
-        .single();
+    async createHabits(drafts, startedOn, position) {
+      if (!drafts.length) return [];
+      const rows = drafts.map((d, i) => ({ ...draftToRow(d), owner_id: userId, started_on: startedOn, position: position + i }));
+      const { data, error } = await supabase.from('habits').insert(rows).select('*');
       if (error) throw friendly(error);
-      return habitFromRow(data);
+      return (data ?? []).map(habitFromRow).sort((a, b) => a.position - b.position);
     },
 
     async updateHabit(id, draft) {
@@ -120,6 +123,13 @@ export function supabaseBackend(userId: string): Backend {
     async archiveHabit(id, archivedAt) {
       const { error } = await supabase.from('habits').update({ archived_at: archivedAt }).eq('id', id);
       if (error) throw friendly(error);
+    },
+
+    async updatePositions(moves) {
+      // One small update per card: an upsert would need every required column.
+      const results = await Promise.all(moves.map(({ id, position }) => supabase.from('habits').update({ position }).eq('id', id)));
+      const failed = results.find((r) => r.error)?.error;
+      if (failed) throw friendly(failed);
     },
 
     async savePrompt({ habitId, missedDay, recoveryDay, response }) {

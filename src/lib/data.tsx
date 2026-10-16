@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 import { AppState } from 'react-native';
 
-import { canBackfill, localDay, msUntilNextDay, weekStart, type Day } from '@/engine/day';
+import { archivedAtFor, archivedDay, canBackfill, localDay, msUntilNextDay, weekStart, type Day } from '@/engine/day';
 import { playGame } from '@/engine/game';
 import type { Level } from '@/engine/kept';
 import { checkInLane, createLedger, levelIn, step, type Lane, type Outcome, type Step } from '@/engine/ledger';
@@ -9,7 +9,7 @@ import type { HandKind } from '@/engine/poker';
 
 import type { Backend, Loaded } from './backend';
 import { forgetMoments, gameInput, momentsOf, newMemory, type CheckInMade, type GameEvent, type Moment } from './play';
-import type { Habit, HabitDraft, RecoveryPrompt, RecoveryResponse } from './types';
+import { draftFromHabit, type Habit, type HabitDraft, type RecoveryPrompt, type RecoveryResponse } from './types';
 
 export type { GameEvent } from './play';
 
@@ -29,9 +29,23 @@ type DataApi = {
   checkIn: (habitId: string, level: Level, day?: Day) => Promise<void>;
   /** Takes back a check-in: today's unless `day` is a yesterday that `canBackfill` still allows changing. */
   undoCheckIn: (habitId: string, day?: Day) => Promise<void>;
+  /** Makes one card, starting today, at the end of the deck. */
   createHabit: (draft: HabitDraft) => Promise<Habit>;
+  /**
+   * Makes several cards in one write (onboarding). A card from a recipe already in the deck is skipped,
+   * so a retry after a failure never doubles a card. Resolves to the cards actually made.
+   */
+  createHabits: (drafts: readonly HabitDraft[]) => Promise<Habit[]>;
   updateHabit: (id: string, draft: HabitDraft) => Promise<void>;
+  /** Takes a card out of the deck from today. Its kept days still count. */
   archiveHabit: (id: string) => Promise<void>;
+  /**
+   * Puts an archived card back. One archived today simply returns. One archived earlier comes back as
+   * a new card starting today, so its old weeks and hands never change; the old card stays archived.
+   */
+  restoreHabit: (id: string) => Promise<Habit>;
+  /** Puts the deck in this order: `ids` first to last. */
+  updatePositions: (ids: readonly string[]) => Promise<void>;
   /** Writes the Comeback prompt the first time it is shown, and again with the response. */
   recordPrompt: (habitId: string, missedDay: Day, response: RecoveryResponse | null) => Promise<void>;
   saveProfile: (patch: { northStar?: string | null; onboarded?: boolean }) => Promise<void>;
@@ -60,6 +74,13 @@ const callLane = (week: Day): Lane<Loaded, HandKind | null> => ({
   key: `call:${week}`,
   read: (d) => d.calls.find((c) => c.weekStart === week)?.hand ?? null,
   write: (d, hand) => ({ ...d, calls: [...d.calls.filter((c) => c.weekStart !== week), ...(hand ? [{ weekStart: week, hand }] : [])] }),
+});
+
+/** Where one card sits in the deck. */
+const positionLane = (id: string): Lane<Loaded, number> => ({
+  key: `position:${id}`,
+  read: (d) => d.habits.find((h) => h.id === id)?.position ?? 0,
+  write: (d, position) => ({ ...d, habits: d.habits.map((h) => (h.id === id ? { ...h, position } : h)) }),
 });
 
 /** The Comeback prompt for one habit's missed day. */
@@ -279,17 +300,43 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
     [backend, begin, settle, syncToday],
   );
 
-  const createHabit = useCallback(
-    async (draft: HabitDraft) => {
+  /** Makes cards at the end of the deck, starting today, in one write. */
+  const insertHabits = useCallback(
+    async (drafts: readonly HabitDraft[]): Promise<Habit[]> => {
       const s = store.current;
       const position = s.status === 'ready' ? s.habits.reduce((max, h) => Math.max(max, h.position + 1), 0) : 0;
-      const habit = await backend.createHabit(draft, syncToday(), position);
-      const add = (d: Loaded): Loaded => ({ ...d, habits: [...d.habits.filter((h) => h.id !== habit.id), habit] });
+      const made = await backend.createHabits(drafts, syncToday(), position);
+      const ids = new Set(made.map((h) => h.id));
+      const add = (d: Loaded): Loaded => ({ ...d, habits: [...d.habits.filter((h) => !ids.has(h.id)), ...made] });
       ledger.note(add);
       update(add);
-      return habit;
+      return made;
     },
     [backend, ledger, update, syncToday],
+  );
+
+  const createHabit = useCallback(
+    async (draft: HabitDraft) => {
+      const [habit] = await insertHabits([draft]);
+      if (!habit) throw new Error('That card didn’t save. Try again.');
+      return habit;
+    },
+    [insertHabits],
+  );
+
+  const createHabits = useCallback(
+    async (drafts: readonly HabitDraft[]) => {
+      const s = store.current;
+      const taken = new Set(s.status === 'ready' ? s.habits.filter((h) => !h.archivedAt && h.recipeKey).map((h) => h.recipeKey) : []);
+      const fresh = drafts.filter((d) => {
+        if (!d.recipeKey) return true;
+        if (taken.has(d.recipeKey)) return false;
+        taken.add(d.recipeKey);
+        return true;
+      });
+      return fresh.length ? insertHabits(fresh) : [];
+    },
+    [insertHabits],
   );
 
   const updateHabit = useCallback(
@@ -304,13 +351,51 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
 
   const archiveHabit = useCallback(
     async (id: string) => {
-      const archivedAt = new Date().toISOString();
+      // The local day it left the deck, encoded so a change of time zone can never move it.
+      const archivedAt = archivedAtFor(syncToday());
       await backend.archiveHabit(id, archivedAt);
       const put = (d: Loaded): Loaded => ({ ...d, habits: d.habits.map((h) => (h.id === id ? { ...h, archivedAt } : h)) });
       ledger.note(put);
       update(put);
     },
-    [backend, ledger, update],
+    [backend, ledger, update, syncToday],
+  );
+
+  const restoreHabit = useCallback(
+    async (id: string) => {
+      const s = store.current;
+      const habit = s.status === 'ready' ? s.habits.find((h) => h.id === id) : undefined;
+      if (!habit) throw new Error('That card isn’t in your deck any more.');
+      if (!habit.archivedAt) return habit;
+      const today = syncToday();
+      if (archivedDay(habit.archivedAt, s.status === 'ready' ? s.profile.timezone : 'UTC') === today) {
+        // Nothing has been dealt since it left, so it can simply come back.
+        await backend.archiveHabit(id, null);
+        const back = { ...habit, archivedAt: null };
+        const put = (d: Loaded): Loaded => ({ ...d, habits: d.habits.map((h) => (h.id === id ? back : h)) });
+        ledger.note(put);
+        update(put);
+        return back;
+      }
+      // Clearing an older archive would deal it into every day since it left and change finished hands.
+      return createHabit(draftFromHabit(habit));
+    },
+    [backend, ledger, update, syncToday, createHabit],
+  );
+
+  const updatePositions = useCallback(
+    async (ids: readonly string[]) => {
+      const s = store.current;
+      if (s.status !== 'ready') return;
+      const moves = ids.map((id, position) => ({ id, position })).filter(({ id, position }) => s.habits.find((h) => h.id === id)?.position !== position);
+      if (!moves.length) return;
+      const started = begin(
+        moves.map(({ id, position }) => step(positionLane(id), position)),
+        () => backend.updatePositions(moves),
+      );
+      if (started) await settle(started.done);
+    },
+    [backend, begin, settle],
   );
 
   const recordPrompt = useCallback(
@@ -366,13 +451,16 @@ export function DataProvider({ backend, children }: PropsWithChildren<{ backend:
       checkIn,
       undoCheckIn,
       createHabit,
+      createHabits,
       updateHabit,
       archiveHabit,
+      restoreHabit,
+      updatePositions,
       recordPrompt,
       saveProfile,
       callHand,
     }),
-    [state, today, backend, checkIn, undoCheckIn, createHabit, updateHabit, archiveHabit, recordPrompt, saveProfile, callHand],
+    [state, today, backend, checkIn, undoCheckIn, createHabit, createHabits, updateHabit, archiveHabit, restoreHabit, updatePositions, recordPrompt, saveProfile, callHand],
   );
 
   // Its own context, so a toast coming and going doesn't redraw every screen that reads the deck.
