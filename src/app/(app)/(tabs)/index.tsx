@@ -1,7 +1,7 @@
-import { useNavigation, useRouter } from 'expo-router';
+import { useIsFocused, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, AppState, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, interpolateColor, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { scheduleOnUI } from 'react-native-worklets';
@@ -12,13 +12,13 @@ import { Chips } from '@/components/Chips';
 import { ComebackCard, HabitCard, WelcomeCard } from '@/components/HabitCard';
 import { faceLabel, faceOfDay, PlayingCard } from '@/components/PlayingCard';
 import { ReminderPrompt, useReminderPromptDue } from '@/components/ReminderPrompt';
-import { RulesButton } from '@/components/RulesSheet';
+import { RulesSheet } from '@/components/RulesSheet';
 import { SuitGlyph } from '@/components/Suit';
 import { DeckCard, LIFT, SwipeCard, type SwipeDirection, type SwipeHandle } from '@/components/SwipeCard';
 import { Body, Button, Display, Label, raisedStyle, TableSurface } from '@/components/ui';
 import { WeekStrip } from '@/components/WeekStrip';
-import { addDays, canBackfill } from '@/engine/day';
-import type { Game, TipTone } from '@/engine/game';
+import { addDays, canBackfill, weekday } from '@/engine/day';
+import { lastShowdown, type Game, type TipTone } from '@/engine/game';
 import type { Level } from '@/engine/kept';
 import { HANDS, makesCall } from '@/engine/poker';
 import {
@@ -30,8 +30,11 @@ import {
   densityFor,
   feltFor,
   grouped,
+  handLineCopy,
+  ideaLabel,
   identityLine,
   interruptionFor,
+  JOKER_LINE,
   keptLine,
   keyMove,
   laterTag,
@@ -59,6 +62,8 @@ const COACH = 'coach:first-swipe';
 const TAB_BAR = 56;
 const FIRST_MOVE_NOTE = 'First move done. Today is kept.';
 const TIP_MARK: Record<TipTone, string> = { joker: '★', face: '♛', rescue: '↺', deal: '✦', climb: '↑', draw: '◆', call: '◎', showdown: '☾', done: '✓' };
+/** How long the Undo chip stays, counted only while no big moment covers the screen. */
+const UNDO_MS = 6000;
 
 /** One card on the table as it was dealt: what it is, and how it was allowed to go when it was in front. */
 type Play = { key: string; item: QueueItem; view: HabitView | null; allow: Allow; from: number; appear: 'deal' | 'flip' };
@@ -79,6 +84,7 @@ function Table({ deck }: { deck: Deck }) {
   const navigation = useNavigation();
   const { height: windowHeight, fontScale: textScale } = useWindowDimensions();
   const { demo, startOwnDeck } = useAuth();
+  const inFront = useIsFocused();
   const { back } = useLook();
   const { checkIn, undoCheckIn, recordPrompt, seed } = useData();
   const { events } = useEvents();
@@ -156,8 +162,14 @@ function Table({ deck }: { deck: Deck }) {
 
   // One interruption at a time --------------------------------------------------------------------------
   const moment = momentOf(events);
+  // A face card, the first card or a milestone covers the screen; a receipt only drops in at the top.
+  const bigMoment = !!moment && moment.kind !== 'receipt';
   const reminderDue = useReminderPromptDue();
   const coachDue = ready && !coachClosed && deck.cards.length > 0 && deck.totals.kept === 0 && !hasSeen(prefs, seed, COACH);
+  // The same test the tabs use to open a finished week's Showdown: the reminder question waits behind it.
+  const showdown = lastShowdown(game);
+  const seenShowdown = prefs.showdownSeen[seed];
+  const showdownPending = !!showdown && (!!demo || !seenShowdown || showdown.start > seenShowdown);
   const interruption = interruptionFor({
     moment: !!moment,
     coachDue,
@@ -165,9 +177,12 @@ function Table({ deck }: { deck: Deck }) {
     visitAfterKeeping: visitKept,
     faceToday: game.faces.some((f) => f.day === deck.today),
     comebackToday: deck.cards.some((c) => !!c.neverTwice),
+    inFront,
+    showdownPending,
   });
 
-  const tips = todayTips(game.tips);
+  // While the swipe hint shows on a first look, the line above the deck stays quiet (bar the warm-up's own line).
+  const tips = todayTips(game.tips, { warmup: game.current.warmup, firstLook: coachDue });
   const tip = tips.length ? tips[tipTurn % tips.length] : null;
 
   // Effects ---------------------------------------------------------------------------------------------
@@ -235,11 +250,12 @@ function Table({ deck }: { deck: Deck }) {
     });
   }, [frontKey, frontFelt, nextFelt, pull, feltNow, feltNext]);
 
+  // The chip's few seconds don't run out behind a face card or a milestone: they start again when it closes.
   useEffect(() => {
-    if (!move) return;
-    const id = setTimeout(() => setMove(null), 6000);
+    if (!move || bigMoment) return;
+    const id = setTimeout(() => setMove(null), UNDO_MS);
     return () => clearTimeout(id);
-  }, [move]);
+  }, [move, bigMoment]);
 
   const table = useAnimatedStyle(() => ({ backgroundColor: interpolateColor(pull.get(), [0, 1], [feltNow.get(), feltNext.get()]) }));
 
@@ -344,6 +360,8 @@ function Table({ deck }: { deck: Deck }) {
         text: `Make it a Floor day`,
         onPress: () => {
           feel.tick();
+          // The Undo chip now offers to take back this change (back to the Ceiling), never to clear the day.
+          setMove((m) => ({ habitId: id, name: view.habit.name, level: 'floor', was: 'ceiling', n: (m?.n ?? 0) + 1 }));
           checkIn(id, 'floor').catch(fail);
         },
       });
@@ -418,6 +436,8 @@ function Table({ deck }: { deck: Deck }) {
     }
     if (!view) return null;
     const habit = view.habit;
+    // The front card's ⋯ opens its page (calendar, numbers, edit). Cards behind show it as a picture.
+    const onOpen = live ? () => router.push(`/habit/${habit.id}`) : null;
     if (item.kind === 'comeback') {
       const folded = compact || density.foldComeback;
       return (
@@ -429,6 +449,9 @@ function Table({ deck }: { deck: Deck }) {
           compact={folded}
           lean={density.leanComeback}
           tight={density.tightComeback}
+          tiny={density.tinyComeback}
+          roomy={density.roomyComeback}
+          onOpen={onOpen}
           onFirstMove={live ? () => fling('down', { note: FIRST_MOVE_NOTE, tag: 'first' }) : undefined}
           onFloor={live ? () => fling('down') : undefined}
           onCeiling={live ? () => fling('up') : undefined}
@@ -442,6 +465,7 @@ function Table({ deck }: { deck: Deck }) {
         level={view.today}
         tag={laterTag(view.partOfDay, now)}
         compact={compact}
+        onOpen={onOpen}
         onFloor={live && item.kind !== 'reach' ? () => fling('down') : undefined}
         onCeiling={live ? () => fling('up') : undefined}
       />
@@ -502,7 +526,16 @@ function Table({ deck }: { deck: Deck }) {
     </View>
   ) : null;
   const handLine = hasCards ? (
-    <HandLine game={game} tip={density.mergeTip ? tip : null} tipCount={tips.length} onTip={() => setTipTurn((n) => n + 1)} onHands={() => router.push('/hands')} onCall={() => router.push(game.callOpen ? '/call' : '/hands')} />
+    <HandLine
+      game={game}
+      sunday={weekday(deck.today) === 6}
+      tip={density.mergeTip ? tip : null}
+      tipCount={tips.length}
+      tipTurn={tipTurn}
+      onTip={() => setTipTurn((n) => n + 1)}
+      onHands={() => router.push('/hands')}
+      onCall={() => router.push(game.callOpen ? '/call' : '/hands')}
+    />
   ) : null;
   const banner = hasCards && !density.mergeTip && tip ? <TipBanner tip={tip} count={tips.length} turn={tipTurn} onNext={() => setTipTurn((n) => n + 1)} /> : null;
   const pills = hasCards ? <Pills cards={deck.cards} frontId={front?.item.kind === 'welcome' ? null : (front?.item.id ?? null)} onPill={onPill} onOpen={(id) => router.push(`/habit/${id}`)} onNew={() => router.push('/habit/edit')} /> : null;
@@ -555,7 +588,15 @@ function Table({ deck }: { deck: Deck }) {
           <View style={{ flex: 1, marginHorizontal: space.lg, marginTop: hasCards && front ? (compact ? space.lg : space.xl) : space.md }}>
             <View style={{ flex: 1 }} onLayout={(e) => setDeckHeight(Math.round(e.nativeEvent.layout.height))}>
               {front ? null : hasCards ? (
-                <AllKept deck={deck} keptCount={keptCount} compact={compact} under={bottomPad} onReach={floorKept.some((c) => !reach?.skipped.includes(c.habit.id)) ? startReach : null} onIdea={() => router.push('/playbook')} />
+                <AllKept
+                  deck={deck}
+                  keptCount={keptCount}
+                  compact={compact}
+                  under={bottomPad}
+                  undo={move ? <UndoChip move={move} onUndo={() => takeBack(move)} /> : null}
+                  onReach={floorKept.some((c) => !reach?.skipped.includes(c.habit.id)) ? startReach : null}
+                  onIdea={() => router.push('/playbook')}
+                />
               ) : (
                 <EmptyDeck onCreate={() => router.push('/habit/edit')} />
               )}
@@ -605,13 +646,7 @@ function Table({ deck }: { deck: Deck }) {
             </View>
           ) : null}
         </View>
-        {!front && hasCards ? <BottomFade height={bottomPad + TAP + space.xl} /> : null}
-        {!front && move ? (
-          // The last card's check-in can be taken back too, from just above the tab bar.
-          <View pointerEvents="box-none" style={{ position: 'absolute', left: space.lg, right: space.lg, bottom: bottomPad, flexDirection: 'row' }}>
-            <UndoChip move={move} onUndo={() => takeBack(move)} />
-          </View>
-        ) : null}
+        {!front && hasCards ? <BottomFade height={fadeHeight(bottomPad)} /> : null}
       </ThemeScope>
       {interruption === 'reminder' ? <ReminderPrompt /> : null}
     </View>
@@ -629,6 +664,9 @@ type KeyEvent = {
 };
 
 // Chrome ------------------------------------------------------------------------------------------------
+
+/** How tall the fade over the page's foot is. The all-kept page leaves this much room under its last line, so it ends clear of it. */
+const fadeHeight = (bottomPad: number) => bottomPad + TAP + space.xl;
 
 /** The table's own colour rising over the page's foot, so what scrolls under the floating tab bar fades away instead of being cut. */
 function BottomFade({ height }: { height: number }) {
@@ -692,37 +730,89 @@ function Header({ deck, demo, compact, onStartOwn, onStack }: { deck: Deck; demo
   );
 }
 
-/** The week's hand so far, what it pays, and the call. */
-function HandLine({ game, tip, tipCount, onTip, onHands, onCall }: { game: Game; tip: { tone: TipTone; text: string } | null; tipCount: number; onTip: () => void; onHands: () => void; onCall: () => void }) {
+/**
+ * The week's hand so far and what it pays, a "?" for the rules, and the call. The hand's name may take two
+ * lines and the payout sits on the label's line as a chip, so neither is ever cut beside the call.
+ */
+function HandLine({
+  game,
+  sunday,
+  tip,
+  tipCount,
+  tipTurn,
+  onTip,
+  onHands,
+  onCall,
+}: {
+  game: Game;
+  sunday: boolean;
+  tip: { tone: TipTone; text: string } | null;
+  tipCount: number;
+  tipTurn: number;
+  onTip: () => void;
+  onHands: () => void;
+  onCall: () => void;
+}) {
   const t = useTheme();
+  const [rules, setRules] = useState(false);
   const week = game.current;
-  const label = week.warmup ? 'Warm-up hand' : week.hand ? `Your hand · pays ${week.chips}` : 'Your hand';
-  const title = week.hand?.title ?? 'No cards yet';
+  const copy = handLineCopy({ warmup: week.warmup, hand: week.hand, chips: week.chips, sunday });
   return (
     <View style={{ marginHorizontal: space.xl, marginTop: space.sm, gap: 4 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${label}: ${title}`}
+          accessibilityLabel={copy.spoken}
           accessibilityHint="Opens your hands"
           onPress={onHands}
-          style={({ pressed }) => ({ flex: 1, gap: 1, opacity: pressed ? 0.75 : 1 })}
+          style={({ pressed }) => ({ flex: 1, gap: 2, opacity: pressed ? 0.75 : 1 })}
         >
-          <Label numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
-            {label}
-          </Label>
-          <Display size={22} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
-            {title}
+          {/* On a narrow screen "Showdown tonight" keeps its words and the payout drops under it. */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 6, rowGap: 2 }}>
+            <Label numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
+              {copy.label}
+            </Label>
+            {copy.pays !== null ? <Chips value={copy.pays} size={11} pill /> : null}
+          </View>
+          <Display size={22} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 25 }}>
+            {copy.title}
           </Display>
         </Pressable>
-        <RulesButton topic="week" />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Rules"
+          accessibilityHint="Opens how the game plays."
+          hitSlop={6}
+          onPress={() => {
+            feel.tick();
+            setRules(true);
+          }}
+          style={({ pressed }) => ({ width: 34, height: 34, borderRadius: 17, borderWidth: 1.5, borderColor: t.border, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}
+        >
+          <Display size={17} maxFontSizeMultiplier={fontScale.graphic}>
+            ?
+          </Display>
+        </Pressable>
         <CallChip game={game} onPress={onCall} />
       </View>
+      <RulesSheet visible={rules} topic="week" onClose={() => setRules(false)} />
       {tip ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={tip.text} accessibilityHint={tipCount > 1 ? 'Shows the next tip' : undefined} onPress={onTip} hitSlop={{ top: 4, bottom: 8 }}>
-          <Body size={12} weight="heavy" numberOfLines={2} color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 16 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={tip.text}
+          accessibilityHint={tipCount > 1 ? 'Shows the next tip' : undefined}
+          onPress={onTip}
+          hitSlop={{ top: 4, bottom: 8 }}
+          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}
+        >
+          <Body size={12} weight="heavy" numberOfLines={2} color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome} style={{ flex: 1, lineHeight: 16 }}>
             {`${TIP_MARK[tip.tone]}  ${tip.text}`}
           </Body>
+          {tipCount > 1 ? (
+            <Body size={11} weight="heavy" color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 16 }}>
+              {`${(tipTurn % tipCount) + 1}/${tipCount} ›`}
+            </Body>
+          ) : null}
         </Pressable>
       ) : null}
     </View>
@@ -747,7 +837,7 @@ function CallChip({ game, onPress }: { game: Game; onPress: () => void }) {
         alignItems: 'flex-end',
         borderRadius: radius.md,
         paddingVertical: 4,
-        paddingHorizontal: 12,
+        paddingHorizontal: 10,
         backgroundColor: made ? t.text : 'transparent',
         borderWidth: 2,
         borderColor: t.text,
@@ -801,11 +891,49 @@ function TipBanner({ tip, count, turn, onNext }: { tip: { tone: TipTone; text: s
   );
 }
 
-/** Every card in the deck as a pill: kept ones in their colour, waiting ones as outlines. */
+/**
+ * Every card in the deck as a pill: kept ones in their colour, waiting ones as outlines. The row scrolls
+ * by itself, just enough to keep the front card's pill in view as the front card changes.
+ */
 function Pills({ cards, frontId, onPill, onOpen, onNew }: { cards: HabitView[]; frontId: string | null; onPill: (view: HabitView) => void; onOpen: (id: string) => void; onNew: () => void }) {
   const t = useTheme();
+  const scroll = useRef<ScrollView>(null);
+  const room = useRef({ x: 0, width: 0, spots: new Map<string, { x: number; w: number }>() });
+
+  /** Scrolls just enough to show a pill whole, with the row's padding around it. */
+  const reveal = (id: string | null) => {
+    const r = room.current;
+    const spot = id ? r.spots.get(id) : undefined;
+    if (!spot || !r.width) return;
+    const pad = space.lg;
+    let x = r.x;
+    if (spot.x - pad < r.x) x = Math.max(0, spot.x - pad);
+    else if (spot.x + spot.w + pad > r.x + r.width) x = spot.x + spot.w + pad - r.width;
+    if (x === r.x) return;
+    r.x = x;
+    scroll.current?.scrollTo({ x, animated: true });
+  };
+
+  useEffect(() => {
+    reveal(frontId);
+  });
+
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginTop: space.md }} contentContainerStyle={{ paddingHorizontal: space.lg, gap: 6, alignItems: 'center' }}>
+    <ScrollView
+      ref={scroll}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={{ flexGrow: 0, marginTop: space.md }}
+      contentContainerStyle={{ paddingHorizontal: space.lg, gap: 6, alignItems: 'center' }}
+      scrollEventThrottle={32}
+      onScroll={(e) => {
+        room.current.x = e.nativeEvent.contentOffset.x;
+      }}
+      onLayout={(e) => {
+        room.current.width = e.nativeEvent.layout.width;
+        reveal(frontId);
+      }}
+    >
       {cards.map((view) => {
         const c = cardColors[view.habit.color];
         const kept = view.today;
@@ -823,6 +951,11 @@ function Pills({ cards, frontId, onPill, onOpen, onNew }: { cards: HabitView[]; 
             }}
             onPress={() => onPill(view)}
             onLongPress={() => onOpen(view.habit.id)}
+            onLayout={(e) => {
+              const { x, width } = e.nativeEvent.layout;
+              room.current.spots.set(view.habit.id, { x, w: width });
+              if (isFront) reveal(view.habit.id);
+            }}
             hitSlop={{ top: 5, bottom: 5 }}
             style={({ pressed }) => ({
               flexDirection: 'row',
@@ -926,9 +1059,10 @@ function Coach({ onClose }: { onClose: () => void }) {
 
 function Progress({ front, kept, total, reaching }: { front: Play; kept: number; total: number; reaching: boolean }) {
   const t = useTheme();
-  const text = reaching ? 'Any Ceiling still in reach?' : front.item.kind === 'welcome' ? 'Nothing was lost.' : total - kept === 1 ? 'Last card today' : `${kept} of ${total} kept today`;
+  // Short enough to sit beside Done and "Not today" on the narrowest phone.
+  const text = reaching ? 'Ceiling in reach?' : front.item.kind === 'welcome' ? 'Nothing was lost.' : total - kept === 1 ? 'Last card today' : `${kept} of ${total} kept today`;
   return (
-    <Body weight="heavy" size={14} color={t.textSecondary} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
+    <Body weight="heavy" size={14} color={t.textSecondary} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1, lineHeight: 18 }}>
       {text}
     </Body>
   );
@@ -936,8 +1070,27 @@ function Progress({ front, kept, total, reaching }: { front: Play; kept: number;
 
 // When the deck is done --------------------------------------------------------------------------------
 
-/** Every card kept: today's card, the hand it makes, and something worth doing next. */
-function AllKept({ deck, keptCount, compact = false, under = 0, onReach, onIdea }: { deck: Deck; keptCount: number; compact?: boolean; under?: number; onReach: (() => void) | null; onIdea: () => void }) {
+/**
+ * Every card kept: today's card, the hand it makes, and something worth doing next. `undo` is the last
+ * check-in's Undo chip, shown in the page's own flow so it never covers a line of it.
+ */
+function AllKept({
+  deck,
+  keptCount,
+  compact = false,
+  under = 0,
+  undo = null,
+  onReach,
+  onIdea,
+}: {
+  deck: Deck;
+  keptCount: number;
+  compact?: boolean;
+  under?: number;
+  undo?: ReactNode;
+  onReach: (() => void) | null;
+  onIdea: () => void;
+}) {
   const t = useTheme();
   const card = deck.todayCard;
   const week = deck.game.current;
@@ -946,8 +1099,13 @@ function AllKept({ deck, keptCount, compact = false, under = 0, onReach, onIdea 
   const north = deck.profile.northStar?.trim();
   const joker = card?.kind === 'joker';
   return (
-    // `under` lets the page run on under the floating tab bar, so nothing looks cut off where it stops.
-    <ScrollView style={{ marginHorizontal: -space.sm, marginBottom: -under }} contentContainerStyle={{ gap: space.lg, paddingBottom: under + space.lg, paddingTop: space.sm, paddingHorizontal: space.sm }} showsVerticalScrollIndicator={false}>
+    // `under` lets the page run on under the floating tab bar, so nothing looks cut off where it stops; at
+    // its end the last line sits above the fade over the tab bar, never inside it.
+    <ScrollView
+      style={{ marginHorizontal: -space.sm, marginBottom: -under }}
+      contentContainerStyle={{ gap: space.lg, paddingBottom: under ? fadeHeight(under) + space.sm : space.lg, paddingTop: space.sm, paddingHorizontal: space.sm }}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
         {card ? (
           <View accessible accessibilityLabel={`Today’s card: ${faceLabel(faceOfDay(card))}`} style={{ transform: [{ rotate: '-6deg' }], marginLeft: space.xs }}>
@@ -955,50 +1113,67 @@ function AllKept({ deck, keptCount, compact = false, under = 0, onReach, onIdea 
           </View>
         ) : null}
         <View style={{ flex: 1, gap: space.xs }}>
-          <Label maxFontSizeMultiplier={fontScale.chrome}>{card ? `Today’s card · ${faceLabel(faceOfDay(card))}` : 'Today'}</Label>
+          {/* One short line: the card beside it shows which card it is, and VoiceOver reads its name from the card. */}
+          <Label numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} aria-hidden={!!card}>
+            {card ? 'Today’s card' : 'Today'}
+          </Label>
           <Display size={compact ? 32 : 40} header maxFontSizeMultiplier={fontScale.chrome}>
             {copy.title}
           </Display>
           <Body size={15} weight="bold" maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 20 }}>
-            {joker ? 'Today’s card is a Joker: it plays as any card in this week’s hand.' : copy.hand}
+            {joker ? `Today’s card is a Joker. ${JOKER_LINE}` : copy.hand}
           </Body>
         </View>
       </View>
 
+      {undo ? (
+        <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(180)} style={{ flexDirection: 'row' }}>
+          {undo}
+        </Animated.View>
+      ) : null}
+
       {climb ? (
-        <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-start' }}>
+        <Animated.View layout={LinearTransition.duration(220)} style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-start' }}>
           <Display size={18} aria-hidden>
             ↑
           </Display>
           <Body size={14} weight="bold" color={t.textSecondary} style={{ flex: 1 }}>
             {climb.text}
           </Body>
-        </View>
+        </Animated.View>
       ) : null}
 
-      {onReach ? <Button label="Any Ceiling still in reach?" variant="ghost" onPress={onReach} hint="Shows your Floor-kept cards again, one at a time" /> : null}
+      {onReach ? (
+        <Animated.View layout={LinearTransition.duration(220)}>
+          <Button label="Any Ceiling still in reach?" variant="ghost" onPress={onReach} hint="Shows your Floor-kept cards again, one at a time" />
+        </Animated.View>
+      ) : null}
 
       {north ? (
-        <View style={{ borderLeftWidth: 3, borderLeftColor: t.text, paddingLeft: space.md, gap: 2 }}>
+        <Animated.View layout={LinearTransition.duration(220)} style={{ borderLeftWidth: 3, borderLeftColor: t.text, paddingLeft: space.md, gap: 2 }}>
           <Label maxFontSizeMultiplier={fontScale.chrome}>Your North Star</Label>
           <Display size={20}>{`“${north}”`}</Display>
-        </View>
+        </Animated.View>
       ) : null}
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityHint="Opens the Playbook"
-        onPress={onIdea}
-        style={({ pressed }) => [{ borderRadius: radius.lg, padding: space.lg, paddingHorizontal: space.xl, gap: space.xs, opacity: pressed ? 0.9 : 1 }, raisedStyle(t)]}
-      >
-        <Label color={t.onRaisedSecondary} maxFontSizeMultiplier={fontScale.chrome}>{`Today’s idea · ${deck.idea.reason.replace(/\.$/, '')}`}</Label>
-        <Display size={22} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
-          {deck.idea.principle.title}
-        </Display>
-        <Body size={15} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
-          {deck.idea.principle.tryThis}
-        </Body>
-      </Pressable>
+      <Animated.View layout={LinearTransition.duration(220)}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityHint="Opens the Playbook"
+          onPress={onIdea}
+          style={({ pressed }) => [{ borderRadius: radius.lg, padding: space.lg, paddingHorizontal: space.xl, gap: space.xs, opacity: pressed ? 0.9 : 1 }, raisedStyle(t)]}
+        >
+          <Label color={t.onRaisedSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+            {ideaLabel(deck.idea.reason)}
+          </Label>
+          <Display size={22} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
+            {deck.idea.principle.title}
+          </Display>
+          <Body size={15} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
+            {deck.idea.principle.tryThis}
+          </Body>
+        </Pressable>
+      </Animated.View>
     </ScrollView>
   );
 }
