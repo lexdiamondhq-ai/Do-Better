@@ -1,105 +1,516 @@
-import { View, type StyleProp, type ViewStyle } from 'react-native';
+import type { ReactNode } from 'react';
+import { Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 
 import { SUIT_INFO } from '@/engine/cards';
 import type { Level } from '@/engine/kept';
 import { playsLine } from '@/engine/playbook';
+import { comebackCopy, grouped, identityLine, type ComebackGap } from '@/engine/today';
 import type { Habit } from '@/lib/types';
+import { withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cardColors, radius, space } from '@/theme/tokens';
+import { cardColors, chip, fontScale, fonts, INK, on, radius, space, TAP, type Theme } from '@/theme/tokens';
 
 import { SuitGlyph } from './Suit';
-import { Body, Display, Label, raisedStyle } from './ui';
+import { CardButton } from './SwipeCard';
+import { Body, Label } from './ui';
 
-/** "♣ MIND · I'm a reader": the part of you this card deals for, and who it says you are. */
-function Identity({ habit, ink }: { habit: Habit; ink: string }) {
-  const who = habit.identity ? ` · I'm ${habit.identity.replace(/^(i am|i'm)\s+/i, '')}` : '';
+/** The shadow and edge every card on the table wears, so even a pale card stands clear of its own felt. */
+export function cardShadow(edge: string): ViewStyle {
+  return { borderWidth: 1, borderColor: edge, boxShadow: '0 18px 36px rgba(23, 18, 31, 0.26), 0 3px 8px rgba(23, 18, 31, 0.12)' };
+}
+
+/** The colours that sit on a habit's card: its ink, a quieter ink that still reads, and a tint for tiles. */
+function inksOf(habit: Habit) {
+  const c = cardColors[habit.color];
+  const o = on(c.bg);
+  return { c, ink: c.ink, quiet: o.secondary, tile: withAlpha(INK, 0.1), edge: withAlpha(INK, 0.14) };
+}
+
+/** A big name or headline that shrinks to fit its lines instead of being cut off. Never grows past chrome size. */
+function Fit({ children, size, color, lines = 2, style }: { children: ReactNode; size: number; color: string; lines?: number; style?: StyleProp<TextStyle> }) {
+  return (
+    <Text
+      numberOfLines={lines}
+      adjustsFontSizeToFit
+      minimumFontScale={0.6}
+      maxFontSizeMultiplier={fontScale.chrome}
+      selectable={false}
+      style={[{ fontFamily: fonts.display, fontSize: size, lineHeight: Math.round(size * 1.06), letterSpacing: -size * 0.012, color }, style]}
+    >
+      {children}
+    </Text>
+  );
+}
+
+/** A tappable row on a card, or the same row as a picture when there is nothing to tap. */
+function Press({ onPress, label, style, children, testID }: { onPress?: () => void; label: string; style?: StyleProp<ViewStyle>; children: ReactNode; testID?: string }) {
+  if (!onPress) return <View style={style}>{children}</View>;
+  return (
+    <CardButton onPress={onPress} label={label} style={style} testID={testID}>
+      {children}
+    </CardButton>
+  );
+}
+
+/** A big round arrow: the way to swipe, drawn inside the button that does the same. */
+function Arrow({ arrow, fg, bg, size = 48 }: { arrow: string; fg: string; bg: string; size?: number }) {
+  return (
+    <View aria-hidden style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+      <Text allowFontScaling={false} style={{ fontFamily: fonts.display, fontSize: Math.round(size * 0.52), lineHeight: Math.round(size * 0.62), color: fg }}>
+        {arrow}
+      </Text>
+    </View>
+  );
+}
+
+/** "♣ MIND · YOU'RE A READER": the part of you this card deals for, and who it says you are. */
+function Identity({ habit, color }: { habit: Habit; color: string }) {
+  const who = identityLine(habit.identity);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-      <SuitGlyph suit={habit.suit} size={14} color={ink} />
-      <Label color={ink} style={{ opacity: 0.8, flexShrink: 1 }}>{`${SUIT_INFO[habit.suit].part}${who}`}</Label>
+      <SuitGlyph suit={habit.suit} size={14} color={color} />
+      <Label color={color} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
+        {`${SUIT_INFO[habit.suit].part}${who ? ` · ${who.replace(/\.$/, '')}` : ''}`}
+      </Label>
     </View>
   );
 }
 
-function Direction({ arrow, label, value, ink, circleBg, circleFg }: { arrow: string; label: string; value: string; ink: string; circleBg: string; circleFg: string }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: circleBg, alignItems: 'center', justifyContent: 'center' }}>
-        <Display size={20} color={circleFg}>{arrow}</Display>
+/** A headline's size from its length, so a long identity still fits its lines without being cut. */
+function headSize(text: string, big: number): number {
+  const n = text.length;
+  return n > 34 ? Math.round(big * 0.68) : n > 24 ? Math.round(big * 0.82) : big;
+}
+
+function nameSize(name: string, compact: boolean): number {
+  const n = name.trim().length;
+  if (compact) return n > 14 ? 30 : n > 9 ? 36 : 42;
+  return n > 14 ? 42 : n > 9 ? 50 : 60;
+}
+
+/**
+ * The face of a habit card: the Ceiling on top, the name in the middle, the Floor at the bottom, the way
+ * the card swipes. Both ways are buttons too, so a tap does what a swipe does. `compact` folds both into
+ * one row at the bottom, for short screens. With no handlers it is a picture, as in the edit preview and
+ * the cards waiting behind the front one.
+ */
+export function HabitCard({
+  habit,
+  level,
+  subtitle,
+  tag,
+  compact = false,
+  onFloor,
+  onCeiling,
+  style,
+}: {
+  habit: Habit;
+  level?: Level | null;
+  subtitle?: string;
+  /** A small note on the card, such as "Plays tonight". */
+  tag?: string | null;
+  compact?: boolean;
+  onFloor?: () => void;
+  onCeiling?: () => void;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const { c, ink, quiet, tile, edge } = inksOf(habit);
+  const floorKept = level === 'floor';
+  const ceilingLabel = `Reach the Ceiling: ${habit.ceilingLabel}`;
+  const floorLabel = `Keep the Floor: ${habit.floorLabel}`;
+
+  const watermark = (
+    <View pointerEvents="none" aria-hidden style={{ position: 'absolute', right: -30, bottom: compact ? -46 : -34, opacity: 0.09, transform: [{ rotate: '-12deg' }] }}>
+      <SuitGlyph suit={habit.suit} size={compact ? 180 : 250} color={ink} />
+    </View>
+  );
+
+  const middle = (
+    <View style={{ gap: compact ? 4 : space.sm }}>
+      <Identity habit={habit} color={quiet} />
+      <Fit size={nameSize(habit.name, compact)} color={ink}>
+        {habit.name}
+      </Fit>
+      {subtitle ? (
+        <Body weight="bold" size={15} color={ink} maxFontSizeMultiplier={fontScale.chrome}>
+          {subtitle}
+        </Body>
+      ) : null}
+      {tag || habit.anchor ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
+          {tag ? (
+            <View style={{ borderRadius: radius.pill, paddingVertical: 3, paddingHorizontal: 10, backgroundColor: ink }}>
+              <Body size={12} weight="heavy" color={c.bg} maxFontSizeMultiplier={fontScale.chrome}>
+                {tag}
+              </Body>
+            </View>
+          ) : null}
+          {habit.anchor ? (
+            <Body size={14} weight="semi" color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
+              {`${playsLine(habit.anchor)}${habit.whenWhere ? ` · ${habit.whenWhere}` : ''}`}
+            </Body>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const floorDone = (
+    <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: ink, borderRadius: radius.pill, paddingVertical: 9, paddingHorizontal: 14, maxWidth: '100%' }}>
+      <Body weight="heavy" size={14} color={c.bg} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
+        {`✓ Floor kept · ${habit.floorLabel}`}
+      </Body>
+    </View>
+  );
+
+  if (compact) {
+    const half = (arrow: string, word: string, value: string, label: string, onPress?: () => void, testID?: string) => (
+      <Press
+        onPress={onPress}
+        label={label}
+        testID={testID}
+        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: tile, borderRadius: radius.lg, padding: 6, paddingRight: space.sm }}
+      >
+        <Arrow arrow={arrow} fg={c.bg} bg={ink} size={40} />
+        <View style={{ flex: 1 }}>
+          <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+            {word}
+          </Label>
+          <Body weight="heavy" size={14} color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 18 }}>
+            {value}
+          </Body>
+        </View>
+      </Press>
+    );
+    return (
+      <View style={[{ flex: 1, backgroundColor: c.bg, borderRadius: radius.card, padding: space.lg, paddingTop: space.xl, justifyContent: 'space-between', overflow: 'hidden', ...cardShadow(edge) }, style]}>
+        {watermark}
+        {middle}
+        {floorKept ? (
+          <View style={{ gap: space.sm }}>
+            {floorDone}
+            <View style={{ flexDirection: 'row' }}>{half('↑', 'Ceiling', habit.ceilingLabel, ceilingLabel, onCeiling, 'card-ceiling')}</View>
+          </View>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            {half('↓', 'Floor', habit.floorLabel, floorLabel, onFloor, 'card-floor')}
+            {half('↑', 'Ceiling', habit.ceilingLabel, ceilingLabel, onCeiling, 'card-ceiling')}
+          </View>
+        )}
       </View>
+    );
+  }
+
+  const row = (arrow: string, word: string, value: string, label: string, onPress?: () => void, testID?: string) => (
+    <Press
+      onPress={onPress}
+      label={label}
+      testID={testID}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, backgroundColor: tile, borderRadius: radius.pill, padding: 7, paddingRight: space.lg }}
+    >
+      <Arrow arrow={arrow} fg={c.bg} bg={ink} />
       <View style={{ flex: 1 }}>
-        <Label color={ink} style={{ opacity: 0.7 }}>{label}</Label>
-        <Body weight="bold" size={15} color={ink} numberOfLines={2}>{value}</Body>
-      </View>
-    </View>
-  );
-}
-
-/** The face of a habit card: Ceiling on top, the name in the middle, the Floor at the bottom. */
-export function HabitCard({ habit, level, subtitle, style }: { habit: Habit; level?: Level | null; subtitle?: string; style?: StyleProp<ViewStyle> }) {
-  const c = cardColors[habit.color];
-  const upgraded = level === 'floor';
-  return (
-    <View style={[{ flex: 1, backgroundColor: c.bg, borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }, style]}>
-      <Direction arrow="↑" label={upgraded ? 'Swipe up · reach the Ceiling' : 'Swipe up · Ceiling'} value={habit.ceilingLabel} ink={c.ink} circleBg="#17121F" circleFg={c.bg} />
-      <View style={{ gap: space.sm }}>
-        <Identity habit={habit} ink={c.ink} />
-        <Display size={habit.name.length > 12 ? 44 : 58} color={c.ink} numberOfLines={3}>{habit.name}</Display>
-        {subtitle ? <Body weight="bold" size={15} color={c.ink} style={{ opacity: 0.85 }}>{subtitle}</Body> : null}
-        {habit.anchor ? <Body size={14} color={c.ink} style={{ opacity: 0.8 }}>{playsLine(habit.anchor)}{habit.whenWhere ? ` · ${habit.whenWhere}` : ''}</Body> : null}
-      </View>
-      {upgraded ? (
-        <View style={{ alignSelf: 'flex-start', backgroundColor: '#17121F', borderRadius: radius.pill, paddingVertical: 8, paddingHorizontal: 14 }}>
-          <Body weight="heavy" size={13} color={c.bg}>Floor kept ✓ {habit.floorLabel}</Body>
-        </View>
-      ) : (
-        <Direction arrow="↓" label="Swipe down · Floor" value={habit.floorLabel} ink={c.ink} circleBg="#17121F" circleFg={c.bg} />
-      )}
-    </View>
-  );
-}
-
-/** The dark side of a card, shown the morning after a miss. */
-export function NeverTwiceCard({ habit, week, saving, style }: { habit: Habit; week: ('kept' | 'ceiling' | 'missed' | 'today' | 'none')[]; saving?: boolean; style?: StyleProp<ViewStyle> }) {
-  const t = useTheme();
-  const c = cardColors[habit.color];
-  return (
-    <View style={[{ flex: 1, ...raisedStyle(t), borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }, style]}>
-      <View style={{ gap: space.md }}>
-        <Label color={t.onRaisedSecondary}>{`Comeback · ${habit.name}`}</Label>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
-          {week.map((w, i) => (
-            <View
-              key={i}
-              style={{
-                flex: 1,
-                aspectRatio: 0.75,
-                borderRadius: 6,
-                backgroundColor: w === 'ceiling' ? c.bg : w === 'kept' ? c.bg : 'transparent',
-                opacity: w === 'kept' ? 0.55 : 1,
-                borderWidth: w === 'missed' || w === 'today' || w === 'none' ? 1.5 : 0,
-                borderStyle: w === 'today' ? 'solid' : 'dashed',
-                borderColor: w === 'today' ? t.onCardBack : 'rgba(255,255,255,0.4)',
-              }}
-            />
-          ))}
-        </View>
-      </View>
-      <View style={{ gap: space.sm }}>
-        <Display size={48} color={c.onDark}>Yesterday got away.</Display>
-        <Body weight="bold" size={16} color={t.onCardBack}>
-          {saving ? 'One day off changes nothing. Keep this today and yesterday still gets its card.' : 'One day off changes nothing. Here is the easy way back in.'}
+        <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+          {word}
+        </Label>
+        <Body weight="heavy" size={17} color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 22 }}>
+          {value}
         </Body>
       </View>
-      <View style={{ gap: space.md }}>
-        {habit.twoMinuteLabel ? (
-          <View style={{ borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)', borderRadius: radius.pill, paddingVertical: 12, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', gap: space.md }}>
-            <Body weight="bold" size={14} color={t.onCardBack} style={{ flexShrink: 0 }}>Tap for your first move</Body>
-            <Body size={14} color={t.onCardBack} style={{ opacity: 0.7, flexShrink: 1, textAlign: 'right' }} numberOfLines={1}>{habit.twoMinuteLabel}</Body>
+    </Press>
+  );
+
+  return (
+    <View style={[{ flex: 1, backgroundColor: c.bg, borderRadius: radius.card, padding: space.lg, justifyContent: 'space-between', gap: space.md, overflow: 'hidden', ...cardShadow(edge) }, style]}>
+      {watermark}
+      {row('↑', floorKept ? 'Still in reach · Ceiling' : 'Ceiling', habit.ceilingLabel, ceilingLabel, onCeiling, 'card-ceiling')}
+      <View style={{ paddingHorizontal: space.sm }}>{middle}</View>
+      {floorKept ? <View style={{ paddingHorizontal: space.sm }}>{floorDone}</View> : row('↓', 'Floor', habit.floorLabel, floorLabel, onFloor, 'card-floor')}
+    </View>
+  );
+}
+
+/** The dark side of a card, raised off the table, with its lit edge. */
+function darkCard(t: Theme): ViewStyle {
+  return {
+    flex: 1,
+    backgroundColor: t.raised,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: t.scheme === 'light' ? withAlpha(INK, 0.4) : t.edge,
+    overflow: 'hidden',
+    boxShadow: `inset 0 1px 0 ${t.highlight}, 0 18px 36px rgba(10, 8, 14, 0.32)`,
+  };
+}
+
+/**
+ * The card's other side, the day after a miss: an easier way back in. It leads with who the player is
+ * becoming and the kept days that prove it, then offers the first move, which keeps today on its own.
+ * Nothing on it keeps a day by accident: only Done it, the Floor and Ceiling buttons, or a swipe.
+ * `compact` keeps only the first move, Done it and the Floor (with a small Ceiling arrow); logging
+ * yesterday stays on the card only when the screen passes `onLogYesterday`, and is always on the week strip.
+ */
+export function ComebackCard({
+  habit,
+  kept,
+  gap,
+  saving,
+  compact = false,
+  lean = false,
+  tight = false,
+  onFirstMove,
+  onFloor,
+  onCeiling,
+  onLogYesterday,
+  style,
+}: {
+  habit: Habit;
+  /** Kept days on this card so far. */
+  kept: number;
+  gap: ComebackGap;
+  /** Keeping anything today also saves yesterday's card. */
+  saving?: boolean;
+  compact?: boolean;
+  /** Folded with a little less room: the evidence line stays, the why goes. */
+  lean?: boolean;
+  /** Folded on a short screen too: no room even for the evidence line. */
+  tight?: boolean;
+  onFirstMove?: () => void;
+  onFloor?: () => void;
+  onCeiling?: () => void;
+  /** Yesterday can still be logged, for "Did it, forgot to log". Left out where there's no room; the week strip has it too. */
+  onLogYesterday?: () => void;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const t = useTheme();
+  const c = cardColors[habit.color];
+  const copy = comebackCopy({ name: habit.name, identity: habit.identity, kept, gap });
+  const firstMove = habit.twoMinuteLabel?.trim() || null;
+  const ink = t.onRaised;
+  const quiet = t.onRaisedSecondary;
+  const accent = c.onDark;
+  const line = withAlpha(t.onRaised, 0.22);
+  const why = habit.why?.trim() || null;
+
+  const doneIt = (
+    <Press
+      onPress={firstMove ? onFirstMove : onFloor}
+      label={firstMove ? `Done it: ${firstMove}. Keeps today.` : `Keep the Floor: ${habit.floorLabel}`}
+      testID="comeback-done"
+      style={{ flex: firstMove ? undefined : 1, minHeight: 48, borderRadius: radius.pill, backgroundColor: accent, paddingVertical: space.md, paddingHorizontal: space.lg, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+    >
+      <Body weight="heavy" size={16} color={INK} maxFontSizeMultiplier={fontScale.chrome} numberOfLines={1}>
+        {firstMove ? 'Done it' : '↓ Keep the Floor'}
+      </Body>
+    </Press>
+  );
+
+  const floorButton = (
+    <Press
+      onPress={onFloor}
+      label={`Keep the Floor: ${habit.floorLabel}`}
+      testID="comeback-floor"
+      style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 48, borderRadius: radius.pill, borderWidth: 1.5, borderColor: line, paddingVertical: 5, paddingLeft: 5, paddingRight: space.md }}
+    >
+      <Arrow arrow="↓" fg={INK} bg={accent} size={36} />
+      <View style={{ flex: 1 }}>
+        <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+          Floor
+        </Label>
+        <Body weight="heavy" size={14} color={ink} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 18 }}>
+          {habit.floorLabel}
+        </Body>
+      </View>
+    </Press>
+  );
+
+  /** The Ceiling, as a round arrow beside the Floor: still a full way in, never the loudest. */
+  const ceilingButton = (
+    <Press
+      onPress={onCeiling}
+      label={`Reach the Ceiling: ${habit.ceilingLabel}`}
+      testID="comeback-ceiling"
+      style={{ alignItems: 'center', justifyContent: 'center', minHeight: 48, minWidth: 48, borderRadius: radius.pill, borderWidth: 1.5, borderColor: line, padding: 5 }}
+    >
+      <Arrow arrow="↑" fg={INK} bg={withAlpha(accent, 0.85)} size={36} />
+    </Press>
+  );
+
+  const yesterday = onLogYesterday ? (
+    <Press onPress={onLogYesterday} label="Did it yesterday, forgot to log" testID="comeback-yesterday" style={{ alignSelf: 'center', justifyContent: 'center', paddingHorizontal: space.md, minHeight: TAP }}>
+      <Body weight="heavy" size={14} color={ink} maxFontSizeMultiplier={fontScale.chrome} style={{ textDecorationLine: 'underline', textDecorationColor: line }}>
+        ↺ Did it, forgot to log
+      </Body>
+    </Press>
+  ) : null;
+
+  const eyebrow = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      <SuitGlyph suit={habit.suit} size={14} color={accent} />
+      <Label color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
+        {`Comeback · ${habit.name}`}
+      </Label>
+    </View>
+  );
+
+  /** The hero of the card: the first move, with Done it beside it. */
+  const move = (big: boolean) => (
+    <View
+      style={{
+        gap: big ? space.sm : 6,
+        backgroundColor: withAlpha(accent, 0.12),
+        borderRadius: radius.lg,
+        borderWidth: 2,
+        borderStyle: 'dashed',
+        borderColor: withAlpha(accent, 0.7),
+        padding: big ? space.md : space.sm,
+        paddingLeft: big ? space.lg : space.md,
+      }}
+    >
+      <Label color={accent} maxFontSizeMultiplier={fontScale.chrome}>
+        {firstMove ? 'First move · counts today' : 'The way back in'}
+      </Label>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+        <Fit size={big ? 24 : 19} color={ink} lines={big && !compact ? 3 : 2} style={{ flex: 1 }}>
+          {firstMove ?? habit.floorLabel}
+        </Fit>
+        {firstMove ? doneIt : null}
+      </View>
+    </View>
+  );
+
+  const watermark = (
+    <View pointerEvents="none" aria-hidden style={{ position: 'absolute', right: -40, top: compact ? 30 : 60, opacity: 0.1, transform: [{ rotate: '14deg' }] }}>
+      <SuitGlyph suit={habit.suit} size={compact ? 200 : 260} color={accent} />
+    </View>
+  );
+
+  if (compact) {
+    // Folded: who you are, the first move and Done it, then the Floor. Yesterday is logged from the week strip.
+    return (
+      <View style={[darkCard(t), { padding: 14, paddingHorizontal: space.lg, justifyContent: 'space-between', gap: space.sm }, style]}>
+        {tight ? null : watermark}
+        {/* If a long name ever needs more room than the card has, these lines give way, never the way in below them. */}
+        <View style={{ gap: tight ? 2 : space.xs, flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>
+          {eyebrow}
+          <Fit size={tight ? headSize(copy.headline, 24) : headSize(copy.headline, 34)} color={accent} lines={2}>
+            {copy.headline}
+          </Fit>
+          {tight ? null : (
+            <Body size={14} weight="bold" color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 19 }}>
+              {/* Straight after who you are, so "say so" backs the headline; "One day off" already names the miss. */}
+              {copy.evidence}
+            </Body>
+          )}
+          {tight || lean ? null : saving ? (
+            <Body size={13} weight="bold" color={quiet} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
+              Keep it today and yesterday still gets its card.
+            </Body>
+          ) : why ? (
+            <Body size={13} weight="semi" color={quiet} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 17 }}>
+              {`Why: ${why}`}
+            </Body>
+          ) : null}
+        </View>
+        {/* The way in stays together at the bottom, under the thumb, with any spare room above it. */}
+        <View style={{ gap: space.sm }}>
+          {move(!tight)}
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            {firstMove ? floorButton : doneIt}
+            {ceilingButton}
           </View>
+          {yesterday}
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[darkCard(t), { padding: space.xl, paddingTop: space.lg, paddingBottom: space.lg, justifyContent: 'space-between', gap: space.md }, style]}>
+      {watermark}
+      <View style={{ gap: space.sm, flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>
+        {eyebrow}
+        <Body size={14} weight="heavy" color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+          {`${copy.eyebrow}.`}
+        </Body>
+        <Fit size={headSize(copy.headline, 40)} color={accent} lines={2}>
+          {copy.headline}
+        </Fit>
+        <Body size={15} weight="bold" color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 20 }}>
+          {copy.evidence}
+        </Body>
+        {saving ? (
+          <Body size={13} weight="bold" color={quiet} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 18 }}>
+            Keep it today and yesterday still gets its card.
+          </Body>
+        ) : why ? (
+          <Body size={13} weight="semi" color={quiet} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 18 }}>
+            {`Why: ${why}`}
+          </Body>
         ) : null}
-        <Direction arrow="↓" label="Swipe down · Floor" value={habit.floorLabel} ink={t.onCardBack} circleBg={c.onDark} circleFg="#17121F" />
+      </View>
+      <View style={{ gap: space.sm }}>
+        {move(true)}
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          {firstMove ? floorButton : doneIt}
+          {ceilingButton}
+        </View>
+        {yesterday}
       </View>
     </View>
   );
 }
+
+/**
+ * The card in front of the deck after a few days away. It checks nothing in: any swipe, or its button,
+ * just opens the deck. It says what is still here, never how long the player was gone.
+ */
+export function WelcomeCard({ kept, faces, chips: stack, compact = false, onOpen }: { kept: number; faces: number; chips: number; compact?: boolean; onOpen?: () => void }) {
+  const t = useTheme();
+  const ink = t.onRaised;
+  const quiet = t.onRaisedSecondary;
+  const stats: { n: string; what: string; color: string }[] = [
+    { n: grouped(kept), what: kept === 1 ? 'kept day' : 'kept days', color: ink },
+    { n: grouped(faces), what: faces === 1 ? 'face card' : 'face cards', color: ink },
+    { n: grouped(stack), what: 'chips', color: chip.bg },
+  ];
+  return (
+    <View style={[darkCard(t), { padding: compact ? space.lg : space.xl, justifyContent: 'space-between', gap: space.md }]}>
+      <View style={{ gap: space.sm }}>
+        <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+          Welcome back
+        </Label>
+        <Fit size={compact ? 28 : 38} color={ink} lines={compact ? 2 : 3}>
+          Everything you built is still here.
+        </Fit>
+      </View>
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        {stats.map((s) => (
+          <View key={s.what} style={{ flex: 1, borderRadius: radius.md, borderWidth: 1.5, borderColor: withAlpha(ink, 0.18), paddingVertical: compact ? space.sm : space.md, paddingHorizontal: space.sm, gap: 2 }}>
+            <Text allowFontScaling={false} numberOfLines={1} adjustsFontSizeToFit style={{ fontFamily: fonts.display, fontSize: compact ? 24 : 30, color: s.color }}>
+              {s.n}
+            </Text>
+            <Body size={12} weight="heavy" color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+              {s.what}
+            </Body>
+          </View>
+        ))}
+      </View>
+      <View style={{ gap: space.md }}>
+        {compact ? null : (
+          <Body size={15} weight="bold" color={ink} maxFontSizeMultiplier={fontScale.chrome}>
+            Nothing was lost. Pick one card to start with; the rest can wait.
+          </Body>
+        )}
+        {onOpen ? (
+          <Press onPress={onOpen} label="Show my cards" testID="welcome-open" style={{ minHeight: 48, borderRadius: radius.pill, backgroundColor: ink, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.xl }}>
+            <Body weight="heavy" size={16} color={t.raised} maxFontSizeMultiplier={fontScale.chrome}>
+              Show my cards
+            </Body>
+          </Press>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
