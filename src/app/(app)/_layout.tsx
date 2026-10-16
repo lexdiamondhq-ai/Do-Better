@@ -82,7 +82,7 @@ function Screens() {
         <Stack.Screen name="habit/[id]" />
         <Stack.Screen
           name="call"
-          options={{ presentation: 'formSheet', sheetAllowedDetents: [0.65, 1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: t.bg } }}
+          options={{ presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: t.bg } }}
         />
         <Stack.Screen name="showdown" options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }} />
         <Stack.Screen name="onboarding" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />

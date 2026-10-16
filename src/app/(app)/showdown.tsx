@@ -412,8 +412,8 @@ function Table({ week, game }: { week: Week; game: Game }) {
                   <Button label="Call this week’s hand" onPress={callNext} hint="Opens this week’s call" />
                 </View>
                 <View style={{ flexDirection: 'row', gap: space.sm }}>
-                  <ShareButton target={{ kind: 'hand', week }} label="Share" variant="quiet" style={{ flex: 1 }} />
-                  <Button label="Add to my stack" variant="quiet" onPress={close} style={{ flex: 1 }} />
+                  <ShareButton target={{ kind: 'hand', week }} label="Share" variant="quiet" style={{ flex: 1, paddingHorizontal: space.sm }} />
+                  <Button label="Add to my stack" variant="quiet" onPress={close} style={{ flex: 1.4, paddingHorizontal: space.sm }} />
                 </View>
               </>
             ) : (
