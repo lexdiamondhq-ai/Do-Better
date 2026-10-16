@@ -4,8 +4,8 @@ import { summarizeCourt, type CourtSuit } from '@/engine/court';
 import { addDays, type Day } from '@/engine/day';
 import { bandOf, tallyDay, tierOf, type Band, type DayCard, type Tier } from '@/engine/deal';
 import type { BackKey, Game, TableKey } from '@/engine/game';
-import { indexCheckIns, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level } from '@/engine/kept';
-import { ideaOfTheDay, recommend, type Recommendation, type RecommendationContext } from '@/engine/playbook';
+import { daysAway, indexCheckIns, masteryOf, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level, type Mastery } from '@/engine/kept';
+import { ideaOfTheDay, partOfDay, recommend, type HabitFacts, type PartOfDay, type Recommendation, type RecommendationContext } from '@/engine/playbook';
 
 import { useData } from './data';
 import { courtHabits, dealHabits, playGameFor } from './play';
@@ -20,10 +20,12 @@ export type HabitView = {
   neverTwice: Day | null;
   window30: ReturnType<typeof summarizeWindow>;
   allTime: { kept: number; ceiling: number };
-  /** When in the day this card usually plays, from When it plays or the recipe. Stub until workstream B. */
-  partOfDay: 'morning' | 'midday' | 'evening' | 'any';
-  /** Kept nearly every day for a month with plenty of Ceilings. Stub until workstream B. */
+  /** When in the day this card usually plays: its own reminder time, then When it plays, then the recipe. */
+  partOfDay: PartOfDay;
+  /** Kept on 27 of the last 30 days with 15 or more Ceilings: the card has become part of you. */
   mastered: boolean;
+  /** The 30 days behind `mastered`, so a screen can show how close the card is. */
+  mastery: Mastery;
 };
 
 export type Deck = {
@@ -38,7 +40,7 @@ export type Deck = {
   todayTier: Tier | null;
   /** The band today's card deals from so far, or null before anything is kept. */
   todayBand: Band | null;
-  /** Three or more days since the last check-in on any card. Only a trigger for the Welcome back card. Stub until B. */
+  /** Three or more days since the last check-in on any card. Only a trigger for the Welcome back card, never a number. */
   away: boolean;
   /** What a returning player still has, for the Welcome back card. Null unless away. */
   welcome: { kept: number; faces: number; chips: number } | null;
@@ -53,9 +55,17 @@ export type Deck = {
 
 const EMPTY: CheckIns = new Map();
 
+/**
+ * Whole days with nothing kept anywhere before the Welcome back card shows: two blank days means the last
+ * check-in was three days ago.
+ */
+export const AWAY_BLANK_DAYS = 2;
+
 /** Everything the screens show, derived from the loaded rows. Null until the data has loaded. */
 function useComputedDeck(): Deck | null {
   const { state, today, seed } = useData();
+  const { prefs } = usePrefs();
+  const perHabit = prefs.reminders.perHabit;
   return useMemo(() => {
     if (state.status !== 'ready') return null;
     const byHabit = indexCheckIns(state.days);
@@ -65,6 +75,7 @@ function useComputedDeck(): Deck | null {
     const cards = active.map<HabitView>((habit) => {
       const checkIns = byHabit.get(habit.id) ?? EMPTY;
       const missed = neverTwiceDay(habit.startedOn, today, checkIns);
+      const mastery = masteryOf(checkIns, today);
       return {
         habit,
         checkIns,
@@ -72,8 +83,9 @@ function useComputedDeck(): Deck | null {
         neverTwice: missed && !answered.has(`${habit.id}:${missed}`) ? missed : null,
         window30: summarizeWindow(today, 30, habit.startedOn, checkIns),
         allTime: totals(checkIns, today),
-        partOfDay: 'any',
-        mastered: false,
+        partOfDay: partOfDay(habit, perHabit[habit.id]),
+        mastered: mastery.mastered,
+        mastery,
       };
     });
 
@@ -96,12 +108,28 @@ function useComputedDeck(): Deck | null {
     let inWindow = 0;
     let kept30 = 0;
     let ceiling30 = 0;
+    const facts: HabitFacts[] = [];
     for (const c of cards) {
       const w = summarizeWindow(yesterday, 30, c.habit.startedOn, c.checkIns);
       inWindow += w.daysInWindow;
       kept30 += w.keptDays;
       ceiling30 += w.ceilingDays;
+      facts.push({
+        id: c.habit.id,
+        name: c.habit.name,
+        kept30: w.keptDays,
+        ceilings30: w.ceilingDays,
+        days30: w.daysInWindow,
+        hasFirstMove: !!c.habit.twoMinuteLabel,
+        hasAnchor: !!c.habit.anchor,
+        hasIdentity: !!c.habit.identity,
+        comeback: !!c.neverTwice,
+        mastered: c.mastered,
+      });
     }
+    const keptToday = cards.filter((c) => c.today).length;
+    const firstStart = state.habits.reduce<Day | null>((min, h) => (min === null || h.startedOn < min ? h.startedOn : min), null);
+    const away = kept > 0 && daysAway(byHabit.values(), today, firstStart) >= AWAY_BLANK_DAYS;
     const ctx: RecommendationContext = {
       today,
       habitCount: active.length,
@@ -112,6 +140,9 @@ function useComputedDeck(): Deck | null {
       keptRate30: inWindow >= 7 ? kept30 / inWindow : null,
       ceilingShare30: kept30 > 0 ? ceiling30 / kept30 : null,
       callPending: game.callOpen && !game.current.call && active.length > 0,
+      callClosesTonight: game.callOpen && keptToday > 0,
+      away,
+      habits: facts,
     };
 
     return {
@@ -123,12 +154,12 @@ function useComputedDeck(): Deck | null {
       todayCard,
       todayTier,
       todayBand: bandOf(todayTally),
-      away: false,
-      welcome: null,
+      away,
+      welcome: away ? { kept, faces: game.faces.length, chips: game.stack } : null,
       court: summarizeCourt(courtHabits(state.habits), byHabit, today),
       recommendations: recommend(ctx),
       idea: ideaOfTheDay(ctx),
-      keptToday: cards.filter((c) => c.today).length,
+      keptToday,
       prompts: state.prompts,
       totals: {
         kept,
@@ -137,7 +168,7 @@ function useComputedDeck(): Deck | null {
         jokers: cardsDealt.filter((c) => c.kind === 'joker').length,
       },
     };
-  }, [state, today, seed]);
+  }, [state, today, seed, perHabit]);
 }
 
 const DeckContext = createContext<Deck | null>(null);
