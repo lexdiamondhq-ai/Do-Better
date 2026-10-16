@@ -85,8 +85,8 @@ function ArrangeBody({ onClose }: { onClose: () => void }) {
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
       <View style={{ paddingTop: Platform.OS === 'ios' ? space.lg : insets.top + space.md, paddingHorizontal: space.xl, paddingBottom: space.md, gap: space.xs }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Display size={typeScale.display.lg} header>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md }}>
+          <Display size={typeScale.display.lg} header style={{ flexShrink: 1 }}>
             Arrange your deck
           </Display>
           <Pressable accessibilityRole="button" accessibilityLabel={changed ? 'Save the order' : 'Done'} onPress={done} disabled={busy} hitSlop={8} style={({ pressed }) => ({ minHeight: TAP, justifyContent: 'center', paddingHorizontal: space.sm, opacity: pressed || busy ? 0.6 : 1 })}>

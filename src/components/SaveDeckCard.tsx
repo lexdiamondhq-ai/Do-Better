@@ -54,59 +54,62 @@ export function SaveDeckCard({ moment }: { moment: Moment }) {
   return (
     <>
       {visible ? (
-        <View
-          style={{
-            alignSelf: 'stretch',
-            backgroundColor: cardFace.bg,
-            borderRadius: 22,
-            borderWidth: 1,
-            borderColor: cardFace.edge,
-            padding: space.xl,
-            gap: space.md,
-            transform: [{ rotate: moment === 'you' ? '0deg' : '-1.5deg' }],
-            boxShadow: '0 14px 28px rgba(0, 0, 0, 0.22)',
+        <SaveCardFace
+          moment={moment}
+          onSave={() => {
+            feel.tick();
+            setSheet(true);
           }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }} aria-hidden>
-            <View style={{ flexDirection: 'row', gap: 2 }}>
-              {SUITS.map((s) => (
-                <SuitGlyph key={s} suit={s} size={12} color={suitColors[s].glyph} />
-              ))}
-            </View>
-            <Label color={cardFace.savedInk}>Only on this phone</Label>
-          </View>
-          <Display size={typeScale.display.md} color={INK} header>
-            {TITLES[moment]}
-          </Display>
-          <Body size={typeScale.text.md} color={cardFace.savedInk}>
-            Right now your deck lives on this phone only. Save it to {APPLE ? 'Sign in with Apple or your email' : 'your email'} and it’s safe on any phone, with every card and kept day.
-          </Body>
-          <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center' }}>
-            <Button
-              label="Save my deck"
-              colors={{ bg: INK, fg: cardFace.bg }}
-              style={{ flex: 1 }}
-              onPress={() => {
-                feel.tick();
-                setSheet(true);
-              }}
-            />
-            {once ? (
-              <Button
-                label="Not now"
-                variant="quiet"
-                colors={{ bg: 'transparent', fg: cardFace.savedInk }}
-                onPress={() => {
+          onDismiss={
+            once
+              ? () => {
                   markSeen(seed, key);
                   setDismissed(true);
-                }}
-              />
-            ) : null}
-          </View>
-        </View>
+                }
+              : undefined
+          }
+        />
       ) : null}
       <SaveSheet visible={sheet} onClose={() => setSheet(false)} />
     </>
+  );
+}
+
+/** The card itself, drawn as a cream playing card. "Not now" shows only when there is somewhere to dismiss it to. */
+export function SaveCardFace({ moment, onSave, onDismiss }: { moment: Moment; onSave: () => void; onDismiss?: () => void }) {
+  return (
+    <View
+      style={{
+        alignSelf: 'stretch',
+        backgroundColor: cardFace.bg,
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: cardFace.edge,
+        padding: space.xl,
+        gap: space.md,
+        transform: [{ rotate: moment === 'you' ? '0deg' : '-1.5deg' }],
+        boxShadow: '0 14px 28px rgba(0, 0, 0, 0.22)',
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }} aria-hidden>
+        <View style={{ flexDirection: 'row', gap: 2 }}>
+          {SUITS.map((s) => (
+            <SuitGlyph key={s} suit={s} size={12} color={suitColors[s].glyph} />
+          ))}
+        </View>
+        <Label color={cardFace.savedInk}>Only on this phone</Label>
+      </View>
+      <Display size={typeScale.display.md} color={INK} header>
+        {TITLES[moment]}
+      </Display>
+      <Body size={typeScale.text.md} color={cardFace.savedInk}>
+        Right now your deck lives on this phone only. Save it to {APPLE ? 'Sign in with Apple or your email' : 'your email'} and it’s safe on any phone, with every card and kept day.
+      </Body>
+      <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center' }}>
+        <Button label="Save my deck" colors={{ bg: INK, fg: cardFace.bg }} style={{ flex: 1 }} onPress={onSave} />
+        {onDismiss ? <Button label="Not now" variant="quiet" colors={{ bg: 'transparent', fg: cardFace.savedInk }} onPress={onDismiss} /> : null}
+      </View>
+    </View>
   );
 }
 

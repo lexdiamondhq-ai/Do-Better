@@ -311,7 +311,7 @@ function Progress({ index }: { index: number }) {
   return (
     <View aria-hidden style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', gap: 6 }}>
       {TOUR.map((c, i) => (
-        <View key={i} style={{ width: i === index ? 16 : 11, height: i === index ? 22 : 15, borderRadius: 4, backgroundColor: i <= index ? c.felt : 'transparent', borderWidth: 1.5, borderColor: i <= index ? c.felt : t.border }} />
+        <View key={i} style={{ width: i === index ? 16 : 11, height: i === index ? 22 : 15, borderRadius: 4, backgroundColor: i <= index ? c.felt : 'transparent', borderWidth: 1.5, borderColor: i === index ? t.text : i < index ? c.felt : t.border }} />
       ))}
     </View>
   );

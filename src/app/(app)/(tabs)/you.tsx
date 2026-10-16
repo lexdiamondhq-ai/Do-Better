@@ -273,7 +273,7 @@ function CourtColumn({ suit, cardW, piles, onFind }: { suit: CourtSuit; cardW: n
           <PlayingCard key={f.face} face={faceOfCourt(suit.suit, f)} size="md" width={cardW} style={{ position: 'absolute', top: i * step, left: 0 }} />
         ))}
         {next ? (
-          <NextSlot top={earned.length * step} w={cardW} h={cardH} letter={next.face.letter} needed={next.needed} progress={progress} color={color} empty={empty} />
+          <NextSlot top={earned.length * step} w={cardW} h={cardH} letter={next.face.letter} at={next.face.votes} progress={progress} color={color} empty={empty} />
         ) : null}
       </View>
       <View style={{ alignItems: 'center', gap: 2 }}>
@@ -305,8 +305,8 @@ function CourtColumn({ suit, cardW, piles, onFind }: { suit: CourtSuit; cardW: n
   );
 }
 
-/** The next face card: a dashed place that fills from the bottom as the days come in. */
-function NextSlot({ top, w, h, letter, needed, progress, color, empty }: { top: number; w: number; h: number; letter: string; needed: number; progress: number; color: string; empty: boolean }) {
+/** The next face card: a dashed place that fills from the bottom as the days come in, marked with the day count it comes at. */
+function NextSlot({ top, w, h, letter, at, progress, color, empty }: { top: number; w: number; h: number; letter: string; at: number; progress: number; color: string; empty: boolean }) {
   const t = useTheme();
   return (
     <View style={{ position: 'absolute', top, left: 0, width: w, height: h, borderRadius: 12, backgroundColor: t.bg, overflow: 'hidden' }}>
@@ -322,7 +322,7 @@ function NextSlot({ top, w, h, letter, needed, progress, color, empty }: { top: 
               {letter}
             </Display>
             <Body size={10} weight="heavy" color={t.textSecondary} maxFontSizeMultiplier={fontScale.graphic}>
-              {`${needed} to go`}
+              {`at ${at}`}
             </Body>
           </View>
         )}

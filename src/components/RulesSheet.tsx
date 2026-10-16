@@ -11,7 +11,7 @@ import { tick } from '@/lib/feel';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontScale, radius, space, suitColors, TAP, typeScale } from '@/theme/tokens';
 
-import { formatChips } from './Chips';
+import { ChipIcon, formatChips } from './Chips';
 import { EXAMPLES, HandRow } from './HandFan';
 import { SuitGlyph } from './Suit';
 import { Body, Display, Label } from './ui';
@@ -261,14 +261,17 @@ function Prices() {
           style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, borderTopWidth: i ? 1 : 0, borderTopColor: t.border }}
         >
           <View aria-hidden>
-            <HandRow faces={EXAMPLES[h.kind]} size="xs" overlap={0.55} />
+            <HandRow faces={EXAMPLES[h.kind]} size="xs" overlap={0.3} />
           </View>
-          <Body weight="heavy" style={{ flex: 1 }}>
-            {h.name}
-          </Body>
-          <Display size={typeScale.display.sm} maxFontSizeMultiplier={fontScale.chrome}>
-            {formatChips(h.chips)}
-          </Display>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Body weight="heavy">{h.name}</Body>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <ChipIcon size={15} />
+              <Display size={typeScale.display.sm} maxFontSizeMultiplier={fontScale.chrome}>
+                {formatChips(h.chips)}
+              </Display>
+            </View>
+          </View>
         </View>
       ))}
     </View>

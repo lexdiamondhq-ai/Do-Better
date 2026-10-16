@@ -13,7 +13,7 @@ vi.mock('@/lib/feel', () => ({ tick: () => {} }));
 vi.mock('./ui', () => ({ Body: () => null, Display: () => null, Label: () => null }));
 vi.mock('./HandFan', () => ({ EXAMPLES: {}, HandRow: () => null }));
 vi.mock('./Suit', () => ({ SuitGlyph: () => null }));
-vi.mock('./Chips', () => ({ formatChips: (n: number) => String(n) }));
+vi.mock('./Chips', () => ({ ChipIcon: () => null, formatChips: (n: number) => String(n) }));
 
 const { RULES, HAND_PRICES } = await import('./RulesSheet');
 
