@@ -406,19 +406,24 @@ function Table({ week, game }: { week: Week; game: Game }) {
 
         {phase === 'result' ? (
           <Footer felt={felt} visible={step >= 2 || instant} onHeight={setFooterH} bottom={insets.bottom}>
-            <View ref={primary} collapsable={false}>
-              {playable && offerCall ? (
-                <Button label="Call this week’s hand" onPress={callNext} hint="Opens this week’s call" />
-              ) : (
-                <Button label={!playable ? 'Close' : latest ? 'Add to my stack' : 'Close'} onPress={close} />
-              )}
-            </View>
-            {playable ? (
-              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: space.sm }}>
-                <ShareButton target={{ kind: 'hand', week }} label="Share this hand" />
-                {offerCall ? <Button label="Add to my stack" variant="quiet" onPress={close} /> : null}
+            {playable && offerCall ? (
+              <>
+                <View ref={primary} collapsable={false}>
+                  <Button label="Call this week’s hand" onPress={callNext} hint="Opens this week’s call" />
+                </View>
+                <View style={{ flexDirection: 'row', gap: space.sm }}>
+                  <ShareButton target={{ kind: 'hand', week }} label="Share" variant="quiet" style={{ flex: 1 }} />
+                  <Button label="Add to my stack" variant="quiet" onPress={close} style={{ flex: 1 }} />
+                </View>
+              </>
+            ) : (
+              <View style={{ flexDirection: 'row', gap: space.sm }}>
+                {playable ? <ShareButton target={{ kind: 'hand', week }} label="Share" /> : null}
+                <View ref={primary} collapsable={false} style={{ flex: 1 }}>
+                  <Button label={latest && playable ? 'Add to my stack' : 'Close'} onPress={close} />
+                </View>
               </View>
-            ) : null}
+            )}
           </Footer>
         ) : null}
       </View>
