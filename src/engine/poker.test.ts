@@ -242,22 +242,15 @@ describe('Jokers', () => {
 
 describe('makesCall', () => {
   it('is made by the called hand or any better one', () => {
-    const fh = week([[13], [13], [13], [7], [7]]);
-    for (const call of ['pair', 'two-pair', 'three-of-a-kind', 'straight', 'full-house'] as HandKind[]) expect(makesCall(bestHand(fh), call, fh)).toBe(true);
-    expect(makesCall(bestHand(fh), 'four-of-a-kind', fh)).toBe(false);
-    expect(makesCall(null, 'pair', [])).toBe(false);
+    const fh = bestHand(week([[13], [13], [13], [7], [7]]));
+    for (const call of ['pair', 'two-pair', 'three-of-a-kind', 'straight', 'full-house'] as HandKind[]) expect(makesCall(fh, call)).toBe(true);
+    expect(makesCall(fh, 'four-of-a-kind')).toBe(false);
+    expect(makesCall(null, 'pair')).toBe(false);
   });
 
-  it('judges an old Flush call the way it was made: five days sharing a suit, or a Full house or better', () => {
-    const clubs = week([[2, 'clubs'], [5, 'clubs'], [9, 'clubs'], [11, 'clubs'], [13, 'clubs']], 'none');
-    expect(makesCall(bestHand(clubs), 'flush', clubs)).toBe(true);
-    const withJoker = week([[2, 'clubs'], [5, 'clubs'], [9, 'clubs'], [11, 'clubs'], 'joker']);
-    expect(makesCall(bestHand(withJoker), 'flush', withJoker)).toBe(true);
-    const saved = week([[2, 'clubs'], [5, 'clubs'], [9, 'clubs'], [11, 'clubs'], { saved: 13 }]);
-    expect(makesCall(bestHand(saved), 'flush', saved)).toBe(false);
-    const fh = week([[13], [13], [13], [7], [7]]);
-    expect(makesCall(bestHand(fh), 'flush', fh)).toBe(true);
-    const straight = week([[6], [7], [8], [9], [10]]);
-    expect(makesCall(bestHand(straight), 'flush', straight)).toBe(false);
+  it('counts an old Flush call as made when the week is Suited', () => {
+    expect(makesCall(bestHand(week([[2, 'clubs'], [5, 'clubs'], [9, 'clubs'], [11, 'clubs'], [13, 'clubs']])), 'flush')).toBe(true);
+    expect(makesCall(bestHand(week([[2, 'clubs'], [5, 'clubs'], [9, 'clubs'], [11, 'clubs'], [13, 'clubs']], 'none')), 'flush')).toBe(false);
+    expect(makesCall(bestHand(week([[13], [13], [13], [7], [7]], 'none')), 'flush')).toBe(false);
   });
 });

@@ -347,18 +347,12 @@ export function handsIn(cards: readonly DayCard[]): Set<HandKind> {
   return out;
 }
 
-/** Five non-saved days that share a suit, the way a Flush used to be made. Jokers count as any suit. */
-function fiveInOneSuit(cards: readonly DayCard[]): boolean {
-  const jokers = cards.filter((c) => c.kind === 'joker').length;
-  return SUITS.some((suit) => jokers + cards.filter((c) => c.kind === 'card' && !c.rescued && !c.river && c.suits.includes(suit)).length >= 5);
-}
-
 /**
  * Whether a week's cards make a call: the called hand or any better one. A Flush call, from before Flush
- * left the ladder, is made by five days sharing a suit or by a Full house or better, as it was then.
+ * left the ladder, is made when the week is Suited.
  */
-export function makesCall(hand: Hand | null, call: HandKind, cards: readonly DayCard[]): boolean {
+export function makesCall(hand: Hand | null, call: HandKind): boolean {
   if (!hand) return false;
-  if (call === 'flush') return fiveInOneSuit(cards) || atLeast(hand.kind, 'full-house');
+  if (call === 'flush') return !!hand.suited;
   return atLeast(hand.kind, call);
 }

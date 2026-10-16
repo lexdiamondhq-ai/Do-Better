@@ -262,10 +262,14 @@ describe('calls', () => {
     expect(game.stack).toBe(plain.stack + w1.bonus);
   });
 
-  it('honours an old Flush call made by five days in one suit', () => {
-    const game = playGame(input({ days: { read: keep(W1, 'floor', 5) }, calls: new Map<Day, HandKind>([[W1, 'flush']]) }));
-    expect(game.weeks[0].madeCall).toBe(true);
-    expect(game.weeks[0].bonus).toBe(HANDS.flush.chips);
+  it('counts an old Flush call as made when the week is Suited', () => {
+    const calls = new Map<Day, HandKind>([[W1, 'flush'], [W2, 'flush']]);
+    const game = playGame(input({ days: { read: { ...keep(W1, 'ceiling', 5), ...keep(W2, 'floor', 5) } }, calls }));
+    const [w1, w2] = game.weeks;
+    expect(w1.hand?.suited).toEqual({ suit: 'clubs', days: 5 });
+    expect(w1.madeCall).toBe(true);
+    expect(w1.bonus).toBe(HANDS.flush.chips);
+    expect(w2.madeCall).toBe(false);
   });
 
   describe('the call window', () => {

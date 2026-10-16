@@ -79,16 +79,17 @@ export const CALL_HISTORY = 8;
 const CALL_PRIOR = 4;
 
 /**
- * How often a typical deck of 1 to 6 habits makes each hand or better in a finished week, from the economy
- * simulation (src/engine/economy.test.ts prints the table). It prices calls until your own weeks take over.
+ * How often a typical deck of 1 to 6 habits (kept 80% of days, 30% of those at the Ceiling) makes each hand or
+ * better in a finished week, from the economy simulation (src/engine/economy.test.ts prints the table). It
+ * prices calls until your own weeks take over.
  */
 export const CALL_BASELINE: Readonly<Record<number, Readonly<Partial<Record<HandKind, number>>>>> = {
-  1: { pair: 0.93, 'two-pair': 0.73, 'three-of-a-kind': 0.4, straight: 0.3, 'full-house': 0.25, 'four-of-a-kind': 0.06, 'straight-flush': 0.03, 'royal-flush': 0.01 },
-  2: { pair: 0.93, 'two-pair': 0.73, 'three-of-a-kind': 0.4, straight: 0.3, 'full-house': 0.25, 'four-of-a-kind': 0.06, 'straight-flush': 0.03, 'royal-flush': 0.01 },
-  3: { pair: 0.93, 'two-pair': 0.73, 'three-of-a-kind': 0.4, straight: 0.3, 'full-house': 0.25, 'four-of-a-kind': 0.06, 'straight-flush': 0.03, 'royal-flush': 0.01 },
-  4: { pair: 0.93, 'two-pair': 0.73, 'three-of-a-kind': 0.4, straight: 0.3, 'full-house': 0.25, 'four-of-a-kind': 0.06, 'straight-flush': 0.03, 'royal-flush': 0.01 },
-  5: { pair: 0.93, 'two-pair': 0.73, 'three-of-a-kind': 0.4, straight: 0.3, 'full-house': 0.25, 'four-of-a-kind': 0.06, 'straight-flush': 0.03, 'royal-flush': 0.01 },
-  6: { pair: 0.93, 'two-pair': 0.73, 'three-of-a-kind': 0.4, straight: 0.3, 'full-house': 0.25, 'four-of-a-kind': 0.06, 'straight-flush': 0.03, 'royal-flush': 0.01 },
+  1: { pair: 0.94, 'two-pair': 0.73, 'three-of-a-kind': 0.4, straight: 0.31, 'full-house': 0.24, 'four-of-a-kind': 0.073, 'straight-flush': 0.031, 'royal-flush': 0.011 },
+  2: { pair: 0.99, 'two-pair': 0.82, 'three-of-a-kind': 0.48, straight: 0.39, 'full-house': 0.3, 'four-of-a-kind': 0.097, 'straight-flush': 0.039, 'royal-flush': 0.011 },
+  3: { pair: 0.98, 'two-pair': 0.82, 'three-of-a-kind': 0.48, straight: 0.39, 'full-house': 0.29, 'four-of-a-kind': 0.096, 'straight-flush': 0.037, 'royal-flush': 0.01 },
+  4: { pair: 0.98, 'two-pair': 0.83, 'three-of-a-kind': 0.52, straight: 0.42, 'full-house': 0.31, 'four-of-a-kind': 0.11, 'straight-flush': 0.04, 'royal-flush': 0.012 },
+  5: { pair: 0.98, 'two-pair': 0.82, 'three-of-a-kind': 0.51, straight: 0.4, 'full-house': 0.3, 'four-of-a-kind': 0.11, 'straight-flush': 0.043, 'royal-flush': 0.011 },
+  6: { pair: 0.98, 'two-pair': 0.82, 'three-of-a-kind': 0.5, straight: 0.4, 'full-house': 0.3, 'four-of-a-kind': 0.11, 'straight-flush': 0.044, 'royal-flush': 0.012 },
 };
 
 export type HallEntry = {
@@ -125,13 +126,13 @@ export type TableKey = 'kitchen' | 'card-room' | 'velvet-room' | 'midnight' | 'g
 /** Tables are the app's look. Each opens once your stack reaches its chips. */
 export const TABLES: readonly { key: TableKey; name: string; chips: number; about: string }[] = [
   { key: 'kitchen', name: 'Kitchen table', chips: 0, about: 'Where every game starts. Light or dark, like your phone.' },
-  { key: 'card-room', name: 'Card room', chips: 300, about: 'Green felt and brass.' },
-  { key: 'velvet-room', name: 'Velvet room', chips: 900, about: 'Deep plum, low light.' },
-  { key: 'midnight', name: 'Midnight', chips: 2000, about: 'Ink blue, for the late game.' },
-  { key: 'gold-room', name: 'Gold room', chips: 4500, about: 'Black and gold. For the long game.' },
-  { key: 'library', name: 'Library', chips: 6000, about: 'Oak and lamplight, for the chapters you are writing.' },
-  { key: 'lighthouse', name: 'Lighthouse', chips: 7500, about: 'Sea blue and white. A light to come back to.' },
-  { key: 'observatory', name: 'Observatory', chips: 9000, about: 'Night sky and brass. Look how far you have come.' },
+  { key: 'card-room', name: 'Card room', chips: 600, about: 'Green felt and brass.' },
+  { key: 'velvet-room', name: 'Velvet room', chips: 1650, about: 'Deep plum, low light.' },
+  { key: 'midnight', name: 'Midnight', chips: 2900, about: 'Ink blue, for the late game.' },
+  { key: 'gold-room', name: 'Gold room', chips: 6400, about: 'Black and gold. For the long game.' },
+  { key: 'library', name: 'Library', chips: 8100, about: 'Oak and lamplight, for the chapters you are writing.' },
+  { key: 'lighthouse', name: 'Lighthouse', chips: 9800, about: 'Sea blue and white. A light to come back to.' },
+  { key: 'observatory', name: 'Observatory', chips: 11500, about: 'Night sky and brass. Look how far you have come.' },
 ];
 
 export type TipTone = 'joker' | 'face' | 'rescue' | 'deal' | 'climb' | 'draw' | 'call' | 'showdown' | 'done';
@@ -266,7 +267,7 @@ function playWeek(start: Day, input: GameInput, ctx: WeekContext): { week: Week;
   const call = warmup ? null : (input.calls.get(start) ?? null);
   const prices = warmup ? {} : callPrices(ctx.history, habits.filter((h) => inDeck(h, priceDay(slots, today))).length);
   const callMultiplier: Multiplier = call ? (prices[call]?.multiplier ?? 1) : 0;
-  const madeCall = !!call && makesCall(hand, call, cards);
+  const madeCall = !!call && makesCall(hand, call);
   const end = addDays(start, 6);
   let keptDays = 0;
   for (const h of habits) for (const day of checkIns.get(h.id)?.keys() ?? []) if (day >= start && day <= end && day <= today) keptDays++;
