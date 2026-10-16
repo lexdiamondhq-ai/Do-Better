@@ -45,6 +45,32 @@ let music: AudioPlayer | null = null;
 let fade: ReturnType<typeof setInterval> | null = null;
 const pools = new Map<SoundName, { players: AudioPlayer[]; next: number }>();
 
+/** Whether the page has been tapped or typed on, kept for browsers that can't say so themselves. */
+let touched = false;
+
+/**
+ * A browser refuses to play anything until the page has been tapped or typed on, and the refusal is a
+ * promise rejection inside the player that nothing here can catch. So on the web nothing is asked to
+ * play before then: sounds before the first tap are skipped, and music waits for it.
+ */
+function mayPlay(): boolean {
+  if (Platform.OS !== 'web') return true;
+  // A browser that can say whether the page has been used is always asked: it knows which keys count.
+  const activation = (globalThis as { navigator?: { userActivation?: { hasBeenActive?: unknown } } }).navigator?.userActivation;
+  if (activation && typeof activation.hasBeenActive === 'boolean') return activation.hasBeenActive;
+  return touched;
+}
+
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  // The events a browser counts as the page being used, for browsers that can't say so themselves.
+  const wake = (e: Event) => {
+    if (e.type === 'keydown' && (e as KeyboardEvent).key === 'Escape') return;
+    touched = true;
+    resumeMusicAfterTap();
+  };
+  for (const type of ['pointerup', 'touchend', 'keydown', 'click']) document.addEventListener(type, wake, { capture: true, passive: true });
+}
+
 function ensureMode() {
   if (modeSet) return;
   modeSet = true;
@@ -79,7 +105,7 @@ function preload() {
 export function playSound(name: SoundName, delayMs = 0) {
   if (!soundsOn) return;
   const go = () => {
-    if (!soundsOn) return;
+    if (!soundsOn || !mayPlay()) return;
     try {
       ensureMode();
       const p = pool(name);
@@ -122,6 +148,10 @@ function ramp(to: number, ms: number, done?: () => void) {
 }
 
 function startMusic() {
+  if (!mayPlay()) {
+    musicPlaying = false;
+    return;
+  }
   try {
     ensureMode();
     if (!music) {
