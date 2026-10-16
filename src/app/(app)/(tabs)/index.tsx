@@ -11,7 +11,7 @@ import { Burst, type BurstKind } from '@/components/Burst';
 import { Chips } from '@/components/Chips';
 import { ComebackCard, HabitCard, WelcomeCard } from '@/components/HabitCard';
 import { faceLabel, faceOfDay, PlayingCard } from '@/components/PlayingCard';
-import { ReminderPrompt } from '@/components/ReminderPrompt';
+import { ReminderPrompt, useReminderPromptDue } from '@/components/ReminderPrompt';
 import { RulesButton } from '@/components/RulesSheet';
 import { SuitGlyph } from '@/components/Suit';
 import { DeckCard, LIFT, SwipeCard, type SwipeDirection, type SwipeHandle } from '@/components/SwipeCard';
@@ -156,11 +156,12 @@ function Table({ deck }: { deck: Deck }) {
 
   // One interruption at a time --------------------------------------------------------------------------
   const moment = momentOf(events);
+  const reminderDue = useReminderPromptDue();
   const coachDue = ready && !coachClosed && deck.cards.length > 0 && deck.totals.kept === 0 && !hasSeen(prefs, seed, COACH);
   const interruption = interruptionFor({
     moment: !!moment,
     coachDue,
-    reminderDue: ready && !prefs.reminders.asked && !demo,
+    reminderDue,
     visitAfterKeeping: visitKept,
     faceToday: game.faces.some((f) => f.day === deck.today),
     comebackToday: deck.cards.some((c) => !!c.neverTwice),

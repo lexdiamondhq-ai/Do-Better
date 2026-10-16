@@ -320,6 +320,7 @@ function HallRow({ entry, back, onShare }: { entry: HallEntry; back: BackKey; on
   return (
     <Pressable
       accessible
+      accessibilityRole={onShare ? 'button' : 'text'}
       accessibilityLabel={`${hidden ? 'A secret hand' : info.name}. ${said}${since}. Pays ${info.chips} chips.`}
       onLongPress={onShare}
       accessibilityActions={onShare ? [{ name: 'longpress', label: 'Share your best week of it' }] : undefined}

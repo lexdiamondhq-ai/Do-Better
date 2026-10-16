@@ -224,7 +224,7 @@ function Tour({ index, replay, onMove, onFinish, onSkip }: { index: number; repl
       </View>
 
       <View style={{ flex: 1, borderRadius: radius.card, overflow: 'hidden', backgroundColor: t.bgRaised, borderWidth: t.edge === 'transparent' ? 0 : 1, borderColor: t.edge }}>
-        <Pressable accessible={false} onPress={index === 0 ? undefined : () => go(index + 1)} style={{ flex: 1, minHeight: 150, overflow: 'hidden', backgroundColor: card.felt }}>
+        <Pressable accessible={false} accessibilityRole="none" onPress={index === 0 ? undefined : () => go(index + 1)} style={{ flex: 1, minHeight: 150, overflow: 'hidden', backgroundColor: card.felt }}>
           <FitStage key={index} w={STAGE.w} h={STAGE.h}>
             {art}
           </FitStage>

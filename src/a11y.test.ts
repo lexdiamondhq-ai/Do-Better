@@ -40,7 +40,7 @@ describe('the pressable scan', () => {
 });
 
 // The integration step turns this on, once every workstream has given its tappable things a role.
-describe.skip('every tappable thing says what it is', () => {
+describe('every tappable thing says what it is', () => {
   it('has an accessibilityRole on every Pressable', () => {
     const files = ['app', 'components'].flatMap((dir) => ts.sys.readDirectory(`${ROOT}${dir}`, ['.tsx']));
     expect(files.length).toBeGreaterThan(10);
