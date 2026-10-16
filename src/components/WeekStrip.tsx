@@ -6,18 +6,28 @@ import type { Suit } from '@/engine/cards';
 import { addDays, weekday, type Day } from '@/engine/day';
 import type { Slot } from '@/engine/deal';
 import type { BackKey, Week } from '@/engine/game';
+import type { PlayedCard } from '@/engine/poker';
 import { withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
-import { fonts, TAP } from '@/theme/tokens';
+import { fonts } from '@/theme/tokens';
 
 import { CardBack } from './CardBack';
-import { CARD_SIZES, CardSlot, faceLabel, faceOfDay, PlayingCard, type CardSize } from './PlayingCard';
+import { CARD_SIZES, CardSlot, faceLabel, faceOfDay, faceOfPlayed, PlayingCard, type CardSize } from './PlayingCard';
 
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+/** The ↺ badge's own box on yesterday's top-right corner: how big it is, how far it rises above the card, and how far it reaches past its edge. */
+const BADGE_BOX = 28;
+const BADGE_REACH = 10;
+const BADGE_OUT = 6;
 const NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-function describe(slot: Slot, playAs: Suit | undefined, rescue: Day | null): string {
-  if (slot.card) return `${faceLabel(faceOfDay(slot.card, playAs))}${playAs ? ', in your hand' : ''}`;
+function describe(slot: Slot, played: PlayedCard | undefined, rescue: Day | null): string {
+  if (slot.card) {
+    // Every card the hand uses is in your hand: a Joker, a saved day and a suited card alike.
+    if (!played) return faceLabel(faceOfDay(slot.card));
+    const face = slot.card.kind === 'joker' ? faceOfPlayed(played) : faceOfDay(slot.card, played.suit);
+    return `${faceLabel(face)}, in your hand`;
+  }
   if (slot.state === 'open') return 'not dealt yet';
   if (slot.state === 'future') return 'still to come';
   if (slot.state === 'blank') return slot.day === rescue ? 'no card yet, and it can still be saved today' : 'no card';
@@ -26,7 +36,7 @@ function describe(slot: Slot, playAs: Suit | undefined, rescue: Day | null): str
 
 /** The whole week in one sentence, for VoiceOver: "Monday, 8 of Clubs. Tuesday, no card. Today, not dealt yet. 3 days to come." */
 export function describeWeek(week: Week, rescue: Day | null): string {
-  const played = new Map(week.hand?.cards.map((c): [Day, Suit | undefined] => [c.day, c.suit ?? undefined]) ?? []);
+  const played = new Map(week.hand?.cards.map((c): [Day, PlayedCard] => [c.day, c]) ?? []);
   const parts: string[] = [];
   let future = 0;
   for (const slot of week.slots) {
@@ -79,7 +89,7 @@ export function WeekStrip({
   onYesterday?: () => void;
 }) {
   const t = useTheme();
-  // Cards in the hand show the suit they play as, so a Flush in Spades looks like one.
+  // Cards in the hand show the suit they play as, so a hand built on Spades reads as one.
   const played = new Map(week.hand?.cards.map((c): [Day, Suit | undefined] => [c.day, c.suit ?? undefined]) ?? []);
   const today = week.slots.find((s) => s.isToday)?.day ?? null;
   const yesterday = today ? addDays(today, -1) : null;
@@ -158,13 +168,16 @@ export function WeekStrip({
           {lateSlot.body}
         </Pressable>
       ) : (
+        // Only the small badge on yesterday's corner logs it; the rest of yesterday's card opens the hand
+        // like every other card. The badge's box stays off today's place; the finger gets more room above and left.
         <Pressable
           onPress={onYesterday}
           accessibilityRole="button"
           accessibilityLabel="Log yesterday"
           accessibilityHint="For a card you kept yesterday but never logged"
           testID="strip-yesterday"
-          style={({ pressed }) => ({ position: 'absolute', top: -10, ...place, width: s.w + 12, height: TAP, alignItems: 'flex-end', opacity: pressed ? 0.7 : 1 })}
+          hitSlop={{ top: 12, left: 12, bottom: 6, right: 0 }}
+          style={({ pressed }) => ({ position: 'absolute', top: -BADGE_REACH, ...place, transform: [{ translateX: s.w - BADGE_BOX + BADGE_OUT }], width: BADGE_BOX, height: BADGE_BOX, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
         >
           <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: t.text, borderWidth: 2, borderColor: t.bg, alignItems: 'center', justifyContent: 'center' }}>
             <Text allowFontScaling={false} style={{ fontFamily: fonts.display, fontSize: 13, lineHeight: 15, color: t.bg }}>
