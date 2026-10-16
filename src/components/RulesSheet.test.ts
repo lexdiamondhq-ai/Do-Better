@@ -14,8 +14,10 @@ vi.mock('./ui', () => ({ Body: () => null, Display: () => null, Label: () => nul
 vi.mock('./HandFan', () => ({ EXAMPLES: {}, HandRow: () => null }));
 vi.mock('./Suit', () => ({ SuitGlyph: () => null }));
 vi.mock('./Chips', () => ({ ChipIcon: () => null, formatChips: (n: number) => String(n) }));
+vi.mock('./CardBack', () => ({ CardBack: () => null }));
+vi.mock('@/lib/deck', () => ({ useDeck: () => null, useLook: () => ({ back: 'classic' }) }));
 
-const { RULES, HAND_PRICES } = await import('./RulesSheet');
+const { RULES, HAND_PRICES, handPrices, sectionAt } = await import('./RulesSheet');
 
 const all = RULES.flatMap((s) => [s.title, s.chip, ...s.rules.flatMap((r) => [r.term, r.line])]);
 const line = (term: string) => RULES.flatMap((s) => s.rules).find((r) => r.term === term)?.line ?? '';
@@ -77,6 +79,29 @@ describe('the rules sheet', () => {
     expect(line('Saved day')).toMatch(/no suit/);
     expect(line('Sunday')).toMatch(/can’t be saved/);
     expect(line('Did it, forgot to log')).toMatch(/yesterday.*same week/);
+  });
+
+  it('keeps a secret hand secret until it has been spotted, as the Hands tab does', () => {
+    const hidden = handPrices(new Set()).filter((h) => h.hidden);
+    expect(hidden.map((h) => h.kind)).toEqual(['five-of-a-kind']);
+    expect(hidden[0].chips).toBe(HANDS['five-of-a-kind'].chips);
+    expect(handPrices(new Set(['five-of-a-kind'])).some((h) => h.hidden)).toBe(false);
+    for (const h of handPrices(new Set())) expect(h.hidden).toBe(HANDS[h.kind].secret);
+  });
+
+  it('highlights the section being read, and the last one at the end of the page', () => {
+    const tops = [
+      { key: 'deal' as const, y: 0 },
+      { key: 'week' as const, y: 600 },
+      { key: 'river' as const, y: 1500 },
+      { key: 'comeback' as const, y: 2400 },
+    ];
+    expect(sectionAt(tops, 0, false)).toBe('deal');
+    expect(sectionAt(tops, 599, false)).toBe('deal');
+    expect(sectionAt(tops, 600, false)).toBe('week');
+    expect(sectionAt(tops, 1800, false)).toBe('river');
+    expect(sectionAt(tops, 1800, true)).toBe('comeback');
+    expect(sectionAt([], 100, false)).toBeUndefined();
   });
 
   it('speaks in Do Better’s own words', () => {

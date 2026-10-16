@@ -1,16 +1,18 @@
-import { useRef, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Modal, Platform, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SUIT_INFO, SUITS } from '@/engine/cards';
 import { FACES, RUNGS } from '@/engine/court';
 import { KEPT_LO, RIVER_DAYS, TOP_LO } from '@/engine/deal';
 import { CALL_HISTORY } from '@/engine/game';
-import { HAND_LADDER, HANDS } from '@/engine/poker';
+import { HAND_LADDER, HANDS, type HandKind } from '@/engine/poker';
+import { useDeck, useLook } from '@/lib/deck';
 import { tick } from '@/lib/feel';
 import { useTheme } from '@/theme/ThemeProvider';
 import { fontScale, radius, space, suitColors, TAP, typeScale } from '@/theme/tokens';
 
+import { CardBack } from './CardBack';
 import { ChipIcon, formatChips } from './Chips';
 import { EXAMPLES, HandRow } from './HandFan';
 import { SuitGlyph } from './Suit';
@@ -112,6 +114,27 @@ export const RULES: readonly RulesSection[] = [
 /** The hands, weakest first, with what each pays. There is no Flush. */
 export const HAND_PRICES = HAND_LADDER.map((kind) => ({ kind, name: HANDS[kind].name, chips: HANDS[kind].chips }));
 
+/**
+ * The price list as the player may see it: a secret hand keeps its secret, as it does in the Hands
+ * tab, until it has been spotted in one of their weeks. What it pays still shows.
+ */
+export function handPrices(spotted: ReadonlySet<HandKind>): { kind: HandKind; name: string; chips: number; hidden: boolean }[] {
+  return HAND_PRICES.map((h) => ({ ...h, hidden: HANDS[h.kind].secret && !spotted.has(h.kind) }));
+}
+
+/**
+ * The section the reader is in: the last one whose top has scrolled up to `y`, or the last section
+ * once the page is scrolled to its end (a short last section never reaches the top).
+ */
+export function sectionAt(tops: readonly { key: RulesTopic; y: number }[], y: number, atEnd: boolean): RulesTopic | undefined {
+  if (!tops.length) return undefined;
+  const sorted = [...tops].sort((a, b) => a.y - b.y);
+  if (atEnd) return sorted[sorted.length - 1].key;
+  let here = sorted[0].key;
+  for (const s of sorted) if (s.y <= y) here = s.key;
+  return here;
+}
+
 /** A small "Rules" pill that opens the rules sheet, at `topic` when given. */
 export function RulesButton({ topic, label = 'Rules', style }: { topic?: RulesTopic; label?: string; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
@@ -161,14 +184,45 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const scroll = useRef<ScrollView>(null);
+  const chips = useRef<ScrollView>(null);
   const offsets = useRef<Partial<Record<RulesTopic, number>>>({});
+  const chipX = useRef<Partial<Record<RulesTopic, number>>>({});
   const jumped = useRef(false);
+  // Where the page is scrolling to after a chip (or the opening topic) asked for a section. Until it
+  // gets there, that section keeps the highlight; after it, the highlight follows the page.
+  const heading = useRef<number | null>(null);
+  const [active, setActive] = useState<RulesTopic>(topic ?? RULES[0].key);
   // A page sheet starts below the status bar; anywhere else the sheet covers the whole screen.
   const top = Platform.OS === 'ios' ? space.lg : insets.top + space.md;
 
   const jump = (key: RulesTopic, animated: boolean) => {
     const y = offsets.current[key];
-    if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.md), animated });
+    if (y === undefined) return;
+    heading.current = Math.max(0, y - space.md);
+    scroll.current?.scrollTo({ y: heading.current, animated });
+  };
+
+  // The highlighted chip stays in view in the chip row as the reader moves down the page.
+  useEffect(() => {
+    const x = chipX.current[active];
+    if (x !== undefined) chips.current?.scrollTo({ x: Math.max(0, x - space.xl), animated: true });
+  }, [active]);
+
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const atEnd = contentOffset.y + layoutMeasurement.height >= contentSize.height - 4;
+    if (heading.current !== null) {
+      // Still on the way to the section asked for. A section near the end can't reach the top, so the end counts as there.
+      if (Math.abs(contentOffset.y - heading.current) > 2 && !atEnd) return;
+      heading.current = null;
+      return;
+    }
+    const tops = RULES.flatMap((s) => {
+      const y = offsets.current[s.key];
+      return y === undefined ? [] : [{ key: s.key, y }];
+    });
+    const here = sectionAt(tops, contentOffset.y + space.md + 1, atEnd);
+    if (here && here !== active) setActive(here);
   };
 
   return (
@@ -184,22 +238,28 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
             </Body>
           </Pressable>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 4 }} style={{ marginHorizontal: -space.xl, flexGrow: 0 }}>
+        <ScrollView ref={chips} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm, paddingVertical: 4 }} style={{ marginHorizontal: -space.xl, flexGrow: 0 }}>
           <View style={{ width: space.xl - space.sm }} />
           {RULES.map((s) => (
             <Pressable
               key={s.key}
               accessibilityRole="button"
               accessibilityLabel={`Go to ${s.chip}`}
+              accessibilityState={{ selected: s.key === active }}
               // 36 points tall, so the reach above and below makes it a full 44.
               hitSlop={{ top: 4, bottom: 4 }}
+              onLayout={(e) => {
+                chipX.current[s.key] = e.nativeEvent.layout.x;
+              }}
               onPress={() => {
                 tick();
+                setActive(s.key);
                 jump(s.key, true);
               }}
-              style={({ pressed }) => ({ minHeight: 36, justifyContent: 'center', paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1.5, borderColor: s.key === topic ? t.text : t.border, opacity: pressed ? 0.6 : 1 })}
+              // The section you're reading is the solid chip.
+              style={({ pressed }) => ({ minHeight: 36, justifyContent: 'center', paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1.5, borderColor: s.key === active ? t.text : t.border, backgroundColor: s.key === active ? t.text : 'transparent', opacity: pressed ? 0.6 : 1 })}
             >
-              <Body size={typeScale.text.sm} weight="heavy" maxFontSizeMultiplier={fontScale.chrome}>
+              <Body size={typeScale.text.sm} weight="heavy" color={s.key === active ? t.bg : t.text} maxFontSizeMultiplier={fontScale.chrome}>
                 {s.chip}
               </Body>
             </Pressable>
@@ -207,7 +267,14 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
           <View style={{ width: space.xl - space.sm }} />
         </ScrollView>
       </View>
-      <ScrollView ref={scroll} contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.xxxl, gap: space.xxl }}>
+      <ScrollView
+        ref={scroll}
+        onScroll={onScroll}
+        scrollEventThrottle={32}
+        onScrollBeginDrag={() => {
+          heading.current = null;
+        }}
+        contentContainerStyle={{ paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.xxxl, gap: space.xxl }}>
         {RULES.map((section) => (
           <View
             key={section.key}
@@ -249,33 +316,54 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
   );
 }
 
-/** What each hand pays, strongest at the top, with a made-up example of each. */
+/**
+ * What each hand pays, strongest at the top, with a made-up example of each. A secret hand stays face
+ * down, as on the Hands tab, until one of your weeks has held it.
+ */
 function Prices() {
   const t = useTheme();
+  const deck = useDeck();
+  const { back } = useLook();
+  const spotted = new Set((deck?.game.hall ?? []).filter((e) => e.count > 0).map((e) => e.kind));
   return (
     <View style={{ backgroundColor: t.bgRaised, borderRadius: radius.lg, paddingVertical: space.sm, paddingHorizontal: space.lg, borderWidth: t.edge === 'transparent' ? 0 : 1, borderColor: t.edge }}>
       <Label style={{ paddingVertical: space.sm }}>What each hand pays</Label>
-      {[...HAND_PRICES].reverse().map((h, i) => (
-        <View
-          key={h.kind}
-          accessible
-          accessibilityLabel={`${h.name}, ${h.chips} chips`}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, borderTopWidth: i ? 1 : 0, borderTopColor: t.border }}
-        >
-          <View aria-hidden>
-            <HandRow faces={EXAMPLES[h.kind]} size="xs" overlap={0.3} />
-          </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Body weight="heavy">{h.name}</Body>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              <ChipIcon size={15} />
-              <Display size={typeScale.display.sm} maxFontSizeMultiplier={fontScale.chrome}>
-                {formatChips(h.chips)}
-              </Display>
+      {handPrices(spotted)
+        .reverse()
+        .map((h, i) => (
+          <View
+            key={h.kind}
+            accessible
+            accessibilityLabel={h.hidden ? `A secret hand, ${h.chips} chips. A Joker helps.` : `${h.name}, ${h.chips} chips`}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, borderTopWidth: i ? 1 : 0, borderTopColor: t.border }}
+          >
+            <View aria-hidden>
+              {h.hidden ? (
+                <View style={{ flexDirection: 'row' }}>
+                  {[0, 1, 2, 3, 4].map((k) => (
+                    <CardBack key={k} back={back} size="xs" style={{ marginLeft: k ? -12 : 0 }} />
+                  ))}
+                </View>
+              ) : (
+                <HandRow faces={EXAMPLES[h.kind]} size="xs" overlap={0.3} />
+              )}
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Body weight="heavy">{h.hidden ? 'Secret hand' : h.name}</Body>
+              {h.hidden ? (
+                <Body size={typeScale.text.sm} color={t.textSecondary}>
+                  A Joker helps.
+                </Body>
+              ) : null}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <ChipIcon size={15} />
+                <Display size={typeScale.display.sm} maxFontSizeMultiplier={fontScale.chrome}>
+                  {formatChips(h.chips)}
+                </Display>
+              </View>
             </View>
           </View>
-        </View>
-      ))}
+        ))}
     </View>
   );
 }
