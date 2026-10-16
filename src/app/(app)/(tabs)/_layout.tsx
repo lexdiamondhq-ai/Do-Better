@@ -1,17 +1,50 @@
-import { Redirect } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
+import { useEffect, useRef } from 'react';
 import { ActivityIndicator } from 'react-native';
 
 import { TabBar } from '@/components/TabBar';
 import { Body, Button, Centered, Display } from '@/components/ui';
+import { lastShowdown } from '@/engine/game';
+import { useAuth } from '@/lib/auth';
+import { hideSplash } from '@/lib/cache';
 import { useData } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
+import { usePrefs } from '@/lib/prefs';
 import { useTheme } from '@/theme/ThemeProvider';
 
 export default function TabsLayout() {
   const t = useTheme();
-  const { state, reload } = useData();
+  const router = useRouter();
+  const { state, reload, seed } = useData();
+  const { demo } = useAuth();
+  const { prefs, ready: prefsReady, seeShowdown } = usePrefs();
   const deck = useDeck();
+  // The Showdown opens once per finished week, the demo deck's too: opening the demo again goes to Today.
+  const opened = useRef<string | null>(null);
+
+  const needsOnboarding = !!deck && !deck.profile.onboardedAt && deck.cards.length === 0 && deck.archived.length === 0;
+  const showdown = deck ? lastShowdown(deck.game) : null;
+  // Only a week later than the last one watched, so a clock moved back across a date line can't reopen a settled week.
+  const seen = prefs.showdownSeen[seed];
+  const pending = showdown && prefsReady && !needsOnboarding && (!seen || showdown.start > seen) ? showdown.start : null;
+  // Everything needed to choose the first screen: the deck (or an error) and the saved prefs.
+  const settled = state.status === 'error' || (!!deck && prefsReady);
+
+  // The splash stays up until the first screen is decided. A waiting Showdown opens under it first, so
+  // Today never flashes before it.
+  useEffect(() => {
+    if (!settled) return;
+    if (pending && opened.current !== pending) {
+      opened.current = pending;
+      // The demo's Showdown is a sample week: `sample` tells the Showdown to say so. It is marked seen
+      // as it opens, because the Showdown doesn't mark the demo's weeks itself.
+      if (demo) seeShowdown(seed, pending);
+      router.push({ pathname: '/showdown', params: demo ? { week: pending, sample: '1' } : { week: pending } });
+      setTimeout(hideSplash, 350);
+      // Marking the week seen clears `pending` on the next render; the timer above still hides the splash.
+    } else if (!opened.current) hideSplash();
+  }, [settled, pending, router, demo, seed, seeShowdown]);
 
   if (state.status === 'error') {
     return (
@@ -29,12 +62,13 @@ export default function TabsLayout() {
       </Centered>
     );
   }
-  if (!deck.profile.onboardedAt && deck.cards.length === 0 && deck.archived.length === 0) return <Redirect href="/onboarding" />;
+  if (needsOnboarding) return <Redirect href="/onboarding" />;
 
   return (
-    <Tabs tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: t.bg } }}>
+    // Hidden tabs stay frozen while another is in front, and switching slides between them.
+    <Tabs tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: t.bg }, freezeOnBlur: true, animation: 'shift' }}>
       <Tabs.Screen name="index" />
-      <Tabs.Screen name="pile" />
+      <Tabs.Screen name="hands" />
       <Tabs.Screen name="you" />
       <Tabs.Screen name="playbook" />
     </Tabs>

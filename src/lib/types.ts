@@ -1,5 +1,8 @@
+import { isSuit, type Suit } from '@/engine/cards';
 import type { Day } from '@/engine/day';
 import type { Level } from '@/engine/kept';
+import { inferSuit } from '@/engine/playbook';
+import type { HandKind } from '@/engine/poker';
 import { isCardColor, type CardColor } from '@/theme/tokens';
 
 export type Habit = {
@@ -10,6 +13,10 @@ export type Habit = {
   ceilingLabel: string;
   twoMinuteLabel: string | null;
   color: CardColor;
+  /** The part of you it builds, and the suit its days are dealt in. */
+  suit: Suit;
+  /** False for a habit made before suits existed: its suit is a guess until the card is next saved. */
+  suitSet: boolean;
   anchor: string | null;
   whenWhere: string | null;
   why: string | null;
@@ -19,9 +26,18 @@ export type Habit = {
   archivedAt: string | null;
 };
 
-export type HabitDay = { habitId: string; day: Day; level: Level };
+export type HabitDay = {
+  habitId: string;
+  day: Day;
+  level: Level;
+  /** Set only for a day logged after it ended ("Did it, forgot to log"): the day it was logged on. */
+  loggedOn?: Day;
+};
 
 export type RecoveryResponse = 'floor_only' | 'two_minute' | 'dismissed';
+
+/** The hand called for the week starting on `weekStart`, a Monday. */
+export type HandCall = { weekStart: Day; hand: HandKind };
 
 export type RecoveryPrompt = { habitId: string; missedDay: Day; recoveryDay: Day; response: RecoveryResponse | null };
 
@@ -41,6 +57,7 @@ export type HabitDraft = {
   ceilingLabel: string;
   twoMinuteLabel: string;
   color: CardColor;
+  suit: Suit;
   anchor: string;
   whenWhere: string;
   why: string;
@@ -59,6 +76,9 @@ export function habitFromRow(r: Row): Habit {
     ceilingLabel: String(r.ceiling_label),
     twoMinuteLabel: str(r.two_minute_label),
     color: isCardColor(r.color) ? r.color : 'tomato',
+    // Habits made before suits existed get a best guess until they are saved.
+    suit: isSuit(r.suit) ? r.suit : inferSuit(String(r.name), str(r.identity)),
+    suitSet: isSuit(r.suit),
     anchor: str(r.anchor),
     whenWhere: str(r.when_where),
     why: str(r.why),
@@ -79,6 +99,7 @@ export function draftToRow(d: HabitDraft) {
     ceiling_label: d.ceilingLabel.trim(),
     two_minute_label: opt(d.twoMinuteLabel),
     color: d.color,
+    suit: d.suit,
     anchor: opt(d.anchor),
     when_where: opt(d.whenWhere),
     why: opt(d.why),
@@ -94,6 +115,7 @@ export function draftFromHabit(h: Habit): HabitDraft {
     ceilingLabel: h.ceilingLabel,
     twoMinuteLabel: h.twoMinuteLabel ?? '',
     color: h.color,
+    suit: h.suit,
     anchor: h.anchor ?? '',
     whenWhere: h.whenWhere ?? '',
     why: h.why ?? '',
