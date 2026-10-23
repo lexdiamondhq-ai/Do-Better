@@ -670,7 +670,9 @@ describe('the face-card moment', () => {
   const queens = { kind: 'pair' as const, title: 'Pair of Queens', cards: [played(12), played(12, true), played(9)] };
 
   it('says what the Joker plays as, with the right article', () => {
-    expect(jokerResult(queens, { chips: 30, chipsWas: 10, warmup: false })).toBe('Your Joker plays as a Queen: Pair of Queens, 10 → 30 chips.');
+    expect(jokerResult(queens, { chips: 30, chipsWas: 10, warmup: false })).toBe('Your Joker plays as a Queen: Pair of Queens, 10\u00a0→\u00a030\u00a0chips.');
+    // The jump never breaks across two lines.
+    expect(jokerResult(queens, { chips: 30, chipsWas: 10, warmup: false })).toContain('10\u00a0→\u00a030\u00a0chips');
     const aceHigh = { kind: 'high-card' as const, title: 'Ace high', cards: [played(14, true), played(9)] };
     expect(jokerResult(aceHigh, { chips: 10, chipsWas: 10, warmup: false })).toBe('Your Joker plays as an Ace: Ace high.');
     const eights = { kind: 'pair' as const, title: 'Pair of Eights', cards: [played(8), played(8, true)] };

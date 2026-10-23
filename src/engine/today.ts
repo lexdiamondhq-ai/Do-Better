@@ -641,7 +641,8 @@ export function receiptCopy(r: Receipt): ReceiptCopy {
 export function jokerResult(hand: Pick<Hand, 'kind' | 'title' | 'cards'> | null, o: { chips: number; chipsWas: number; warmup: boolean }): string | null {
   const joker = hand?.cards.find((c) => c.joker);
   if (!hand || !joker) return null;
-  const chips = !o.warmup && o.chips !== o.chipsWas ? `, ${grouped(o.chipsWas)} → ${grouped(o.chips)} chips` : '';
+  // The jump is held together with no-break spaces, so "10 → 30 chips" never breaks across two lines.
+  const chips = !o.warmup && o.chips !== o.chipsWas ? `, ${grouped(o.chipsWas)}\u00a0→\u00a0${grouped(o.chips)}\u00a0chips` : '';
   // Alone in the week (a Monday), it can only be high card for now: whatever comes next pairs with it.
   const alone = hand.cards.length === 1 ? ' Your next card pairs with it.' : '';
   return `Your Joker plays as ${aCard(rankName(joker.rank))}: ${hand.title}${chips}.${alone}`;
