@@ -1,10 +1,10 @@
-import { useId, useState, type ReactNode } from 'react';
+import { createContext, use, useId, useState, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Defs, Ellipse, G, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import type { Suit } from '@/engine/cards';
 import { COMPACT_BELOW } from '@/engine/today';
-import { creasePath, defaultGrip, ridgePath, scuffPath, thumbOval, wearArt, wearOf, type Grip, type Size, type Wear } from '@/engine/wear';
+import { creasePath, defaultGrip, ridgePath, scuffPath, thumbOval, wearArt, wearOf, type Corner, type Grip, type Scuff, type Size, type Wear } from '@/engine/wear';
 import { useDeck, useGrips } from '@/lib/deck';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, INK, radius as radii, WHITE, type CardColor } from '@/theme/tokens';
@@ -36,6 +36,29 @@ export function wearInks(color: CardColor | 'dark', onRaised: string = WHITE): W
   const ink = cardColors[color].ink;
   const inkCard = ink === INK;
   return { edge: ink, under: inkCard ? WHITE : INK, gilt: inkCard ? GOLD_DEEP : GOLD_BRIGHT, foil: inkCard ? FOIL_PALE : FOIL_DEEP };
+}
+
+/**
+ * The scale a card is drawn at, for a picture of a card shrunk to fit (the You mini deck, the habit page's
+ * worn-in picture). The wear keeps its lines as heavy on screen as they are on a full-size card, so a small
+ * card still shows its corners, crease and thumb mark. No layer's opacity changes with it.
+ */
+export const WearScale = createContext(1);
+
+/** How much wider the wear's lines are drawn on a card shown at `scale`, so they land about as wide on screen as at full size. */
+export function wearLift(scale: number): number {
+  return scale > 0 && scale < 1 ? Math.min(3, 1 / scale) : 1;
+}
+
+/** Where a corner's point is on a card `size` points across: where the colour rubs off first. */
+export function cornerPoint(corner: Corner, size: Size): { x: number; y: number } {
+  return { x: corner === 'tr' || corner === 'br' ? size.w : 0, y: corner === 'bl' || corner === 'br' ? size.h : 0 };
+}
+
+/** How far a scuff runs from its corner's point: round the curve and `reach` of the radius on along each edge. */
+export function scuffSpan(s: Pick<Scuff, 'reach'>, size: Size, radius: number): number {
+  const r = Math.max(2, Math.min(radius, size.w / 2, size.h / 2));
+  return r * (1 + s.reach);
 }
 
 /** The layers a card draws: its wear, less on the dark side (scuffs and gilt only) and on cards deep in the deck (corners only). */
@@ -91,6 +114,7 @@ export function CardWear({
   const grips = useGrips();
   const [size, setSize] = useState<Size | null>(null);
   const uid = useId().replace(/[^A-Za-z0-9_-]/g, '');
+  const lift = wearLift(use(WearScale));
 
   const wear = wearOf(kept);
   if (wear.stage === 'new') return null;
@@ -118,10 +142,23 @@ export function CardWear({
       {size && size.w > 0 && size.h > 0 ? (
         <Svg width={size.w} height={size.h}>
           <Defs>
+            {/* Each corner's rub: strongest at the corner's point, gone by the end of its reach along the edges. */}
+            {shown.corners
+              ? art.scuffs.map((sc) => {
+                  const p = cornerPoint(sc.corner, size);
+                  return (
+                    <RadialGradient key={sc.corner} id={`${uid}e${sc.corner}`} gradientUnits="userSpaceOnUse" cx={p.x} cy={p.y} fx={p.x} fy={p.y} r={scuffSpan(sc, size, radius) * 1.04}>
+                      <Stop offset="0" stopColor={inks.edge} stopOpacity={1} />
+                      <Stop offset="0.4" stopColor={inks.edge} stopOpacity={0.85} />
+                      <Stop offset="1" stopColor={inks.edge} stopOpacity={0} />
+                    </RadialGradient>
+                  );
+                })
+              : null}
             {shown.thumb ? (
               <RadialGradient id={`${uid}t`} cx="50%" cy="50%" r="50%">
-                <Stop offset="0" stopColor={inks.under} stopOpacity={0.9} />
-                <Stop offset="0.6" stopColor={inks.under} stopOpacity={0.45} />
+                <Stop offset="0" stopColor={inks.under} stopOpacity={1} />
+                <Stop offset="0.6" stopColor={inks.under} stopOpacity={0.55} />
                 <Stop offset="1" stopColor={inks.under} stopOpacity={0} />
               </RadialGradient>
             ) : null}
@@ -153,34 +190,49 @@ export function CardWear({
           {/* The Heirloom's foil lies over the suit watermark, in the same place and turn. */}
           {shown.foil && known && cardSuit ? <Foil suit={cardSuit} size={size} compact={drawnCompact(size.h, compact)} fill={`url(#${uid}f)`} /> : null}
 
-          {/* Softened corners: the colour rubbed thin along each rounded edge, with a looser line just inside it. */}
+          {/*
+            Softened corners: the colour rubbed thin round each corner, strongest at its point and fading out along
+            the edges, never a line round the card. Just inside it, a few frayed nicks (the card's seeded dashes)
+            fade out sooner still.
+          */}
           {shown.corners ? (
             <G opacity={wear.corners}>
-              {art.scuffs.map((s) => (
-                <G key={s.corner}>
-                  <Path d={scuffPath(s, size, radius)} stroke={inks.edge} strokeWidth={s.width} strokeDasharray={s.dash} strokeLinecap="round" fill="none" />
-                  <Path d={scuffPath({ ...s, inset: s.inset + s.width + 1.2 }, size, radius)} stroke={inks.edge} strokeWidth={0.9} strokeDasharray={[...s.dash].reverse()} strokeDashoffset={s.dash[0]} strokeLinecap="round" fill="none" opacity={0.6} />
-                </G>
-              ))}
+              {art.scuffs.map((sc) => {
+                const band = sc.width * 1.5 * lift;
+                return (
+                  <G key={sc.corner}>
+                    <Path d={scuffPath(sc, size, radius)} stroke={`url(#${uid}e${sc.corner})`} strokeWidth={band} strokeLinecap="round" fill="none" />
+                    <Path
+                      d={scuffPath({ ...sc, inset: sc.inset + band / 2 + 1.4 * lift, reach: sc.reach * 0.6 }, size, radius)}
+                      stroke={`url(#${uid}e${sc.corner})`}
+                      strokeWidth={0.9 * lift}
+                      strokeDasharray={sc.dash.map((d) => d * lift)}
+                      strokeLinecap="round"
+                      fill="none"
+                      opacity={0.5}
+                    />
+                  </G>
+                );
+              })}
             </G>
           ) : null}
 
           {/* The crease: a soft fold across the card, fading out before the edges, with its shadow beside it. */}
           {shown.crease && known && art.crease ? (
             <G opacity={wear.crease}>
-              <Path d={creasePath(art.crease, size, 2)} stroke={`url(#${uid}c)`} strokeWidth={6} strokeLinecap="round" fill="none" opacity={0.45} />
-              <Path d={creasePath(art.crease, size)} stroke={`url(#${uid}c)`} strokeWidth={1.4} strokeLinecap="round" fill="none" />
+              <Path d={creasePath(art.crease, size, 2 * lift)} stroke={`url(#${uid}c)`} strokeWidth={6 * lift} strokeLinecap="round" fill="none" opacity={0.45} />
+              <Path d={creasePath(art.crease, size)} stroke={`url(#${uid}c)`} strokeWidth={1.4 * lift} strokeLinecap="round" fill="none" />
             </G>
           ) : null}
 
           {/* The thumb mark: a soft oval where the thumb holds the card, with the ridges of a print round it. */}
-          {shown.thumb && known && art.thumb ? <Thumb art={art.thumb} size={size} ink={inks.under} fill={`url(#${uid}t)`} opacity={wear.thumb} /> : null}
+          {shown.thumb && known && art.thumb ? <Thumb art={art.thumb} size={size} ink={inks.under} fill={`url(#${uid}t)`} opacity={wear.thumb} lift={lift} /> : null}
 
           {/* The gilt edge: a gold rule round the card and a finer one inside it, as on an old deck. */}
           {shown.gilt ? (
             <G opacity={wear.gilt}>
-              <Rect x={2} y={2} width={size.w - 4} height={size.h - 4} rx={Math.max(0, radius - 2)} stroke={`url(#${uid}g)`} strokeWidth={3.5} fill="none" />
-              <Rect x={8} y={8} width={size.w - 16} height={size.h - 16} rx={Math.max(0, radius - 8)} stroke={`url(#${uid}g)`} strokeWidth={1.2} fill="none" />
+              <Rect x={2} y={2} width={size.w - 4} height={size.h - 4} rx={Math.max(0, radius - 2)} stroke={`url(#${uid}g)`} strokeWidth={3.5 * lift} fill="none" />
+              <Rect x={8} y={8} width={size.w - 16} height={size.h - 16} rx={Math.max(0, radius - 8)} stroke={`url(#${uid}g)`} strokeWidth={1.2 * lift} fill="none" />
             </G>
           ) : null}
         </Svg>
@@ -189,13 +241,13 @@ export function CardWear({
   );
 }
 
-function Thumb({ art, size, ink, fill, opacity }: { art: NonNullable<ReturnType<typeof wearArt>['thumb']>; size: Size; ink: string; fill: string; opacity: number }) {
+function Thumb({ art, size, ink, fill, opacity, lift }: { art: NonNullable<ReturnType<typeof wearArt>['thumb']>; size: Size; ink: string; fill: string; opacity: number; lift: number }) {
   const o = thumbOval(art, size);
   return (
     <G opacity={opacity}>
       <Ellipse cx={o.cx} cy={o.cy} rx={o.rx} ry={o.ry} fill={fill} transform={`rotate(${art.angle} ${o.cx} ${o.cy})`} />
       {art.ridges.map((r, i) => (
-        <Path key={i} d={ridgePath(art, r, size)} stroke={ink} strokeWidth={1.2} strokeLinecap="round" fill="none" opacity={0.8} />
+        <Path key={i} d={ridgePath(art, r, size)} stroke={ink} strokeWidth={1.2 * lift} strokeLinecap="round" fill="none" opacity={0.9} />
       ))}
     </G>
   );

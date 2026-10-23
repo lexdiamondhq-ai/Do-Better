@@ -10,6 +10,7 @@ import { mix, withAlpha } from '@/theme/color';
 import { cardColors, fonts, on } from '@/theme/tokens';
 
 import { CardBack } from './CardBack';
+import { WearScale } from './CardWear';
 import { HabitCard } from './HabitCard';
 import { SuitGlyph } from './Suit';
 
@@ -113,7 +114,10 @@ export function CardPicture({ habit, kept, width, depth = 0 }: { habit: Habit; k
     <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden style={{ width, height: h }}>
       {/* Centred, then scaled about its centre, so it lands exactly in the box without a transform origin. */}
       <View style={{ position: 'absolute', left: (width - PICTURE_CARD.w) / 2, top: (h - PICTURE_CARD.h) / 2, width: PICTURE_CARD.w, height: PICTURE_CARD.h, transform: [{ scale: s }] }}>
-        <HabitCard habit={habit} kept={kept} wearDepth={depth} />
+        {/* Shrunk to fit, so its wear keeps lines that still show at this size. */}
+        <WearScale value={s}>
+          <HabitCard habit={habit} kept={kept} wearDepth={depth} />
+        </WearScale>
       </View>
     </View>
   );
