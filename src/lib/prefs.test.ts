@@ -121,5 +121,12 @@ describe('thumb marks and plans', () => {
     expect(after.grips).toEqual({ sam: notes.grips.sam });
     expect(after.plans).toEqual({ sam: notes.plans.sam });
     expect(after.seen).toEqual(notes.seen);
+    expect(after.looks).toEqual(notes.looks);
+    expect(after.showdownSeen).toEqual(notes.showdownSeen);
+    expect(after.reminders).toEqual(notes.reminders);
+    // A player with nothing noted leaves everyone else's notes as they were.
+    const none = applyPatch(notes, deckNotesForgotten(notes, 'nobody'));
+    expect(none.grips).toEqual(notes.grips);
+    expect(none.plans).toEqual(notes.plans);
   });
 });

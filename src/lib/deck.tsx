@@ -4,12 +4,14 @@ import { summarizeCourt, type CourtSuit } from '@/engine/court';
 import { addDays, type Day } from '@/engine/day';
 import { bandOf, tallyDay, tierOf, type Band, type DayCard, type Tier } from '@/engine/deal';
 import type { BackKey, Game, TableKey } from '@/engine/game';
-import { comebackAnswer, daysAway, indexCheckIns, keptDayCount, masteryOf, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level, type Mastery } from '@/engine/kept';
+import { ceilingDayCount, comebackAnswer, comebacksWithin, daysAway, indexCheckIns, keptDayCount, masteryOf, neverTwiceDay, summarizeWindow, totals, type CheckIns, type Level, type Mastery } from '@/engine/kept';
 import { ideaOfTheDay, partOfDay, recommend, type HabitFacts, type PartOfDay, type Recommendation, type RecommendationContext } from '@/engine/playbook';
+import type { HeldGrip } from '@/engine/wear';
 
 import { CueScheduler } from './cues';
 import { useData } from './data';
 import { courtHabits, dealHabits, playGameFor } from './play';
+import { usePlans } from './plans';
 import { usePrefs, type Look } from './prefs';
 import type { Habit, Profile, RecoveryPrompt } from './types';
 
@@ -53,6 +55,7 @@ export type Deck = {
   idea: Recommendation;
   keptToday: number;
   prompts: RecoveryPrompt[];
+  /** Kept days and Ceiling days are calendar days across the deck: two cards kept on one day make one of each. */
   totals: { kept: number; ceilings: number; rescues: number; jokers: number };
 };
 
@@ -69,6 +72,9 @@ function useComputedDeck(back: readonly string[]): Deck | null {
   const { state, today, seed } = useData();
   const { prefs } = usePrefs();
   const perHabit = prefs.reminders.perHabit;
+  // Your plan for each card, saved on this phone (and the demo's sample plan, wherever usePlans adds it).
+  // The coach asks for one only where there is none, so it reads the same plans the card's page shows.
+  const plans = usePlans();
   return useMemo(() => {
     if (state.status !== 'ready') return null;
     const byHabit = indexCheckIns(state.days);
@@ -98,10 +104,9 @@ function useComputedDeck(back: readonly string[]): Deck | null {
     const todayTier = tierOf(todayTally);
     const allWeeks = [...game.weeks, game.current];
     const cardsDealt = allWeeks.flatMap((w) => w.slots.flatMap((s) => (s.card ? [s.card] : [])));
-    // Kept days are calendar days, so two habits kept on one day count once. Ceilings count per habit.
+    // Kept days and Ceiling days are calendar days, so two habits kept on one day count once.
     const kept = keptDayCount(byHabit.values(), today);
-    let ceilings = 0;
-    for (const days of byHabit.values()) ceilings += totals(days, today).ceiling;
+    const ceilings = ceilingDayCount(byHabit.values(), today);
 
     // Rates over the last 30 days, ignoring today because it isn't over yet.
     const yesterday = addDays(today, -1);
@@ -127,6 +132,8 @@ function useComputedDeck(back: readonly string[]): Deck | null {
         comeback: !!c.neverTwice,
         mastered: c.mastered,
         justBack: back.includes(c.habit.id),
+        hasPlan: !!plans?.[c.habit.id],
+        comebacks30: comebacksWithin(c.habit.startedOn, today, c.checkIns),
       });
     }
     const keptToday = cards.filter((c) => c.today).length;
@@ -172,10 +179,15 @@ function useComputedDeck(back: readonly string[]): Deck | null {
         jokers: cardsDealt.filter((c) => c.kind === 'joker').length,
       },
     };
-  }, [state, today, seed, perHabit, back]);
+  }, [state, today, seed, perHabit, plans, back]);
 }
 
 const DeckContext = createContext<Deck | null>(null);
+
+const NO_GRIPS: Readonly<Record<string, HeldGrip>> = Object.freeze({});
+
+/** Where this player's thumb holds each card, from real swipes saved on this phone, by habit id. */
+const GripsContext = createContext<Readonly<Record<string, HeldGrip>>>(NO_GRIPS);
 
 /** A card that just joined the deck, new or brought back, for a screen to say so. */
 export type Added = { id: string; name: string; back: boolean };
@@ -193,6 +205,9 @@ export function DeckProvider({ children }: PropsWithChildren) {
   // Cards brought back from the archive this session, so the coach doesn't ask to rest them again straight away.
   const [back, setBack] = useState<readonly string[]>([]);
   const deck = useComputedDeck(back);
+  const { seed } = useData();
+  const { prefs } = usePrefs();
+  const grips = prefs.grips[seed] ?? NO_GRIPS;
   const [added, setAdded] = useState<Added | null>(null);
   useEffect(() => {
     if (!added) return;
@@ -213,16 +228,26 @@ export function DeckProvider({ children }: PropsWithChildren) {
   }, [added]);
   return (
     <DeckContext.Provider value={deck}>
-      <AddedContext.Provider value={addedApi}>
-        <CueScheduler deck={deck} />
-        {children}
-      </AddedContext.Provider>
+      <GripsContext.Provider value={grips}>
+        <AddedContext.Provider value={addedApi}>
+          <CueScheduler deck={deck} />
+          {children}
+        </AddedContext.Provider>
+      </GripsContext.Provider>
     </DeckContext.Provider>
   );
 }
 
 export function useDeck(): Deck | null {
   return useContext(DeckContext);
+}
+
+/**
+ * This player's saved thumb positions, by habit id, for the wear on their cards. Empty outside a deck
+ * (and for cards with no swipe saved yet), where a card's wear falls back to its seeded grip.
+ */
+export function useGrips(): Readonly<Record<string, HeldGrip>> {
+  return useContext(GripsContext);
 }
 
 /** The card that just joined the deck, for a moment, and the way to note one. */

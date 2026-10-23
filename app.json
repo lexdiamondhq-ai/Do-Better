@@ -12,7 +12,8 @@
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryAddUsageDescription": "Save your cards and hands to Photos."
       },
       "icon": {
         "light": "./assets/icon.png",

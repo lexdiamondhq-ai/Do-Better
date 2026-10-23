@@ -1,24 +1,29 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
 import { ask } from '@/components/Ask';
-import { Arrow, DayCalendar, PileLegend, pileColors, WeeksGrid } from '@/components/Pile';
-import { faceOfCourt, PlayingCard } from '@/components/PlayingCard';
+import { CardPicture } from '@/components/CardOut';
+import { Arrow, PileLegend, pileColors, WeeksGrid } from '@/components/Pile';
+import { CARD_SIZES, faceOfCourt, faceOfDay, PlayingCard } from '@/components/PlayingCard';
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Centered, Display, Label, raisedStyle, Section } from '@/components/ui';
-import { SUIT_INFO } from '@/engine/cards';
-import { cleanIdentity } from '@/engine/court';
+import { cardName, SUIT_INFO } from '@/engine/cards';
+import { planLine } from '@/engine/comeback';
+import { cleanIdentity, type CourtSuit } from '@/engine/court';
 import { addDays, canBackfill, daysBetween, weekStart, type Day } from '@/engine/day';
-import { best30, bounceBacks, calendarWeeks, keptBetween, MASTERY, type CalendarDay, type Level } from '@/engine/kept';
+import type { Slot } from '@/engine/deal';
+import { best30, calendarWeeks, keptBetween, MASTERY, type CalendarDay, type Level } from '@/engine/kept';
 import { ownWhy, playsLine, PRINCIPLES, recipeFor, type EditField } from '@/engine/playbook';
+import { GRIP_NOTE, wearLine, wearOf, type WearStage } from '@/engine/wear';
 import { useData } from '@/lib/data';
 import { useDeck, useKeep, type HabitView } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { monthDay, shortDay } from '@/lib/format';
+import { usePlans } from '@/lib/plans';
 import { playSound } from '@/lib/sound';
 import { useTheme } from '@/theme/ThemeProvider';
 import { mix, withAlpha } from '@/theme/color';
@@ -33,6 +38,7 @@ export default function HabitDetail() {
   const deck = useDeck();
   const { undoCheckIn, refresh } = useData();
   const keepCard = useKeep();
+  const plans = usePlans();
   const [refreshing, setRefreshing] = useState(false);
   const view = deck?.cards.find((c) => c.habit.id === id);
 
@@ -72,6 +78,7 @@ export default function HabitDetail() {
   }
 
   function logLate(day: Day) {
+    feel.tick();
     ask('Did it, forgot to log?', `${shortDay(day)} can be logged until midnight tonight. It counts like any kept day.`, [
       { text: `Floor: ${habit.floorLabel}`, onPress: () => keep('floor', day) },
       { text: `Ceiling: ${habit.ceilingLabel}`, onPress: () => keep('ceiling', day) },
@@ -90,14 +97,9 @@ export default function HabitDetail() {
 
   const late = canBackfill(yesterday, today, habit, checkIns);
   const quarter = calendarWeeks(today, { weeks: 12 }, habit.startedOn, checkIns);
-  const window30 = view.window30;
   // Counted from the grid itself, so the number always matches the squares under it.
   const quarterKept = gridCount(quarter);
   const age = daysBetween(habit.startedOn, today) + 1;
-  // A young card's calendar starts the week it was made, not with empty weeks before it.
-  const young = age < 30;
-  const month = calendarWeeks(today, { days: Math.max(1, Math.min(30, age)) }, habit.startedOn, checkIns);
-  const monthTitle = young ? 'Since you started' : 'Last 30 days';
   const best = age >= 30 ? best30(habit.startedOn, today, checkIns) : null;
   const identity = cleanIdentity(habit.identity);
   const why = ownWhy(habit);
@@ -105,7 +107,9 @@ export default function HabitDetail() {
   const recipe = recipeFor(habit.recipeKey);
   const principle = recipe ? PRINCIPLES[recipe.principle] : null;
   const court = deck.court.find((s) => s.suit === habit.suit);
-  const suit = SUIT_INFO[habit.suit];
+  const plan = plans[habit.id] ?? null;
+  // This week's cards that this card helped deal: the days it was kept.
+  const dealt = deck.game.current.slots.filter((s) => s.card && checkIns.has(s.day));
   const darkInk = c.ink === WHITE;
   // Ink on the pale tint of the card's colour; on a dark table, a dim wash of it so it doesn't glare.
   const idea = t.scheme === 'dark' ? { bg: mix(t.bg, c.onDark, 0.2), ink: t.text } : { bg: c.soft, ink: INK };
@@ -122,54 +126,39 @@ export default function HabitDetail() {
         <Header view={view} insets={insets.top} onBack={() => router.back()} onEdit={() => edit()} best={best} onKeep={keep} onUndo={undo} />
 
         <View style={{ paddingHorizontal: space.xl, gap: space.xxl }}>
+          <Tally view={view} />
+
           <View style={{ gap: space.md }}>
             <View
               accessible
               accessibilityRole="header"
-              accessibilityLabel={`${monthTitle}: ${window30.keptDays} kept, ${window30.ceilingDays} at the Ceiling.`}
+              accessibilityLabel={`Twelve weeks: ${quarterKept.keptDays} kept, ${quarterKept.ceilingDays} at the Ceiling.`}
               style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md }}
             >
-              <Display size={typeScale.display.sm}>{monthTitle}</Display>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm, flexShrink: 1 }}>
+                <Display size={typeScale.display.sm}>Twelve weeks</Display>
+                <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
+                  {`${quarterKept.keptDays} kept`}
+                </Body>
+              </View>
               <PileLegend color={habit.color} />
             </View>
-            <DayCalendar
-              weeks={month}
+            <WeeksGrid
+              weeks={quarter}
               color={habit.color}
               today={today}
-              canLogLate={(day) => late && day === yesterday}
-              onLogLate={logLate}
-              lateLabel={`Yesterday, ${shortDay(yesterday)}, not logged. Did it? Log it late`}
+              label={`The last twelve weeks: ${quarterKept.keptDays} days kept, ${quarterKept.ceilingDays} at the Ceiling, ${keptBetween(checkIns, weekStart(today), today)} this week.`}
             />
-            {late ? (
-              <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
-                Did it yesterday and forgot to log? Tap its day.
-              </Body>
-            ) : null}
+            {late ? <LateLog day={yesterday} onPress={() => logLate(yesterday)} /> : null}
           </View>
 
-          <Stats view={view} today={today} />
+          <WeekCards view={view} slots={dealt} />
 
           <PartOfYou view={view} age={age} onRaise={() => edit('ceilingLabel')} />
 
-          {court ? (
-            <View style={[{ flexDirection: 'row', gap: space.lg, alignItems: 'center', borderRadius: radius.lg, padding: space.lg }, raisedStyle(t)]}>
-              {court.face ? <PlayingCard face={faceOfCourt(court.suit, court.face)} size="md" /> : <EmptySeat suit={habit.suit} />}
-              <View style={{ flex: 1, gap: space.xs }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <SuitGlyph suit={court.suit} size={13} color={t.onRaisedSecondary} />
-                  <Label color={t.onRaisedSecondary}>{`Court of ${suit.name}`}</Label>
-                </View>
-                <Display size={typeScale.display.sm} color={t.onRaised}>
-                  {/* The face's title wraps as one unit, so "Showing up" never leaves "up" alone on a line. */}
-                  {court.face ? `${court.face.name} of ${suit.name} · ${court.face.title.replace(/ /g, '\u00A0')}` : `${court.votes} ${suit.part} ${court.votes === 1 ? 'day' : 'days'}`}
-                </Display>
-                <Body size={typeScale.text.sm} color={t.onRaisedSecondary}>
-                  {`Every day you keep ${habit.name} counts for your ${suit.part.toLowerCase()}. `}
-                  {court.next ? `${court.next.needed} more ${court.next.needed === 1 ? 'day earns' : 'days earn'} the ${court.next.face.name}, and a Joker with it.` : 'Every face card is earned.'}
-                </Body>
-              </View>
-            </View>
-          ) : null}
+          <WornIn view={view} />
+
+          {court ? <CourtLine view={view} court={court} /> : null}
 
           <Section title="Why and when">
             {why ? (
@@ -185,8 +174,19 @@ export default function HabitDetail() {
             <View style={[{ borderRadius: radius.lg, overflow: 'hidden', backgroundColor: t.bgRaised }]}>
               <Row label="I’m" value={identity} empty="Who does it make you? Add it" onPress={() => edit('identity')} />
               <Row label="When it plays" value={when ? playsLine(when) : null} empty="Tie it to a moment. Add it" onPress={() => edit('anchor')} />
-              <Row label="First move" value={habit.twoMinuteLabel} empty="The smallest way to start. Add it" onPress={() => edit('twoMinuteLabel')} last />
+              <Row label="First move" value={habit.twoMinuteLabel} empty="The smallest way to start. Add it" onPress={() => edit('twoMinuteLabel')} last={!plan} />
+              {plan ? (
+                <Row
+                  label="Your plan"
+                  value={planLine(plan, habit)}
+                  empty=""
+                  hint="Opens your plan for this card’s next Comeback"
+                  onPress={() => router.push({ pathname: '/plan', params: { habit: habit.id } })}
+                  last
+                />
+              ) : null}
             </View>
+            <LeaveLink view={view} onPress={() => router.push({ pathname: '/leave', params: { habit: habit.id } })} />
           </Section>
 
           {principle ? (
@@ -198,25 +198,6 @@ export default function HabitDetail() {
               <Body color={idea.ink}>{principle.idea}</Body>
             </View>
           ) : null}
-
-          {young ? null : (
-            <View style={{ gap: space.md }}>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.md }}>
-                <Display size={typeScale.display.sm} header>
-                  Twelve weeks
-                </Display>
-                <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
-                  {`${quarterKept.keptDays} kept`}
-                </Body>
-              </View>
-              <WeeksGrid
-                weeks={quarter}
-                color={habit.color}
-                today={today}
-                label={`The last twelve weeks: ${quarterKept.keptDays} days kept, ${quarterKept.ceilingDays} at the Ceiling, ${keptBetween(checkIns, weekStart(today), today)} this week.`}
-              />
-            </View>
-          )}
 
           <Body size={typeScale.text.sm} color={t.textSecondary} style={{ textAlign: 'center' }}>{`In your deck since ${monthDay(habit.startedOn, today)}.`}</Body>
         </View>
@@ -431,34 +412,247 @@ function UndoLink({ ink, onPress }: { ink: string; onPress: () => void }) {
   );
 }
 
-/** What the card has added up to. No count of days missed: only what was kept. */
-function Stats({ view, today }: { view: HabitView; today: Day }) {
+/** What the card has added up to, in one sentence, marked the way its days are: Floor soft, Ceiling solid. Only what was kept. */
+function Tally({ view }: { view: HabitView }) {
   const t = useTheme();
-  const { habit, checkIns, allTime } = view;
+  const { habit, allTime } = view;
   const fill = pileColors(t, habit.color);
-  const week = keptBetween(checkIns, weekStart(today), today);
-  const tile = (n: number, label: string, extra?: object, ink?: string, big = false) => (
-    <View key={label} accessible accessibilityLabel={`${n} ${label}`} style={[{ flex: 1, borderRadius: radius.md, padding: space.md, gap: 2, backgroundColor: t.bgRaised, justifyContent: 'flex-end', minHeight: big ? 112 : 84 }, extra]}>
-      <Display size={big ? typeScale.display.xl : typeScale.display.md} color={ink} maxFontSizeMultiplier={fontScale.chrome} style={{ fontVariant: ['tabular-nums'] }}>
-        {n}
+  const days = allTime.kept === 1 ? 'kept day' : 'kept days';
+  // A thin space either side, so the marker sits round the number like a highlighter stroke.
+  const mark = (n: number, ink: string, bg: string) => <Text style={{ color: ink, backgroundColor: bg, fontVariant: ['tabular-nums'] }}>{` ${n} `}</Text>;
+  return (
+    <View accessible accessibilityLabel={`${allTime.kept} ${days}, ${allTime.ceiling} at the Ceiling.`}>
+      <Display size={typeScale.display.lg} style={{ lineHeight: typeScale.display.lg * 1.25 }}>
+        {mark(allTime.kept, fill.floor.ink, fill.floor.bg)}
+        {` ${days}, `}
+        {mark(allTime.ceiling, fill.ceiling.ink, fill.ceiling.bg)}
+        {' at the Ceiling.'}
       </Display>
-      <Body weight="heavy" size={12} color={ink ?? t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
-        {label}
-      </Body>
     </View>
   );
+}
+
+/** Yesterday, not logged and still in reach: one tap to log it late. */
+function LateLog({ day, onPress }: { day: Day; onPress: () => void }) {
+  const t = useTheme();
   return (
-    <View style={{ gap: space.sm }}>
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        {tile(allTime.kept, allTime.kept === 1 ? 'kept day' : 'kept days', { flex: 2, backgroundColor: fill.ceiling.bg }, fill.ceiling.ink, true)}
-        {tile(week, 'kept this week', undefined, undefined, true)}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Yesterday, ${shortDay(day)}, not logged. Did it? Log it late`}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: space.md,
+        minHeight: TAP,
+        paddingHorizontal: space.lg,
+        paddingVertical: space.sm,
+        borderRadius: radius.pill,
+        borderWidth: 1.5,
+        borderStyle: 'dashed',
+        borderColor: t.dashed,
+        opacity: pressed ? 0.6 : 1,
+      })}
+    >
+      <Body weight="bold" size={typeScale.text.sm} color={t.textSecondary} style={{ flexShrink: 1 }}>
+        {`Did it yesterday, ${shortDay(day)}?`}
+      </Body>
+      <Body weight="heavy" size={typeScale.text.sm}>
+        Log it late
+      </Body>
+    </Pressable>
+  );
+}
+
+const FAN = CARD_SIZES.md;
+const WEEKDAY = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
+/** "Tue": short enough to sit under a card in the fan. The local calendar day at local midnight, as `@/lib/format` reads a day. */
+const weekday = (day: Day) => {
+  const [y, m, d] = day.split('-').map(Number);
+  return WEEKDAY.format(new Date(y, m - 1, d));
+};
+/** How far each card in the fan turns from the one before it. */
+const FAN_TURN = 6;
+
+/** The cards this card helped deal this week, held as a small fan, each with its day under it. */
+function WeekCards({ view, slots }: { view: HabitView; slots: Slot[] }) {
+  const t = useTheme();
+  const { habit } = view;
+  const [width, setWidth] = useState(0);
+  const cards = slots.flatMap((s) => (s.card ? [{ day: s.day, face: faceOfDay(s.card, habit.suit) }] : []));
+  const n = cards.length;
+  const names = cards.map(({ day, face }) => `${shortDay(day)}, ${face.kind === 'joker' ? 'Joker' : cardName({ rank: face.rank, suit: face.suit })}`);
+  const step = n > 1 ? Math.min(FAN.w * 0.8, (width - FAN.w - space.xl) / (n - 1)) : 0;
+  const left = (width - (FAN.w + step * (n - 1))) / 2;
+  const mid = (n - 1) / 2;
+  return (
+    <View style={{ gap: space.md }}>
+      <Display size={typeScale.display.sm} header>
+        This week’s cards
+      </Display>
+      {n ? (
+        <View
+          accessible
+          accessibilityRole="image"
+          accessibilityLabel={`This week’s cards from ${habit.name}: ${names.join('; ')}.`}
+          onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+          style={{ height: FAN.h + 40 }}
+        >
+          {width
+            ? cards.map(({ day, face }, i) => {
+                const off = i - mid;
+                return (
+                  <View
+                    key={day}
+                    style={{ position: 'absolute', left: left + i * step, top: 6 + off * off * 2.2, alignItems: 'center', gap: 6, transform: [{ rotate: `${off * FAN_TURN}deg` }] }}
+                  >
+                    <PlayingCard face={face} size="md" />
+                    <Body weight="heavy" size={12} color={t.textSecondary} maxFontSizeMultiplier={fontScale.graphic}>
+                      {weekday(day)}
+                    </Body>
+                  </View>
+                );
+              })
+            : null}
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
+          <View aria-hidden style={{ width: FAN.w * 0.7, height: FAN.h * 0.7, borderRadius: FAN.radius, borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.dashed, alignItems: 'center', justifyContent: 'center' }}>
+            <SuitGlyph suit={habit.suit} size={18} color={t.textSecondary} />
+          </View>
+          <Body size={typeScale.text.md} color={t.textSecondary} style={{ flex: 1 }}>
+            No cards from this habit yet this week.
+          </Body>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const STAGES: readonly WearStage[] = ['new', 'worn', 'played', 'gilt', 'heirloom'];
+
+/**
+ * How the card has worn in with its kept days: the card itself, small, with its wear and thumb mark, the
+ * wear line, a notch for each stage, and that the thumb mark lives only on this phone.
+ */
+function WornIn({ view }: { view: HabitView }) {
+  const t = useTheme();
+  const { habit, allTime } = view;
+  const kept = allTime.kept;
+  const stage = wearOf(kept).stage;
+  const { title, line } = wearLine(kept);
+  // The line reads "Well played · 34 kept days. Broken in…": the stage leads, the rest sits under it.
+  const rest = line.slice(title.length + ' · '.length);
+  const at = STAGES.indexOf(stage);
+  return (
+    <View accessible accessibilityLabel={`${line} ${GRIP_NOTE}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, borderRadius: radius.lg, padding: space.lg, paddingLeft: space.xl, backgroundColor: t.bgRaised }}>
+      <View style={{ transform: [{ rotate: '-4deg' }], marginVertical: space.xs }}>
+        <CardPicture habit={habit} kept={kept} width={104} />
       </View>
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        {tile(allTime.ceiling, allTime.ceiling === 1 ? 'Ceiling' : 'Ceilings')}
-        {tile(allTime.kept - allTime.ceiling, allTime.kept - allTime.ceiling === 1 ? 'Floor day' : 'Floor days')}
-        {tile(bounceBacks(habit.startedOn, today, checkIns), 'comebacks')}
+      <View style={{ flex: 1, gap: space.sm }}>
+        <View style={{ gap: 2 }}>
+          <Display size={typeScale.display.sm}>{title}</Display>
+          <Body weight="bold" size={typeScale.text.md}>
+            {rest}
+          </Body>
+        </View>
+        <View aria-hidden style={{ flexDirection: 'row', gap: 4 }}>
+          {STAGES.map((s, i) => (
+            <View key={s} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: i <= at ? t.text : t.border }} />
+          ))}
+        </View>
+        <Body size={typeScale.text.sm} color={t.textSecondary}>
+          {GRIP_NOTE}
+        </Body>
       </View>
     </View>
+  );
+}
+
+/** Where this card's suit stands in the Court: its face card, and how many kept days to the next one. */
+function CourtLine({ view, court }: { view: HabitView; court: CourtSuit }) {
+  const t = useTheme();
+  const { habit } = view;
+  const suit = SUIT_INFO[court.suit];
+  const next = court.next;
+  const line = next ? `${suit.name} · ${next.needed} ${next.needed === 1 ? 'day' : 'days'} to the ${next.face.name}` : `${suit.name} · every face card earned`;
+  const held = court.face ? `${court.face.name} of ${suit.name} · ${court.face.title}` : null;
+  const about = `Every day you keep ${habit.name} counts for your ${suit.part.toLowerCase()}.${next ? ` The ${next.face.name} brings a Joker with it.` : ''}`;
+  return (
+    <View
+      accessible
+      accessibilityLabel={[line, held, about].filter(Boolean).join('. ')}
+      style={[{ flexDirection: 'row', gap: space.lg, alignItems: 'center', borderRadius: radius.lg, padding: space.lg }, raisedStyle(t)]}
+    >
+      {court.face ? <PlayingCard face={faceOfCourt(court.suit, court.face)} size="md" /> : <EmptySeat suit={habit.suit} />}
+      <View style={{ flex: 1, gap: space.xs }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+          <SuitGlyph suit={court.suit} size={20} color={t.onRaised} />
+          {/* The face's name wraps as one unit, so "to the Queen" never leaves "Queen" alone on a line. */}
+          <Display size={typeScale.display.sm} color={t.onRaised} style={{ flexShrink: 1 }}>
+            {line.replace(/ to the /, ' to the ')}
+          </Display>
+        </View>
+        {held ? (
+          <Body weight="heavy" size={typeScale.text.sm} color={t.onRaised}>
+            {held.replace(/ · (.+)$/, (_, title: string) => ` · ${title.replace(/ /g, ' ')}`)}
+          </Body>
+        ) : null}
+        <Body size={typeScale.text.sm} color={t.onRaisedSecondary}>
+          {about}
+        </Body>
+      </View>
+    </View>
+  );
+}
+
+/** The way off the phone: this card as a print to fold or a lock screen. */
+function LeaveLink({ view, onPress }: { view: HabitView; onPress: () => void }) {
+  const t = useTheme();
+  const { habit } = view;
+  const c = cardColors[habit.color];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Leave it where it plays"
+      accessibilityHint="Print this card to fold, or make it your lock screen"
+      onPress={() => {
+        feel.tick();
+        onPress();
+      }}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.lg,
+        minHeight: 76,
+        paddingVertical: space.md,
+        paddingLeft: space.lg,
+        paddingRight: space.lg,
+        borderRadius: radius.lg,
+        backgroundColor: t.bgRaised,
+        opacity: pressed ? 0.75 : 1,
+        transform: [{ scale: pressed ? 0.98 : 1 }],
+      })}
+    >
+      {/* A folded print behind, the card itself in front. */}
+      <View aria-hidden style={{ width: 50, height: 52 }}>
+        <View style={{ position: 'absolute', left: 14, top: 2, width: 32, height: 44, borderRadius: 5, backgroundColor: WHITE, borderWidth: 1, borderColor: withAlpha(INK, 0.25), transform: [{ rotate: '10deg' }] }}>
+          <View style={{ position: 'absolute', left: 0, right: 0, top: 21, borderTopWidth: 1, borderStyle: 'dashed', borderColor: withAlpha(INK, 0.4) }} />
+        </View>
+        <View style={{ position: 'absolute', left: 2, top: 6, width: 32, height: 44, borderRadius: 5, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-7deg' }], boxShadow: '0 2px 5px rgba(23, 18, 31, 0.25)' }}>
+          <SuitGlyph suit={habit.suit} size={15} color={c.ink} />
+        </View>
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Body weight="heavy" size={typeScale.text.lg}>
+          Leave it where it plays →
+        </Body>
+        <Body size={typeScale.text.sm} color={t.textSecondary}>
+          Print it to fold, or make it your lock screen.
+        </Body>
+      </View>
+    </Pressable>
   );
 }
 
@@ -537,13 +731,13 @@ function Prompt({ title, body, onPress }: { title: string; body: string; onPress
   );
 }
 
-function Row({ label, value, empty, onPress, last }: { label: string; value: string | null; empty: string; onPress: () => void; last?: boolean }) {
+function Row({ label, value, empty, onPress, last, hint = 'Opens the card to change it' }: { label: string; value: string | null; empty: string; onPress: () => void; last?: boolean; hint?: string }) {
   const t = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={value ? `${label}: ${value}` : `${label}: ${empty}`}
-      accessibilityHint="Opens the card to change it"
+      accessibilityHint={hint}
       onPress={onPress}
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 56, paddingHorizontal: space.lg, paddingVertical: space.md, borderBottomWidth: last ? 0 : 1, borderBottomColor: t.border, opacity: pressed ? 0.6 : 1 })}
     >
