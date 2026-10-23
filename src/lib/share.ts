@@ -223,7 +223,7 @@ const STAMP_WIDTHS: Record<string, number> = {
   n: 566, o: 558, p: 541, q: 543, r: 432, s: 457, t: 429, u: 568, v: 577, w: 737, x: 538, y: 576, z: 545,
   A: 711, B: 609, C: 631, D: 655, E: 603, F: 613, G: 719, H: 650, I: 239, J: 531, K: 597, L: 569, M: 809,
   N: 670, O: 721, P: 595, Q: 782, R: 604, S: 542, T: 640, U: 675, V: 728, W: 947, X: 689, Y: 638, Z: 598,
-  ' ': 235, '’': 220, "'": 193, '-': 403,
+  ' ': 235, '’': 220, "'": 193, '-': 403, '.': 220, ':': 221, '!': 248, '?': 476, '(': 357, ')': 357, '·': 220, '…': 803,
   // Figures and the signs of a sum, so a chip count is measured as itself and not as a row of Ws.
   '0': 565, '1': 379, '2': 566, '3': 565, '4': 551, '5': 493, '6': 521, '7': 522, '8': 541, '9': 521, '+': 490, '=': 445, ',': 223,
 };
@@ -246,6 +246,31 @@ export function stampSize(text: string, width: number, max: number, min = Math.r
   const per = stampWidth(text, 1);
   if (per <= 0) return max;
   return Math.max(min, Math.min(max, Math.floor((width * 0.96) / per)));
+}
+
+/**
+ * Body type (Nunito ExtraBold) sets a touch wider than the display type the widths above were measured
+ * from: never more than this much, measured from both fonts.
+ */
+const BODY_WIDE = 1.09;
+
+/**
+ * How the Showdown's call panel sets its line in `room` points: one line, at the biggest size from `max`
+ * down to `min` that fits. A sentence too long for one line even at `min` breaks in two where it reads
+ * naturally (at its comma, or else before "paid"), never leaving a word on its own, and both lines share
+ * the biggest size that fits them.
+ */
+export function callPanelLines(text: string, room: number, o: { max: number; min: number } = { max: 14, min: 12 }): { lines: string[]; size: number } {
+  const per = (line: string) => stampWidth(line, 1) * BODY_WIDE;
+  const fit = (lines: string[]) => Math.min(o.max, Math.floor((room * 0.98) / Math.max(...lines.map(per))));
+  const one = fit([text]);
+  if (one >= o.min) return { lines: [text], size: one };
+  const comma = text.lastIndexOf(', ');
+  const paid = text.indexOf(' paid ');
+  const at = comma > 0 ? comma + 1 : paid > 0 ? paid : -1;
+  if (at < 0) return { lines: [text], size: o.min };
+  const lines = [text.slice(0, at).trim(), text.slice(at).trim()];
+  return { lines, size: Math.max(o.min, fit(lines)) };
 }
 
 /**

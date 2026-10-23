@@ -33,7 +33,7 @@ import { weekOf, weekRange } from '@/lib/format';
 import { courtHabits, dealHabits, gameInput } from '@/lib/play';
 import { hasSeen, usePrefs } from '@/lib/prefs';
 import { useReviewAsk } from '@/lib/review';
-import { callLine, captionFacts, feltFor, handLines, payoutSize, stampSize, suitedLine, weekLine, weekSuit, type Felt } from '@/lib/share';
+import { callLine, callPanelLines, captionFacts, feltFor, handLines, payoutSize, stampSize, suitedLine, weekLine, weekSuit, type Felt } from '@/lib/share';
 import { playSound, playTones } from '@/lib/sound';
 import type { Habit } from '@/lib/types';
 import { mix, withAlpha } from '@/theme/color';
@@ -1165,6 +1165,11 @@ function CallPanel({ call, instant }: { call: NonNullable<ReturnType<typeof call
   }, [show, instant]);
   const style = useAnimatedStyle(() => ({ opacity: show.get(), transform: [{ translateY: (1 - show.get()) * 8 }] }));
   const text = call.detail ? `${call.title} ${call.detail}` : call.title;
+  // One line where it fits, sized down a little if it must; a longer sentence breaks at its comma, never
+  // leaving a word on its own in the panel. Measured once laid out; until then, from the screen's width.
+  const { width } = useWindowDimensions();
+  const [room, setRoom] = useState<number | null>(null);
+  const set = callPanelLines(text, room ?? width - space.xl * 2 - space.md * 2 - 26 - (space.sm + 2));
   return (
     <Animated.View
       accessible
@@ -1187,9 +1192,11 @@ function CallPanel({ call, instant }: { call: NonNullable<ReturnType<typeof call
           {made ? '✓' : call.kind === 'missed' ? '·' : '?'}
         </Display>
       </View>
-      <Body size={14} weight="heavy" color={t.onRaised} style={{ flex: 1 }}>
-        {text}
-      </Body>
+      <View style={{ flex: 1 }} onLayout={(e) => setRoom((r) => (r !== null && Math.abs(r - e.nativeEvent.layout.width) < 0.5 ? r : e.nativeEvent.layout.width))}>
+        <Body size={set.size} weight="heavy" color={t.onRaised}>
+          {set.lines.join('\n')}
+        </Body>
+      </View>
     </Animated.View>
   );
 }

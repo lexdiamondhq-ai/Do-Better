@@ -44,6 +44,7 @@ const {
   captionFacts,
   callHistoryLine,
   callLine,
+  callPanelLines,
   callWindow,
   chipText,
   feltFor,
@@ -362,6 +363,42 @@ describe('the call line', () => {
     const lines = [0, 1, 2, 3].map((m) => callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: m as Week['callMultiplier'] }))!);
     lines.push(callLine(week(twoPair, { call: 'pair' }))!, callLine(week(twoPair))!);
     for (const l of lines) expect(`${l.title} ${l.detail}`).not.toMatch(/\b(odds|bet|wager|jackpot|rake|high-roller)\b/i);
+  });
+});
+
+describe('the call panel’s line', () => {
+  // The room the panel's words have at 375 and 390 points wide.
+  const at375 = 267;
+  const at390 = 282;
+  const made = (call: Week['call'], m: Week['callMultiplier'], bonus: number) => callLine(week(twoPair, { call, madeCall: true, callMultiplier: m, bonus }))!.title;
+
+  it('keeps a made call on one line at 375 and 390, from a Pair to a Full house', () => {
+    for (const room of [at375, at390])
+      for (const [call, bonus] of [['pair', 20], ['two-pair', 50], ['straight', 100], ['full-house', 140]] as const) {
+        const set = callPanelLines(made(call, 1, bonus), room);
+        expect(set.lines).toHaveLength(1);
+        expect(set.size).toBeGreaterThanOrEqual(12);
+        expect(set.size).toBeLessThanOrEqual(14);
+      }
+  });
+
+  it('sets a short line at full size', () => {
+    expect(callPanelLines('No call this week.', at375)).toEqual({ lines: ['No call this week.'], size: 14 });
+  });
+
+  it('breaks a Stretch or a Long shot at its comma, never leaving one word alone', () => {
+    const long = callPanelLines(made('four-of-a-kind', 3, 1500), at375);
+    expect(long.lines).toEqual(['Called a Long shot: the Four of a kind call paid 1,500 more,', 'three times its chips.']);
+    for (const m of [2, 3] as const)
+      for (const call of ['pair', 'three-of-a-kind', 'full-house'] as const) {
+        const set = callPanelLines(made(call, m, 999), at375);
+        for (const line of set.lines) expect(line.split(' ').length).toBeGreaterThan(1);
+        expect(set.size).toBeGreaterThanOrEqual(12);
+      }
+  });
+
+  it('breaks a long one-line call before “paid” when it has no comma', () => {
+    expect(callPanelLines(made('three-of-a-kind', 1, 1500), 200).lines).toEqual(['Called it: the Three of a kind call', 'paid 1,500 more.']);
   });
 });
 
