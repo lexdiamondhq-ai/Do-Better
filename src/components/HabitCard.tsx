@@ -343,12 +343,15 @@ export function ComebackCard({
   onLogYesterday,
   onOpen,
   plan,
+  planFloor = false,
   showWhy = false,
   style,
 }: {
   habit: Habit;
   /** Kept days on this card so far. */
   kept: number;
+  /** The plan's next step is the Floor, so Done it keeps the Floor (and says so to a screen reader). */
+  planFloor?: boolean;
   /** Where the card sits in the deck (0 is the front), so cards further back draw lighter wear. */
   wearDepth?: number;
   gap: ComebackGap;
@@ -425,7 +428,7 @@ export function ComebackCard({
     <Press
       ref={firstMove ? done : undefined}
       onPress={firstMove ? (onFirstMove ? doneItPressed : undefined) : onFloor}
-      label={firstMove ? `Done it: ${firstMove}. Keeps today.` : `Keep the Floor: ${habit.floorLabel}`}
+      label={firstMove ? `Done it: ${planFloor && ownPlan ? habit.floorLabel : firstMove}. Keeps today.` : `Keep the Floor: ${habit.floorLabel}`}
       testID="comeback-done"
       style={{ flex: firstMove ? undefined : 1, minHeight: 48, borderRadius: radius.pill, backgroundColor: accent, paddingVertical: space.md, paddingHorizontal: space.lg, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
     >

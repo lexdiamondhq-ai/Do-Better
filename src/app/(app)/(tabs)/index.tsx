@@ -587,6 +587,7 @@ function Table({ deck }: { deck: Deck }) {
           kept={view.allTime.kept}
           wearDepth={depth}
           plan={plans[habit.id] ? planLine(plans[habit.id], habit) : null}
+          planFloor={plans[habit.id]?.then === 'floor'}
           gap={comebackGap(habit.startedOn, deck.today, view.checkIns)}
           saving={!!game.rescue}
           compact={folded}
