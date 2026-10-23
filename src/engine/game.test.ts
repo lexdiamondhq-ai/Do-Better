@@ -560,6 +560,15 @@ describe('card backs', () => {
     expect(unlocks.firstOfKind).toBe(false);
     expect(unlocksFor(game, game.weeks[0]).firstOfKind).toBe(true);
   });
+
+  it('never calls a hand a first when the Hall of Hands spotted it in an earlier week', () => {
+    // The first week's cards held a Straight inside a better hand: the Hall says it was spotted then.
+    const weeks = [week(0, [plain], { contains: new Set<HandKind>(['straight']) }), week(1, [plain])];
+    weeks[1] = { ...weeks[1], hand: { ...weeks[1].hand!, kind: 'straight' } };
+    const game = backsAfter(weeks);
+    expect(game.hall.find((e) => e.kind === 'straight')?.first).toBe(weeks[0].start);
+    expect(unlocksFor(game, game.weeks[1]).firstOfKind).toBe(false);
+  });
 });
 
 describe('tables', () => {

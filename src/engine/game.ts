@@ -766,7 +766,8 @@ export function unlocksFor(game: Game, week: Week): { firstOfKind: boolean; back
   const index = game.weeks.indexOf(week);
   const earlier = game.weeks.slice(0, index);
   const kind = week.hand?.kind;
-  const firstOfKind = !!kind && !week.warmup && !counting(earlier).some((w) => w.hand?.kind === kind);
+  // First as the Hall of Hands counts it: no earlier week held this kind, as its hand or inside a better one.
+  const firstOfKind = !!kind && !week.warmup && !counting(earlier).some((w) => w.hand?.kind === kind || w.contains.has(kind));
   const backs = BACKS.filter((b) => game.backUnlocks.get(b.key) === week.start).map((b) => b.key);
   const before = earlier.reduce((sum, w) => sum + weekTotal(w), 0);
   const after = before + weekTotal(week);
