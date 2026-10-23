@@ -32,11 +32,15 @@ describe('the Showdown rhythm', () => {
   });
 
   it('lifts each played card once, in order, and nothing alone on a closing beat', () => {
+    const RUNS: HandKind[] = ['straight', 'straight-flush', 'royal-flush', 'flush'];
     for (const kind of KINDS) {
       const cards = handRhythm(kind)
         .map((b) => b.card)
         .filter((c) => c >= 0);
-      expect(cards).toEqual(cards.map((_, i) => i));
+      // Groups lift in hand order. A run climbs from its lowest card, the last of `hand.cards`, which the
+      // fan shows on the left, so the lift travels left to right.
+      const order = cards.map((_, i) => i);
+      expect(cards).toEqual(RUNS.includes(kind) ? order.reverse() : order);
       expect(cards.length).toBeLessThanOrEqual(5);
     }
     expect(handRhythm('straight-flush').at(-1)).toMatchObject({ weight: 'success', card: -1 });

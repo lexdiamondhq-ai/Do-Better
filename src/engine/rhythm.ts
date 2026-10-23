@@ -40,7 +40,10 @@ const GROUPS: Record<HandKind, Weight[][]> = {
   'five-of-a-kind': [['heavy', 'heavy', 'heavy', 'heavy', 'heavy'], ['success']],
 };
 
-/** A straight runs up its five cards from soft to rigid, 70 ms apart. */
+/**
+ * A straight runs up its five cards from soft to rigid, 70 ms apart, low to high. `hand.cards` holds a run
+ * high to low while the fan shows it low to high, so the run starts at the last card and climbs left to right.
+ */
 const RUN: Weight[] = ['soft', 'firm', 'firm', 'heavy', 'rigid'];
 /** What closes a run, by kind. The retired Flush, which no week makes, runs soft all the way. */
 const RUN_CLOSE: Partial<Record<HandKind, Weight[]>> = { straight: [], 'straight-flush': ['success'], 'royal-flush': ['success', 'rigid'] };
@@ -50,7 +53,7 @@ export function handRhythm(kind: HandKind): Beat[] {
   const beats: Beat[] = [];
   if (kind === 'flush' || kind in RUN_CLOSE) {
     const run = kind === 'flush' ? RUN.map((): Weight => 'soft') : RUN;
-    run.forEach((weight, i) => beats.push({ at: i * RUN_MS, weight, card: i }));
+    run.forEach((weight, i) => beats.push({ at: i * RUN_MS, weight, card: run.length - 1 - i }));
     let at = beats[beats.length - 1].at + GROUP_MS;
     for (const weight of RUN_CLOSE[kind] ?? []) {
       beats.push({ at, weight, card: -1 });
