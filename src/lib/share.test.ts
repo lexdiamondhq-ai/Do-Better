@@ -41,6 +41,7 @@ vi.mock('react-native-view-shot', () => ({
 }));
 
 const {
+  captionFacts,
   callHistoryLine,
   callLine,
   callWindow,
@@ -51,6 +52,7 @@ const {
   hallLine,
   handLines,
   identityPhrase,
+  payoutSize,
   riverLine,
   share,
   SHARE_TEXT_WIDTH,
@@ -147,6 +149,54 @@ describe('the hand in words', () => {
   });
 });
 
+describe('one hand name everywhere', () => {
+  // Straights are named "Straight, Six to Ten" (stream 5's handTitle). Every other title already reads
+  // as the stamp and its detail line say it.
+  const NEW_TITLES: Partial<Record<HandKind, string>> = { straight: 'Straight, Six to Ten', 'straight-flush': 'Straight flush, Six to Ten in Clubs' };
+
+  it('says the same hand on the stamp as in its title', () => {
+    const run = (suit: (i: number) => DayCard['suits']) => [10, 9, 8, 7, 6].map((r, i) => card(`2026-10-0${5 + i}`, r, suit(i)));
+    const hands = [
+      bestHand(twoPair)!,
+      bestHand(run((i) => [SUITS[i % 4]]))!,
+      bestHand(run(() => ['clubs']))!,
+      bestHand([14, 13, 12, 11, 10].map((r, i) => card(`2026-10-0${5 + i}`, r, ['diamonds'])))!,
+      bestHand([card('2026-10-05', 9), card('2026-10-06', 9), card('2026-10-07', 9), card('2026-10-08', 4), card('2026-10-09', 4)])!,
+      bestHand([card('2026-10-05', 9), card('2026-10-06', 13), card('2026-10-07', 4)])!,
+    ];
+    for (const hand of hands) {
+      const { name, detail } = handLines(hand);
+      if (NEW_TITLES[hand.kind]) expect(`${name}, ${detail}`).toBe(NEW_TITLES[hand.kind]);
+      else if (hand.kind === 'royal-flush') expect(hand.title.endsWith(detail!.replace(/^Ten to Ace /, ''))).toBe(true);
+      else expect(hand.title).toContain(detail!);
+    }
+  });
+});
+
+describe('what a held card knows about its day', () => {
+  it('names every habit kept that day in deck order, archived ones too, with Ceilings and late logs', () => {
+    const facts = captionFacts(
+      [
+        { id: 'read', name: 'Read' },
+        { id: 'walk', name: 'Walk' },
+        { id: 'old', name: 'Stretch' },
+      ],
+      [
+        { habitId: 'walk', day: '2026-10-05', level: 'ceiling' },
+        { habitId: 'read', day: '2026-10-05', level: 'floor' },
+        { habitId: 'old', day: '2026-10-06', level: 'floor', loggedOn: '2026-10-07' },
+        { habitId: 'gone', day: '2026-10-06', level: 'floor' },
+      ],
+    );
+    expect(facts.names('2026-10-05')).toEqual(['Read', 'Walk']);
+    expect(facts.ceiling('2026-10-05')).toBe(true);
+    expect(facts.late('2026-10-05')).toBe(false);
+    expect(facts.names('2026-10-06')).toEqual(['Stretch']);
+    expect(facts.late('2026-10-06')).toBe(true);
+    expect(facts.names('2026-10-09')).toEqual([]);
+  });
+});
+
 describe('the stamp', () => {
   it('knows "Three of a kind" at 44 points runs past the share card, the way it was cut off', () => {
     expect(stampWidth('Three of a kind', 44)).toBeGreaterThan(SHARE_TEXT_WIDTH);
@@ -166,6 +216,43 @@ describe('the stamp', () => {
     }
     for (const face of ['Queen of Diamonds', 'Jack of Spades', 'King of Hearts']) {
       expect(stampWidth(face, stampSize(face, SHARE_TEXT_WIDTH, 34))).toBeLessThanOrEqual(SHARE_TEXT_WIDTH);
+    }
+  });
+});
+
+describe('the payout sum', () => {
+  // The Showdown's row at 390 and 375 points: the screen less its 20-point gutters and the gap before the total.
+  const rows = [390 - 48, 375 - 48];
+  const said = (hand: HandKind, chips: number, call: number) => `${HANDS[hand].name} ${chipText(chips)} + Call ${chipText(call)} =`;
+
+  it('measures figures as figures, not as the widest letter', () => {
+    expect(stampWidth('100', 10)).toBeCloseTo(15.09 - 0.3, 1);
+    expect(stampWidth('1,500', 10)).toBeLessThan(stampWidth('WWWWW', 10) * 0.6);
+  });
+
+  it('keeps an everyday sum at full size', () => {
+    expect(payoutSize(said('straight', 100, 100), 200, rows[0], { max: 19, chips: 36 })).toBe(19);
+    // A short 375-point phone sets it at 17 beside a 30-point total.
+    expect(payoutSize(said('straight', 100, 100), 200, rows[1], { max: 17, chips: 30 })).toBe(17);
+    expect(payoutSize('Pair', 30, rows[1], { max: 17, chips: 30 })).toBe(17);
+  });
+
+  it('fits the longest sum on one line beside its total, never below 13 points', () => {
+    for (const room of rows) {
+      for (const [hand, chips, call] of [
+        ['five-of-a-kind', 800, 1500],
+        ['five-of-a-kind', 800, 140],
+        ['four-of-a-kind', 250, 750],
+        ['straight-flush', 350, 1050],
+      ] as const) {
+        const text = said(hand, chips, call);
+        const size = payoutSize(text, chips + call, room, { max: 19, chips: 36 });
+        expect(size).toBeGreaterThanOrEqual(13);
+        // The sum, set a little wide, and the total's chip and digits share the row. Only the rarest sum of
+        // all (a Five of a kind and a made Long shot on a Royal flush) can reach the floor and wrap on a 375.
+        const fits = stampWidth(text, size) * 1.02 + 36 * 1.6 + stampWidth(chipText(chips + call), 36) * 1.03 <= room;
+        expect(fits || (size === 13 && call === 1500 && room === rows[1])).toBe(true);
+      }
     }
   });
 });
@@ -197,8 +284,10 @@ describe('a call’s history', () => {
   it('agrees with the Hall when only a higher hand came up', () => {
     // Eight weeks, one of them Five Kings: it beats a Royal flush but never held one.
     const weeks = [...Array.from({ length: 7 }, () => ended('pair')), ended('five-of-a-kind', ['five-of-a-kind', 'four-of-a-kind', 'three-of-a-kind', 'pair'])];
-    expect(callHistoryLine('royal-flush', weeks)).toBe('Not spotted in 8 weeks. A higher hand beat it in 1.');
-    expect(callHistoryLine('straight-flush', weeks)).toBe('Not spotted in 8 weeks. A higher hand beat it in 1.');
+    expect(callHistoryLine('royal-flush', weeks)).toBe('Made it in 1 of your last 8 weeks, with a higher hand.');
+    expect(callHistoryLine('straight-flush', weeks)).toBe('Made it in 1 of your last 8 weeks, with a higher hand.');
+    // One finished week, made only by a higher hand.
+    expect(callHistoryLine('royal-flush', [ended('five-of-a-kind', ['five-of-a-kind'])])).toBe('Made it last week, with a higher hand.');
     expect(callHistoryLine('four-of-a-kind', weeks)).toBe('Made in 1 of your last 8 weeks.');
     expect(callHistoryLine('pair', weeks)).toBe('Made in 8 of your last 8 weeks.');
   });
@@ -247,10 +336,16 @@ describe('who the days were for', () => {
 
 describe('the call line', () => {
   it('says what a made call paid, by its multiplier', () => {
-    expect(callLine(week(twoPair, { call: 'two-pair', madeCall: true, callMultiplier: 1, bonus: 50 }))).toMatchObject({ kind: 'made', title: 'Called it. The safe call, paid\u00A0×1.', chips: 50 });
-    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 0 }))).toMatchObject({ title: 'Called it.', detail: 'You called Pair. A sure thing, so nothing extra.', chips: 0 });
-    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 2, bonus: 60 }))?.title).toBe('Called it. A stretch, paid\u00A0×2.');
-    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 3, bonus: 90 }))?.title).toBe('Called it. A long shot, paid\u00A0×3.');
+    expect(callLine(week(twoPair, { call: 'two-pair', madeCall: true, callMultiplier: 1, bonus: 50 }))).toEqual({ kind: 'made', title: 'Called it: the Two pair call paid 50 more.', detail: null, chips: 50 });
+    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 2, bonus: 60 }))?.title).toBe('Called a Stretch: the Pair call paid 60 more, twice its chips.');
+    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 3, bonus: 90 }))?.title).toBe('Called a Long shot: the Pair call paid 90 more, three times its chips.');
+    expect(callLine(week(twoPair, { call: 'four-of-a-kind', madeCall: true, callMultiplier: 3, bonus: 1500 }))?.title).toBe('Called a Long shot: the Four of a kind call paid 1,500 more, three times its chips.');
+    // A call that was a sure thing still says it was made, in one line.
+    expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: 0 }))).toMatchObject({ title: 'Called it: the Pair call was a sure thing, so nothing extra.', detail: null, chips: 0 });
+  });
+
+  it('says a made call in one line, so the call fits on one row under the total', () => {
+    for (const m of [0, 1, 2, 3] as const) expect(callLine(week(twoPair, { call: 'pair', madeCall: true, callMultiplier: m, bonus: 30 * m }))?.detail).toBeNull();
   });
 
   it('says a missed call costs nothing, and no call how to get one', () => {
@@ -321,6 +416,16 @@ describe('the share caption', () => {
   it('adds the Suited line only for a Suited week', () => {
     expect(shareCaption({ kind: 'hand', week: week(twoPair) })).not.toContain('Suited');
     expect(shareCaption({ kind: 'hand', week: week(suited) })).toContain('Suited in Clubs: 5 Mind Ceiling days.');
+  });
+
+  it('adds what made the hand when there is something to say', () => {
+    // A Pair of Aces from two Floor days; the rest reached their Ceilings.
+    const floorDays = [card('2026-10-05', 14), card('2026-10-06', 14), card('2026-10-07', 8, ['clubs'], ['clubs']), card('2026-10-08', 4, ['clubs'], ['clubs'])];
+    const slots = floorDays.map((c) => ({ day: c.day, state: 'dealt' as const, card: c, isToday: false }));
+    const text = shareCaption({ kind: 'hand', week: week(floorDays, { slots }) });
+    expect(text.split('\n')[1]).toBe('Floor days made this Pair. Without them: Eight high.');
+    // Nothing to credit: no line.
+    expect(shareCaption({ kind: 'hand', week: week(twoPair) })).not.toMatch(/made this|Floor day/);
   });
 
   it('adds the call line only for a call that was made', () => {

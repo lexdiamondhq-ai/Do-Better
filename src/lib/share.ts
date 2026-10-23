@@ -7,7 +7,9 @@ import { rankName, rankPlural, SUIT_INFO, type Rank, type Suit } from '@/engine/
 import type { FaceInfo } from '@/engine/court';
 import { addDays, weekday, type Day } from '@/engine/day';
 import { CALL_HISTORY, type HallEntry, type Week, type WeekReview } from '@/engine/game';
+import type { Level } from '@/engine/kept';
 import { atLeast, HANDS, type Hand, type HandKind } from '@/engine/poker';
+import { madeThisLine, type CaptionFacts } from '@/engine/showdown';
 import { faintestAlpha, mix, withAlpha } from '@/theme/color';
 import { suitColors, type Theme } from '@/theme/tokens';
 
@@ -109,10 +111,12 @@ export function callLine(week: Pick<Week, 'hand' | 'call' | 'madeCall' | 'bonus'
   if (!week.call) return { kind: 'none', title: 'No call this week.', detail: 'Call next week’s hand and it can pay again.', chips: 0 };
   const called = `You called ${HANDS[week.call].name}.`;
   if (!week.madeCall) return { kind: 'missed', title: 'Not this time.', detail: `${called} A missed call costs nothing.`, chips: 0 };
-  if (week.callMultiplier === 0) return { kind: 'made', title: 'Called it.', detail: `${called} A sure thing, so nothing extra.`, chips: 0 };
-  // A no-break space keeps "paid ×2" together when the line wraps.
-  const title = ['', 'Called it. The safe call, paid\u00A0×1.', 'Called it. A stretch, paid\u00A0×2.', 'Called it. A long shot, paid\u00A0×3.'][week.callMultiplier];
-  return { kind: 'made', title, detail: called, chips: week.bonus };
+  // A made call is one sentence: what was called, and what it paid on top of the hand.
+  const name = HANDS[week.call].name;
+  if (week.callMultiplier === 0) return { kind: 'made', title: `Called it: the ${name} call was a sure thing, so nothing extra.`, detail: null, chips: 0 };
+  const paid = `the ${name} call paid ${chipText(week.bonus)} more`;
+  const title = ['', `Called it: ${paid}.`, `Called a Stretch: ${paid}, twice its chips.`, `Called a Long shot: ${paid}, three times its chips.`][week.callMultiplier];
+  return { kind: 'made', title, detail: null, chips: week.bonus };
 }
 
 /**
@@ -167,7 +171,8 @@ export function callHistoryLine(kind: HandKind, weeks: readonly Pick<Week, 'hand
   const made = recent.filter((w) => w.hand && atLeast(w.hand.kind, kind)).length;
   const spotted = recent.filter((w) => w.contains.has(kind)).length;
   if (made === 0) return of === 1 ? 'Not made last week.' : `Not made in your last ${of} weeks.`;
-  if (spotted === 0) return of === 1 ? 'Not spotted last week, but a higher hand beat it.' : `Not spotted in ${of} weeks. A higher hand beat it in ${made}.`;
+  // Only a higher hand made it: it counts, and the line says how, so it still agrees with the Hall.
+  if (spotted === 0) return of === 1 ? 'Made it last week, with a higher hand.' : `Made it in ${made} of your last ${of} weeks, with a higher hand.`;
   if (spotted >= made) return of === 1 ? 'Made last week.' : `Made in ${made} of your last ${of} weeks.`;
   return `Made this or better in ${made} of your last ${of} weeks.`;
 }
@@ -219,6 +224,8 @@ const STAMP_WIDTHS: Record<string, number> = {
   A: 711, B: 609, C: 631, D: 655, E: 603, F: 613, G: 719, H: 650, I: 239, J: 531, K: 597, L: 569, M: 809,
   N: 670, O: 721, P: 595, Q: 782, R: 604, S: 542, T: 640, U: 675, V: 728, W: 947, X: 689, Y: 638, Z: 598,
   ' ': 235, '’': 220, "'": 193, '-': 403,
+  // Figures and the signs of a sum, so a chip count is measured as itself and not as a row of Ws.
+  '0': 565, '1': 379, '2': 566, '3': 565, '4': 551, '5': 493, '6': 521, '7': 522, '8': 541, '9': 521, '+': 490, '=': 445, ',': 223,
 };
 /** Display type is set 1% tight: a hundredth of the size taken off after every letter. */
 const TRACKING = 0.01;
@@ -241,9 +248,47 @@ export function stampSize(text: string, width: number, max: number, min = Math.r
   return Math.max(min, Math.min(max, Math.floor((width * 0.96) / per)));
 }
 
+/**
+ * The size the Showdown's payout is set at so the sum stays on one line beside its counting total:
+ * "Five of a kind 800 + Call 140 =" then the chip and "940", in a row `room` points wide. Up to `max`,
+ * down to 13. The total takes its room first (a chip 1.25 times its size, a gap, its digits), and the sum
+ * is set in a semi-bold a little wider than the bold the widths were measured from.
+ */
+export function payoutSize(said: string, total: number, room: number, o: { max: number; chips: number }): number {
+  const totalW = o.chips * 1.6 + stampWidth(chipText(total), o.chips) * 1.03;
+  return stampSize(said, Math.max(0, room - totalW) / 1.02, o.max, 13);
+}
+
 /** A habit's week: "Read 6/7". */
 export function habitLine(h: HabitLine): string {
   return `${h.name} ${h.kept}/${h.days}`;
+}
+
+/**
+ * What a held card's caption knows about each day: whose habits were kept (archived ones too, so old
+ * weeks name every card), whether one reached its Ceiling, and whether one was logged late. Names come in
+ * the order the habits are given.
+ */
+export function captionFacts(
+  habits: readonly { id: string; name: string }[],
+  days: readonly { habitId: string; day: Day; level: Level; loggedOn?: Day }[],
+): CaptionFacts {
+  const order = new Map(habits.map((h, i) => [h.id, i]));
+  const byDay = new Map<Day, { ids: string[]; ceiling: boolean; late: boolean }>();
+  for (const row of days) {
+    if (!order.has(row.habitId)) continue;
+    let entry = byDay.get(row.day);
+    if (!entry) byDay.set(row.day, (entry = { ids: [], ceiling: false, late: false }));
+    if (!entry.ids.includes(row.habitId)) entry.ids.push(row.habitId);
+    entry.ceiling ||= row.level === 'ceiling';
+    entry.late ||= !!row.loggedOn && row.loggedOn > row.day;
+  }
+  const names = new Map(habits.map((h) => [h.id, h.name]));
+  return {
+    names: (day) => [...(byDay.get(day)?.ids ?? [])].sort((a, b) => order.get(a)! - order.get(b)!).map((id) => names.get(id)!),
+    ceiling: (day) => byDay.get(day)?.ceiling ?? false,
+    late: (day) => byDay.get(day)?.late ?? false,
+  };
 }
 
 /**
@@ -264,6 +309,8 @@ export function shareCaption(target: ShareTarget, habits?: readonly HabitLine[])
     const { week } = target;
     const total = week.chips + week.suitedBonus + week.bonus;
     lines.push(week.hand ? `${weekOf(week.start)}: ${week.hand.title}. +${chipText(total)} chips.` : `${weekOf(week.start)}: no cards this week.`);
+    const made = madeThisLine(week);
+    if (made) lines.push(made);
     if (week.call && week.madeCall) lines.push(`Called ${HANDS[week.call].name} and made it.`);
     const suited = suitedLine(week.hand);
     if (suited) lines.push(`${suited}.`);

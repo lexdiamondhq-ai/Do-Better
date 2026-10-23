@@ -8,7 +8,7 @@ import type { PlayedCard } from '@/engine/poker';
 vi.mock('react-native', () => ({ Text: () => null, View: () => null, useColorScheme: () => 'light' }));
 vi.mock('react-native-svg', () => ({ default: () => null, Circle: () => null, G: () => null, Path: () => null, Rect: () => null }));
 
-const { faceLabel, faceOfDay, faceOfPlayed } = await import('./PlayingCard');
+const { cardLabel, faceLabel, faceOfDay, faceOfPlayed, stampSpot } = await import('./PlayingCard');
 
 /** A day's card as the engine deals it. Saved days and the river card carry no suit. */
 const day = (rank: Rank, suits: DayCard['suits'], extra: Record<string, unknown> = {}) =>
@@ -38,5 +38,28 @@ describe('what a screen reader hears for a card', () => {
     expect(joker(14, null)).toBe('Joker, playing as an Ace');
     expect(joker(14, 'spades')).toBe('Joker, playing as the Ace of Spades');
     expect(faceLabel(faceOfDay({ kind: 'joker', day: '2026-10-14', suits: [] } as unknown as DayCard))).toBe('Joker');
+  });
+});
+
+describe('a stamped card', () => {
+  it('says the day it came from after its name', () => {
+    const nine = faceOfDay(day(9, ['clubs']));
+    expect(cardLabel(nine, null, 'floor')).toBe('Nine of Clubs, a Floor day');
+    expect(cardLabel(nine, 'held', 'ceiling')).toBe('Nine of Clubs, in your hand, a Ceiling day');
+    expect(cardLabel(nine, 'called')).toBe('Nine of Clubs, you called it');
+    expect(cardLabel(nine)).toBe('Nine of Clubs');
+  });
+
+  it('keeps its stamp low on the left, inside what a fan leaves showing, and none on the smallest card', () => {
+    expect(stampSpot('xs')).toBeNull();
+    for (const size of ['sm', 'md', 'lg', 'xl'] as const) {
+      for (const width of [undefined, 86, 110, 150]) {
+        const spot = stampSpot(size, width)!;
+        const w = width ?? { sm: 52, md: 74, lg: 128, xl: 190 }[size];
+        // A fan of five shows 55% of every card but the last.
+        expect(spot.x + spot.r).toBeLessThanOrEqual(w * 0.55);
+        expect(spot.x - spot.r).toBeGreaterThan(0);
+      }
+    }
   });
 });
