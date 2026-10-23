@@ -717,9 +717,12 @@ describe('the deal arc and the moment after it', () => {
     expect(momentDelay({ comeback: false, reduced: false })).toBeGreaterThanOrEqual(dealArc({ reduced: false }).totalMs);
   });
 
-  it('keeps Reduce Motion under 600 ms', () => {
+  it('keeps Reduce Motion under 600 ms, a rolled hand line included', () => {
     expect(momentDelay({ comeback: true, reduced: true })).toBeLessThan(600);
     expect(momentDelay({ comeback: false, reduced: true })).toBeLessThan(600);
+    // The hand line changes at once with Reduce Motion, so a receipt after a Comeback that rolls the hand still comes in about 500 ms.
+    expect(momentDelay({ comeback: true, reduced: true, roll: true })).toBeLessThan(600);
+    expect(momentDelay({ comeback: true, reduced: true, roll: true })).toBe(momentDelay({ comeback: true, reduced: true }));
   });
 
   it('never waits for an arc or a turnover that a keep from the list or the pill sheet doesn’t have', () => {

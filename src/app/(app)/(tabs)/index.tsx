@@ -1068,11 +1068,12 @@ function HandLine({
   );
 }
 
-/** The hand's chips counting up from what they were to what they are now, once, over half a second. */
+/** The hand's chips counting up from what they were to what they are now, once, over half a second (at once with Reduce Motion). */
 function RollingChips({ from, to }: { from: number; to: number }) {
   const [value, setValue] = useState(from);
+  const reduced = useReducedMotion();
   useEffect(() => {
-    if (from === to) return;
+    if (from === to || reduced) return;
     let frame = 0;
     const start = Date.now();
     const step = () => {
@@ -1083,8 +1084,8 @@ function RollingChips({ from, to }: { from: number; to: number }) {
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [from, to]);
-  return <Chips value={from === to ? to : value} size={11} pill />;
+  }, [from, to, reduced]);
+  return <Chips value={from === to || reduced ? to : value} size={11} pill />;
 }
 
 /** This week's call: an outline until the hand makes it, then filled in with a tick. Calls are made on Monday. */

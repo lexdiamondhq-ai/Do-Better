@@ -681,7 +681,7 @@ const READ_BEAT_MS = 120;
 /**
  * How long a receipt or a big moment waits after a keep: a Comeback card's turnover (it plays first), the
  * deal arc, then a beat to read the card in its slot. 1750 ms after a Comeback, 800 ms otherwise, and about
- * 500 ms or less with Reduce Motion.
+ * 500 ms or less with Reduce Motion, a rolled hand line included.
  *
  * `table` (on by default) says the keep came from the front card on the table, so the card left (a Comeback
  * turning over first) and the deal arc flew. A keep from the list or the pill sheet has neither, so nothing
@@ -692,7 +692,8 @@ export function momentDelay(o: { comeback: boolean; reduced: boolean; table?: bo
   const table = o.table ?? true;
   const exit = table && o.comeback ? comebackExit({ firstMove: false, reduced: o.reduced }).totalMs : 0;
   const arc = table ? dealArc({ reduced: o.reduced }).totalMs : 0;
-  return exit + arc + (o.roll ? HAND_ROLL_MS : READ_BEAT_MS);
+  // With Reduce Motion the hand line changes at once (no spring, no count-up), so there is no roll to wait for.
+  return exit + arc + (o.roll && !o.reduced ? HAND_ROLL_MS : READ_BEAT_MS);
 }
 
 /**
