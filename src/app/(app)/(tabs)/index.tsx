@@ -10,7 +10,7 @@ import { ask, type AskButton } from '@/components/Ask';
 import { Burst, type BurstKind } from '@/components/Burst';
 import { Chips } from '@/components/Chips';
 import { DealArc, type Flight } from '@/components/DealArc';
-import { anchorReceipts, noteKeep } from '@/components/Events';
+import { anchorReceipts, noteKeep, useReceiptOver } from '@/components/Events';
 import { ComebackCard, HabitCard, WelcomeCard } from '@/components/HabitCard';
 import { faceLabel, faceOfDay, PlayingCard } from '@/components/PlayingCard';
 import { ReminderPrompt, useReminderPromptDue } from '@/components/ReminderPrompt';
@@ -1253,6 +1253,13 @@ function Pills({
   const [snaps, setSnaps] = useState<number[]>([]);
   // More pills wait past the right edge.
   const [more, setMore] = useState(false);
+  // A receipt drops in over the row: the row steps out of sight, so nothing of it peeks out beside the receipt.
+  const covered = useReceiptOver();
+  const shown = useSharedValue(1);
+  useEffect(() => {
+    shown.set(withTiming(covered ? 0 : 1, { duration: 160 }));
+  }, [covered, shown]);
+  const rowStyle = useAnimatedStyle(() => ({ opacity: shown.get() }));
 
   /** Which ends have more to scroll to, how far in each soft edge can reach, and where a whole pill sits at the left edge. */
   const measure = () => {
@@ -1296,7 +1303,7 @@ function Pills({
   });
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: space.md }}>
+    <Animated.View pointerEvents={covered ? 'none' : 'auto'} style={[{ flexDirection: 'row', alignItems: 'center', marginTop: space.md }, rowStyle]}>
       <View style={{ flex: 1 }}>
         <ScrollView
           ref={scroll}
@@ -1413,7 +1420,7 @@ function Pills({
           + New
         </Body>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 

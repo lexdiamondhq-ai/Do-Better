@@ -91,6 +91,8 @@ function store<T>(initial: T) {
 
 const lastKeep = store<KeepNote | null>(null);
 const receiptAnchor = store<number | null>(null);
+/** How many receipts sit below Today's strip right now, over the pill row. */
+const receiptsOver = store<number>(0);
 
 /**
  * How long a keep's note lasts. The moments of a check-in are worked out right after it (data.tsx), and a
@@ -115,6 +117,11 @@ export function noteKeep(keep: KeepNote) {
  */
 export function anchorReceipts(y: number | null) {
   receiptAnchor.set(y === null ? null : Math.round(y));
+}
+
+/** Whether a receipt sits over Today's pill row, below the strip: the row steps out of sight so nothing of it peeks out beside it. */
+export function useReceiptOver(): boolean {
+  return useSyncExternalStore(receiptsOver.subscribe, receiptsOver.get, receiptsOver.get) > 0;
 }
 
 const useLastKeep = () => useSyncExternalStore(lastKeep.subscribe, lastKeep.get, lastKeep.get);
@@ -407,6 +414,13 @@ function ReceiptBanner({ moment, back, keep: keepNow, onDone }: { moment: Moment
   useEffect(() => {
     if (explained) markSeen(seed, JOKER_RULE);
   }, [explained, markSeen, seed]);
+
+  // Below Today's strip the receipt sits over the pill row, which steps out of sight while it is up.
+  useEffect(() => {
+    if (!anchored) return;
+    receiptsOver.set(receiptsOver.get() + 1);
+    return () => receiptsOver.set(receiptsOver.get() - 1);
+  }, [anchored]);
 
   // The receipt's entrance, read once as it rises: its words can change while it is up (a tip moving on), but
   // its sound, haptic, announcement and stay never play twice.
