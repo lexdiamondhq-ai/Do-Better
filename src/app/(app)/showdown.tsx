@@ -1042,12 +1042,25 @@ function Result({
  */
 function Credit({ text, short }: { text: string; short: boolean }) {
   const floorish = /Floor day/.test(text);
+  // The seal stays beside its own sentence: in one wrapped block it would sit out at the left edge, far from
+  // the centred words. "Without them: …" goes on the line below.
+  const cut = floorish ? text.indexOf('. ') : -1;
+  const lead = cut > 0 ? text.slice(0, cut + 1) : text;
+  const after = cut > 0 ? text.slice(cut + 2) : '';
+  const size = short ? 14 : 15;
   return (
-    <View accessible accessibilityLabel={text} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: space.sm }}>
-      {floorish ? <StampSeal stamp="floor" r={short ? 8 : 9} /> : null}
-      <Body size={short ? 14 : 15} weight="heavy" style={{ textAlign: 'center', flexShrink: 1 }}>
-        {text}
-      </Body>
+    <View accessible accessibilityLabel={text} style={{ alignItems: 'center', paddingHorizontal: space.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+        {floorish ? <StampSeal stamp="floor" r={short ? 8 : 9} /> : null}
+        <Body size={size} weight="heavy" style={{ textAlign: 'center', flexShrink: 1 }}>
+          {lead}
+        </Body>
+      </View>
+      {after ? (
+        <Body size={size} weight="heavy" style={{ textAlign: 'center' }}>
+          {after}
+        </Body>
+      ) : null}
     </View>
   );
 }
