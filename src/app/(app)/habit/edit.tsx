@@ -214,8 +214,10 @@ export default function EditHabit() {
     ]);
   });
 
+  // An existing card keeps its own id here, so the preview wears exactly as it does in the deck: its seeded
+  // crease and corners, and the thumb mark saved where this player holds it.
   const preview: Habit = {
-    id: 'preview',
+    id: existing?.id ?? 'preview',
     name: draft.name || 'Name it',
     identity: draft.identity || null,
     floorLabel: draft.floorLabel || 'Your worst-day minimum',
