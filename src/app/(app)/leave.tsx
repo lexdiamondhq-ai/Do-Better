@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { AccessibilityInfo, Pressable, ScrollView, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -67,7 +67,10 @@ export default function LeaveSheet() {
     const outcome = await share({ kind: 'card', habitId: habit.id, name: habit.name, format }, { view: picture, size: LEAVE_FORMATS[format] });
     setBusy(false);
     if (outcome === 'image' || outcome === 'text') feel.tick();
-    setSaid(SAID[outcome] ?? null);
+    const words = SAID[outcome] ?? null;
+    setSaid(words);
+    // Said out loud too, since the line appears under the button where VoiceOver isn't looking.
+    if (words) AccessibilityInfo.announceForAccessibility(words);
   }
 
   const lines = habit ? leaveLines(habit) : null;

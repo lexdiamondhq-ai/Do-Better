@@ -128,10 +128,17 @@ function T({ children, style, lines }: { children: string; style: TextStyle; lin
   );
 }
 
-/** The front of the card on its own, `width` points across in a playing card's shape: for a preview of a card not ready to leave yet. */
+/**
+ * The front of the card on its own, `width` points across in a playing card's shape: for a preview of a
+ * card not ready to leave yet. A screen reader hears it as one picture, the way it hears the full preview.
+ */
 export function CardOutFront({ habit, width }: { habit: Habit; width: number }) {
   const lines = leaveLines(habit);
-  return <CardFront habit={habit} lines={lines} w={width} h={Math.round(width * CARD_ASPECT_H)} />;
+  return (
+    <View accessible accessibilityRole="image" accessibilityLabel={cardOutLabel(habit, lines)}>
+      <CardFront habit={habit} lines={lines} w={width} h={Math.round(width * CARD_ASPECT_H)} />
+    </View>
+  );
 }
 
 /**
