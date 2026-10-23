@@ -660,7 +660,7 @@ function Table({ deck }: { deck: Deck }) {
         appear={play.appear}
         onCommit={(dir, tag, info) => commit(play, dir, tag, info)}
         onGone={() => gone(play.key)}
-        backFace={turned ? (dir) => <HabitCard habit={turned.habit} level={dir === 'up' ? 'ceiling' : 'floor'} kept={turned.allTime.kept + 1} /> : undefined}
+        backFace={turned ? (dir) => <HabitCard habit={turned.habit} level={dir === 'up' ? 'ceiling' : 'floor'} kept={turned.allTime.kept + 1} quietKept={dir === 'down'} /> : undefined}
       >
         {face(play.item, play.view, live)}
       </SwipeCard>

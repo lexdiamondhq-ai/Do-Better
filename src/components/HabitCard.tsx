@@ -148,10 +148,16 @@ export function HabitCard({
   onFloor,
   onCeiling,
   onOpen,
+  quietKept = false,
   style,
 }: {
   habit: Habit;
   level?: Level | null;
+  /**
+   * Leaves out the "✓ Floor kept" chip: the bright side of a Comeback card that just turned over, where the
+   * stamp pressed on it already says what was kept ("First move done. Today is kept."), never twice.
+   */
+  quietKept?: boolean;
   /** Kept days on this card so far, for its wear. */
   kept?: number;
   /** Where the card sits in the deck (0 is the front), so cards further back draw lighter wear. */
@@ -220,7 +226,7 @@ export function HabitCard({
       </Body>
     </View>
   );
-  const floorDone = done(`✓ Floor kept · ${habit.floorLabel}`);
+  const floorDone = quietKept ? null : done(`✓ Floor kept · ${habit.floorLabel}`);
   const ceilingDone = done(`✓ Ceiling reached · ${habit.ceilingLabel}`);
 
   if (compact) {
@@ -297,7 +303,7 @@ export function HabitCard({
         // The Ceiling holds the Floor too: nothing is left to do on this card today.
         <View style={{ height: 1 }} />
       ) : floorKept ? (
-        <View style={{ paddingHorizontal: space.sm }}>{floorDone}</View>
+        floorDone ? <View style={{ paddingHorizontal: space.sm }}>{floorDone}</View> : <View style={{ height: 1 }} />
       ) : (
         row('↓', 'Floor', habit.floorLabel, floorLabel, onFloor, 'card-floor')
       )}
