@@ -303,11 +303,12 @@ function FanCard({
           accessible={false}
           accessibilityRole="none"
           onLongPress={() => {
-            lift.set(withSpring(-HOLD_LIFT, { damping: 20, stiffness: 320 }));
+            // Mass is given: Reanimated 4's default (4) makes this spring sail well past its 10 pt.
+            lift.set(withSpring(-HOLD_LIFT, { damping: 20, stiffness: 320, mass: 1 }));
             onHold();
           }}
           onPressOut={() => {
-            lift.set(withSpring(0, { damping: 20, stiffness: 320 }));
+            lift.set(withSpring(0, { damping: 20, stiffness: 320, mass: 1 }));
             onRelease();
           }}
           delayLongPress={260}
