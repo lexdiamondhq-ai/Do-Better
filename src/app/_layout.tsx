@@ -75,12 +75,26 @@ function Gate() {
 
   return (
     <>
+      <DemoNotes />
       <Sound on={ready && signedIn} />
       <StatusBar style={t.scheme === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }} />
       <AskHost />
     </>
   );
+}
+
+/** Thumb marks and plans made in the demo deck leave with it, so nothing from the demo lingers on this phone. */
+function DemoNotes() {
+  const { forgetDemoNotes } = usePrefs();
+  useEffect(
+    () =>
+      onSignOut((who) => {
+        if (who.demo) forgetDemoNotes();
+      }),
+    [forgetDemoNotes],
+  );
+  return null;
 }
 
 /** Keeps the music and effects in step with the settings. Music plays only inside the app, never on sign-in. */

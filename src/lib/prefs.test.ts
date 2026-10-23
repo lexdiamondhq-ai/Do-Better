@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { applyPatch, deckNotesForgotten, gripNoted, parse, planCleared, planSet, type Prefs } from './prefs';
+import { applyPatch, deckNotesForgotten, demoNotesForgotten, gripNoted, parse, planCleared, planSet, type Prefs } from './prefs';
 
 // The phone's storage isn't needed: these rules are about what gets saved, not how.
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem: vi.fn(), setItem: vi.fn() } }));
@@ -128,5 +128,23 @@ describe('thumb marks and plans', () => {
     const none = applyPatch(notes, deckNotesForgotten(notes, 'nobody'));
     expect(none.grips).toEqual(notes.grips);
     expect(none.plans).toEqual(notes.plans);
+  });
+
+  it('forget the demo deck’s thumb marks and plans once the demo ends, and keep every player’s own', () => {
+    const notes = {
+      ...saved,
+      grips: { 'demo-0': { 'demo-read': { x: 0.3, y: 0.7, n: 4 } }, 'demo-7': { 'demo-walk': { x: 0.5, y: 0.5, n: 1 } }, alex: { read: { x: 0.6, y: 0.6, n: 2 } } },
+      plans: { 'demo-0': { 'demo-walk': plan }, alex: { walk: plan }, 'demolition-crew': { walk: plan } },
+      seen: { 'demo-0': { 'joker-rule': true as const } },
+    };
+    const after = applyPatch(notes, demoNotesForgotten(notes));
+    expect(after.grips).toEqual({ alex: notes.grips.alex });
+    expect(after.plans).toEqual({ alex: notes.plans.alex, 'demolition-crew': notes.plans['demolition-crew'] });
+    // Only thumb marks and plans go: everything else stays as it was.
+    expect(after.seen).toEqual(notes.seen);
+    expect(after.reminders).toEqual(notes.reminders);
+    expect(parse(JSON.stringify(after)).plans).toEqual(after.plans);
+    // With no demo notes there is nothing to change.
+    expect(demoNotesForgotten(after)).toEqual({});
   });
 });

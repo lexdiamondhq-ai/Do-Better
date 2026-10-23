@@ -195,6 +195,18 @@ export function deckNotesForgotten(prefs: Prefs, seed: string): Partial<Prefs> {
   return { grips, plans };
 }
 
+/** The demo deck deals from seeds named `demo-0`, `demo-1` and so on (`demo.ts`); no player's own seed does. */
+const DEMO_SEED = /^demo-/;
+
+/** The thumb marks and plans made while trying the demo deck, gone once it ends. Players' own notes stay. */
+export function demoNotesForgotten(prefs: Prefs): Partial<Prefs> {
+  const own = <T,>(bySeed: Record<string, T>) => Object.fromEntries(Object.entries(bySeed).filter(([seed]) => !DEMO_SEED.test(seed)));
+  const grips = own(prefs.grips);
+  const plans = own(prefs.plans);
+  const same = Object.keys(grips).length === Object.keys(prefs.grips).length && Object.keys(plans).length === Object.keys(prefs.plans).length;
+  return same ? {} : { grips, plans };
+}
+
 /** `prefs` with `patch` applied. The Showdown watched only ever moves forward. */
 export function applyPatch(prefs: Prefs, patch: Patch): Prefs {
   const change = typeof patch === 'function' ? patch(prefs) : patch;
@@ -216,6 +228,8 @@ type PrefsApi = {
   clearPlan: (seed: string, habitId: string) => void;
   /** Drops this player's thumb marks and plans, for Delete my deck. */
   forgetDeckNotes: (seed: string) => void;
+  /** Drops the thumb marks and plans made in the demo deck, when it ends. */
+  forgetDemoNotes: () => void;
 };
 
 const PrefsContext = createContext<PrefsApi>({
@@ -228,6 +242,7 @@ const PrefsContext = createContext<PrefsApi>({
   setPlan: () => {},
   clearPlan: () => {},
   forgetDeckNotes: () => {},
+  forgetDemoNotes: () => {},
 });
 
 export function PrefsProvider({ children }: PropsWithChildren) {
@@ -283,10 +298,11 @@ export function PrefsProvider({ children }: PropsWithChildren) {
   const setPlan = useCallback((seed: string, habitId: string, plan: Plan) => setPrefs((p) => planSet(p, seed, habitId, plan)), [setPrefs]);
   const clearPlan = useCallback((seed: string, habitId: string) => setPrefs((p) => planCleared(p, seed, habitId)), [setPrefs]);
   const forgetDeckNotes = useCallback((seed: string) => setPrefs((p) => deckNotesForgotten(p, seed)), [setPrefs]);
+  const forgetDemoNotes = useCallback(() => setPrefs((p) => demoNotesForgotten(p)), [setPrefs]);
 
   const api = useMemo(
-    () => ({ prefs, ready, setPrefs, seeShowdown, markSeen, noteGrip, setPlan, clearPlan, forgetDeckNotes }),
-    [prefs, ready, setPrefs, seeShowdown, markSeen, noteGrip, setPlan, clearPlan, forgetDeckNotes],
+    () => ({ prefs, ready, setPrefs, seeShowdown, markSeen, noteGrip, setPlan, clearPlan, forgetDeckNotes, forgetDemoNotes }),
+    [prefs, ready, setPrefs, seeShowdown, markSeen, noteGrip, setPlan, clearPlan, forgetDeckNotes, forgetDemoNotes],
   );
   return <PrefsContext.Provider value={api}>{children}</PrefsContext.Provider>;
 }
