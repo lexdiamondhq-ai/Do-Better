@@ -354,7 +354,8 @@ describe('the rules sheet', () => {
       expect(label).not.toMatch(/[↓↑↺★♠♥♦♣]/);
       expect(label).not.toMatch(/(^|\. )[MTWFS],/);
     }
-    expect(labels[0]).toMatch(/Monday, card, 6 or better\. Tuesday, card\. Wednesday, card, 5 or better\. Thursday, card\. Friday, not dealt yet\. Saturday, face down/);
+    expect(labels[0]).toMatch(/^Your week\. Under each card, the lowest its day could deal\. Monday, card, 6 or better\. Tuesday, card\. Wednesday, card, 5 or better\. Thursday, card\. Friday, not dealt yet\. Saturday, face down/);
+    for (const label of [stampsLabel, ...labels]) expect(label).not.toMatch(/\.\./);
     expect(labels[4]).toMatch(/Days this week: Spades 1, Hearts 1, Diamonds 1, Clubs 1\. Monday, card, counts for Hearts\. Tuesday, card\. Wednesday, card, counts for Clubs and Spades/);
     expect(miniLabel(miniSlots(friday({ river: { earned: false, need: 1, card: null } }), 'river'), null)).toMatch(/River, 1 more kept day to go\.$/);
     expect(labels[2]).toMatch(/River, 2 more kept days to go\.$/);

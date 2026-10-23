@@ -805,7 +805,7 @@ export function slotSaid(s: MiniSlot): string {
 
 /** The row read as one sentence: "Your week. Pair of Kings. Monday, King of Hearts, in your hand. …". */
 export function miniLabel(slots: readonly MiniSlot[], caption: string | null): string {
-  return `Your week${caption ? `. ${caption}` : ''}. ${slots.map(slotSaid).join('. ')}.`;
+  return `Your week${caption ? `. ${caption.replace(/\.$/, '')}` : ''}. ${slots.map(slotSaid).join('. ')}.`;
 }
 
 /**
