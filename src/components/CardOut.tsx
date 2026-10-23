@@ -53,7 +53,8 @@ export function CardOut({ habit, back, format, width, cardRef }: { habit: Habit;
           <CardFront habit={habit} lines={lines} w={faceW} h={faceH} />
         </View>
         <View style={{ width: size.w / 2, height: size.h, padding: margin }}>
-          <View style={{ width: faceW, height: faceH, borderRadius: faceW * 0.06, overflow: 'hidden' }}>
+          {/* The fold-over back is part of the one picture the sheet describes, never "a card still to come". */}
+          <View aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: faceW, height: faceH, borderRadius: faceW * 0.06, overflow: 'hidden' }}>
             <CardBack back={back} size="md" width={faceW} style={{ borderRadius: faceW * 0.06, boxShadow: undefined }} />
           </View>
         </View>
