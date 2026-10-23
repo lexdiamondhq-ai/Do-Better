@@ -211,9 +211,10 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   const short = height < SHORT_SCREEN;
   const fanMax = short ? 86 : 150;
   const lineH = short ? 42 : 54;
-  // The face-down week sits low on the felt, with the river card to be held in easy reach of a thumb.
+  // The face-down week sits in the lower part of the felt, with the river card in easy reach of a thumb,
+  // but takes only a third of the spare room above it, so no tall bare band opens under the header.
   const room = height - insets.top - insets.bottom - 170;
-  const lift = Math.round(Math.min(170, Math.max(0, (room - stageGeometry(width, 0, 5, fanMax, lineH).revealHeight) * 0.55)));
+  const lift = Math.round(Math.min(100, Math.max(0, (room - stageGeometry(width, 0, 5, fanMax, lineH).revealHeight) * 0.3)));
   const geo = stageGeometry(width, lift, week.hand?.cards.length ?? 5, fanMax, lineH);
   const { items, empty } = stageItems(week, geo);
   const riverIndex = items.findIndex((i) => i.river);
