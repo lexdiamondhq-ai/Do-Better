@@ -1,253 +1,1023 @@
-import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { AccessibilityInfo, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { cancelAnimation, Easing, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { scheduleOnRN } from 'react-native-worklets';
 
-import { SwipeCard } from '@/components/SwipeCard';
-import { Body, Button, Chip, Display, Label } from '@/components/ui';
-import { CATEGORIES, PRINCIPLES, RECIPES, suggestRecipes, type Category, type Recipe } from '@/engine/playbook';
-import { CATEGORY_COLOR } from '@/lib/categoryColor';
+import { ask } from '@/components/Ask';
+import { Chips } from '@/components/Chips';
+import { CardSlot, PlayingCard, SuitTag, type CardFace } from '@/components/PlayingCard';
+import { SuitGlyph } from '@/components/Suit';
+import { Body, Button, Chip, Display, Label, raisedStyle } from '@/components/ui';
+import { SUIT_INFO, SUITS, type Suit } from '@/engine/cards';
+import { RECIPES, type Recipe } from '@/engine/playbook';
 import { useData } from '@/lib/data';
+import * as feel from '@/lib/feel';
+import { armedWay, chosenRecipes, deckGroups, NO_PICKS, practiceRelease, PRACTICE_DISTANCE, seedPicks, STAMP_PREVIEW, togglePick, type DeckGroup, type Picks } from '@/lib/firstRun';
 import { useTheme } from '@/theme/ThemeProvider';
-import { CARD_COLORS, cardColors, fonts, radius, space, type CardColor } from '@/theme/tokens';
+import { cardColors, cardFace, edgeBorder, fontScale, fonts, INK, palette, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
-type Intro = { color: CardColor | 'back'; eyebrow: string; title: string; body: string; source?: string; hint: string };
+/**
+ * First run: three cards that teach the game, then who you're becoming, then a starter deck, all
+ * dealt with one write. Opened with `?tour=1` (an older link), it shows only the three cards.
+ */
 
-const INTRO: Intro[] = [
+type Kept = 'floor' | 'ceiling';
+
+type TourCard = { felt: string; title: string; sub?: string; body: string };
+
+const TOUR: readonly TourCard[] = [
   {
-    color: 'tomato',
-    eyebrow: 'Do Better',
+    felt: cardColors.pine.bg,
     title: 'Every habit is a card.',
-    body: 'Each card has a Ceiling, what a great day looks like, and a Floor, a version so small you can do it on your worst day. Hit either one and the day is kept.',
-    hint: 'Swipe the card away',
+    body: 'Each one has a Floor, the least that still counts, and a Ceiling, a great day. Reach either and the day is kept.',
   },
   {
-    color: 'pine',
-    eyebrow: 'How it works',
-    title: 'Down for the Floor. Up for the Ceiling.',
-    body: 'Each morning your deck is dealt. Swipe a card down when you did the minimum, up when you hit the Ceiling, sideways to come back to it later.',
-    hint: 'Try it: swipe down or up',
+    felt: palette.nightCard,
+    title: 'Every day you keep anything deals a playing card.',
+    sub: 'Every week plays as a poker hand.',
+    body: 'The more you keep, the better the card can be. At Sunday midnight your best five cards pay out in chips.',
   },
   {
-    color: 'back',
-    eyebrow: 'Never twice',
+    felt: cardColors.sky.bg,
     title: 'Missing once is human.',
-    body: 'The morning after a miss, the card turns over and offers a two-minute version. Missing once is an accident. Missing twice is the start of a new habit, so the app helps you stop at one.',
-    source: PRINCIPLES['never-miss-twice'].source,
-    hint: 'Swipe to keep going',
-  },
-  {
-    color: 'sun',
-    eyebrow: 'Identity',
-    title: 'Every kept day is a vote.',
-    body: 'Give each card an identity, like "a reader". Votes add up to who you are becoming, and to cards for your collection. There are no streaks here, so nothing ever resets to zero.',
-    source: PRINCIPLES.identity.source,
-    hint: 'Swipe to build your deck',
+    sub: 'Nothing here resets to zero.',
+    body: 'Kept nothing yesterday? Keep anything today and yesterday still gets a card. Only Sunday can’t be saved: the hand pays out at midnight.',
   },
 ];
 
-/** Identities to start from, grouped like the Playbook. */
-const IDENTITIES: { category: Category; identities: string[] }[] = (Object.keys(CATEGORIES) as Category[]).map((category) => ({
-  category,
-  identities: [...new Set(RECIPES.filter((r) => r.category === category).map((r) => r.identity))],
+type Practice = 'idle' | 'sideways' | 'short' | Kept;
+
+/** What the practice card says, before and after a drag. */
+const PRACTICE: Record<Practice, string> = {
+  idle: 'Try it: drag Read down for the Floor or up for the Ceiling.',
+  sideways: 'In the game, sideways sends a card to the back of today’s deck. Try down or up.',
+  short: 'A bit further. Let go once the stamp lands on the card.',
+  floor: 'Floor. The day is kept, and it deals a card.',
+  ceiling: 'Ceiling. The day is kept, and it deals a card.',
+};
+
+/** Identities to start from, grouped by suit. */
+const IDENTITIES: { suit: Suit; identities: string[] }[] = SUITS.map((suit) => ({
+  suit,
+  identities: [...new Set(RECIPES.filter((r) => r.suit === suit).map((r) => r.identity))],
 }));
 
-/** First run: four cards that teach the gestures, then who you want to be, then a starter deck. */
+function toggle<T>(list: readonly T[], item: T): T[] {
+  return list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
+}
+
 export default function Onboarding() {
-  const t = useTheme();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { createHabit, saveProfile } = useData();
+  const replay = useLocalSearchParams<{ tour?: string }>().tour === '1';
+  const { createHabits, saveProfile } = useData();
   const [step, setStep] = useState(0);
   const [identities, setIdentities] = useState<string[]>([]);
   const [northStar, setNorthStar] = useState('');
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picks, setPicks] = useState<Picks>(NO_PICKS);
+  const [everything, setEverything] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  const introDone = step >= INTRO.length;
-  const suggestions = suggestRecipes(identities, [], 12);
-
-  function toggle<T>(list: T[], item: T): T[] {
-    return list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
-  }
 
   async function finish(recipes: Recipe[]) {
     setBusy(true);
     try {
-      // Colours follow the recipe's category, but neighbours never share one.
-      let previous: CardColor | null = null;
-      for (const r of recipes) {
-        let color = CATEGORY_COLOR[r.category];
-        if (color === previous) color = CARD_COLORS[(CARD_COLORS.indexOf(color) + 1) % CARD_COLORS.length];
-        previous = color;
-        await createHabit({ name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color, anchor: r.anchor, whenWhere: '', why: r.why, recipeKey: r.key });
-      }
-      await saveProfile({ northStar, onboarded: true });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Each card takes its suit's colour, so a glance at the deck shows which part of you it builds. The
+      // whole deck is one write, so trying again after a failure never makes a card twice. The why is left
+      // for the player to write in their own words.
+      await createHabits(
+        recipes.map((r) => ({
+          name: r.name,
+          identity: r.identity,
+          floorLabel: r.floor,
+          ceilingLabel: r.ceiling,
+          twoMinuteLabel: r.twoMinute,
+          color: suitColors[r.suit].habit,
+          suit: r.suit,
+          anchor: r.anchor,
+          whenWhere: '',
+          why: '',
+          recipeKey: r.key,
+        })),
+      );
+      await saveProfile({ northStar: northStar.trim() || null, onboarded: true });
+      feel.ceiling();
       router.replace('/');
       if (recipes.length === 0) router.push('/habit/edit');
     } catch (e) {
-      Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Try again.');
+      ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
       setBusy(false);
     }
   }
 
-  if (!introDone) {
-    const card = INTRO[step];
-    const bg = card.color === 'back' ? t.cardBack : cardColors[card.color].bg;
-    const ink = card.color === 'back' ? t.onCardBack : cardColors[card.color].ink;
-    const next = INTRO[step + 1];
-    const nextBg = next ? (next.color === 'back' ? t.cardBack : cardColors[next.color].bg) : t.bgRaised;
+  if (step < TOUR.length) {
     return (
-      <View style={{ flex: 1, paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.lg, paddingHorizontal: space.xl, gap: space.lg }}>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
-          {INTRO.map((_, i) => (
-            <View key={i} style={{ flex: 1, height: 5, borderRadius: 3, backgroundColor: i <= step ? t.text : t.border }} />
-          ))}
-        </View>
-        <View style={{ flex: 1 }}>
-          <View style={{ position: 'absolute', top: 18, bottom: 0, left: 14, right: -6, borderRadius: radius.card, backgroundColor: nextBg, transform: [{ rotate: '4deg' }] }} />
-          <SwipeCard
-            key={step}
-            onSwipe={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setStep((s) => s + 1);
-            }}
-            labels={step === 1 ? { up: 'CEILING', down: 'FLOOR', left: 'LATER', right: 'LATER' } : { up: 'NEXT', down: 'NEXT', left: 'NEXT', right: 'NEXT' }}
-          >
-            <View style={{ flex: 1, backgroundColor: bg, borderRadius: radius.card, padding: space.xl, justifyContent: 'space-between' }}>
-              <Label color={ink} style={{ opacity: 0.7 }}>{card.eyebrow}</Label>
-              <View style={{ gap: space.lg }}>
-                <Display size={46} color={ink}>{card.title}</Display>
-                <Body size={17} weight="semi" color={ink} style={{ opacity: 0.9 }}>{card.body}</Body>
-                {card.source ? <Body size={13} weight="heavy" color={ink} style={{ opacity: 0.6 }}>{card.source}</Body> : null}
-              </View>
-              <Body weight="heavy" color={ink} style={{ opacity: 0.75 }}>{`${step === 1 ? '↑ ↓' : '↔'}  ${card.hint}`}</Body>
-            </View>
-          </SwipeCard>
-        </View>
-        <Pressable onPress={() => setStep(INTRO.length)} hitSlop={12} style={{ alignSelf: 'center' }}>
-          <Body weight="bold" color={t.textSecondary}>Skip the tour</Body>
+      <Tour
+        index={step}
+        replay={replay}
+        onMove={setStep}
+        onFinish={() => (replay ? router.back() : setStep(TOUR.length))}
+        onSkip={() => (replay ? router.back() : setStep(TOUR.length))}
+      />
+    );
+  }
+
+  if (step === TOUR.length) {
+    return (
+      <Identity
+        identities={identities}
+        onToggle={(id) => setIdentities((l) => toggle(l, id))}
+        northStar={northStar}
+        onNorthStar={setNorthStar}
+        onBack={() => setStep(TOUR.length - 1)}
+        onNext={() => {
+          // Coming back with the same identities keeps every pick; new ones keep the cards picked by hand.
+          setPicks((p) => seedPicks(p, identities));
+          setStep(TOUR.length + 1);
+        }}
+      />
+    );
+  }
+
+  const { groups, more } = deckGroups(identities, picks.picked, everything);
+  return (
+    <DeckStep
+      groups={groups}
+      more={more}
+      onEverything={() => setEverything(true)}
+      picked={picks.picked}
+      onToggle={(key) => setPicks((p) => togglePick(p, key))}
+      busy={busy}
+      onBack={() => setStep(TOUR.length)}
+      onDeal={finish}
+    />
+  );
+}
+
+/* ---------------------------------------------------------------- the tour */
+
+function Tour({ index, replay, onMove, onFinish, onSkip }: { index: number; replay: boolean; onMove: (i: number) => void; onFinish: () => void; onSkip: () => void }) {
+  const t = useTheme();
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const compact = height < 720;
+  const [practice, setPractice] = useState<Practice>('idle');
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const card = TOUR[index];
+  const last = index === TOUR.length - 1;
+
+  function go(to: number) {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (to < 0) return;
+    if (to >= TOUR.length) {
+      onFinish();
+      return;
+    }
+    feel.tick();
+    setPractice('idle');
+    onMove(to);
+  }
+
+  function kept(level: Kept) {
+    if (level === 'floor') feel.floor();
+    else feel.ceiling();
+    setPractice(level);
+    AccessibilityInfo.announceForAccessibility(PRACTICE[level]);
+    timer.current = setTimeout(() => go(1), 1700);
+  }
+
+  function sideways() {
+    setPractice('sideways');
+    AccessibilityInfo.announceForAccessibility(PRACTICE.sideways);
+  }
+
+  function short() {
+    setPractice('short');
+    AccessibilityInfo.announceForAccessibility(PRACTICE.short);
+  }
+
+  const done = practice === 'floor' || practice === 'ceiling' ? practice : null;
+
+  const art = (scale: number): ReactNode => {
+    if (index === 1) return <HandArt />;
+    if (index === 2) return <ComebackArt />;
+    return done ? <DealtArt level={done} /> : <PracticeArt scale={scale} onKept={kept} onSideways={sideways} onShort={short} />;
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: insets.top + space.sm, paddingBottom: insets.bottom + space.md, paddingHorizontal: space.lg, gap: space.md }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: TAP }}>
+        <Label>{replay ? 'How it plays' : `${index + 1} of ${TOUR.length}`}</Label>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={replay ? 'Close' : 'Skip the tour'}
+          onPress={onSkip}
+          hitSlop={8}
+          style={({ pressed }) => ({ minHeight: TAP, justifyContent: 'center', paddingHorizontal: space.sm, opacity: pressed ? 0.6 : 1 })}
+        >
+          <Body weight="heavy" color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+            {replay ? 'Close' : 'Skip the tour'}
+          </Body>
         </Pressable>
       </View>
-    );
-  }
 
-  if (step === INTRO.length) {
-    return (
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: insets.top + space.xl, paddingBottom: insets.bottom + space.xxxl, paddingHorizontal: space.xl, gap: space.xl }}>
-          <View style={{ gap: space.sm }}>
-            <Label>Step 1 of 2</Label>
-            <Display size={42}>Who are you becoming?</Display>
-            <Body color={t.textSecondary}>Pick the people you want to be more of. Your starter deck is built from them.</Body>
-          </View>
-
-          {IDENTITIES.map((group) => {
-            const col = cardColors[CATEGORY_COLOR[group.category]];
-            return (
-              <View key={group.category} style={{ gap: space.sm }}>
-                <Label>{CATEGORIES[group.category]}</Label>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-                  {group.identities.map((id) => (
-                    <Chip
-                      key={id}
-                      label={id}
-                      active={identities.includes(id)}
-                      color={col.bg}
-                      ink={col.ink}
-                      onPress={() => {
-                        Haptics.selectionAsync();
-                        setIdentities((l) => toggle(l, id));
-                      }}
-                    />
-                  ))}
-                </View>
-              </View>
-            );
-          })}
-
-          <View style={{ backgroundColor: t.cardBack, borderRadius: radius.lg, padding: space.xl, gap: space.sm }}>
-            <Label color={t.onCardBack} style={{ opacity: 0.6 }}>Your north star · optional</Label>
-            <TextInput
-              value={northStar}
-              onChangeText={setNorthStar}
-              placeholder="In a year, I want to be someone who…"
-              placeholderTextColor="rgba(255,255,255,0.4)"
-              multiline
-              style={{ fontFamily: fonts.display, fontSize: 24, color: t.onCardBack, minHeight: 64, textAlignVertical: 'top' }}
-            />
-            <Body size={13} color={t.onCardBack} style={{ opacity: 0.6 }}>It sits at the top of your You page, so you see why on the hard days.</Body>
-          </View>
-
-          <Button
-            label={identities.length ? 'Build my deck' : 'Show me everything'}
-            onPress={() => {
-              setPicked(suggestRecipes(identities, [], 3).filter((r) => identities.includes(r.identity)).map((r) => r.key));
-              setStep(INTRO.length + 1);
-            }}
-          />
-        </ScrollView>
-      </KeyboardAvoidingView>
-    );
-  }
-
-  const chosen = suggestions.filter((r) => picked.includes(r.key));
-  return (
-    <View style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + space.xl, paddingBottom: insets.bottom + 160, paddingHorizontal: space.xl, gap: space.xl }}>
-        <Pressable onPress={() => setStep(INTRO.length)} hitSlop={12}>
-          <Body weight="bold" color={t.textSecondary}>← Back</Body>
+      <View style={{ flex: 1, borderRadius: radius.card, overflow: 'hidden', backgroundColor: t.bgRaised, ...edgeBorder(t) }}>
+        <Pressable accessible={false} accessibilityRole="none" onPress={index === 0 ? undefined : () => go(index + 1)} style={{ flex: 1, minHeight: 150, overflow: 'hidden', backgroundColor: card.felt }}>
+          <FitStage key={index} w={STAGE.w} h={STAGE.h}>
+            {art}
+          </FitStage>
         </Pressable>
-        <View style={{ gap: space.sm }}>
-          <Label>Step 2 of 2</Label>
-          <Display size={42}>Deal your first cards.</Display>
-          <Body color={t.textSecondary}>{`Start with one to three. ${PRINCIPLES.focus.idea} You can edit every word later.`}</Body>
-        </View>
+        {/* The words take the room they need; only very large text scrolls, under the art. */}
+        <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} alwaysBounceVertical={false}>
+          <Pressable
+            accessible
+            accessibilityRole="adjustable"
+            accessibilityLabel={[card.title, card.sub, card.body, index === 0 ? PRACTICE[practice] : null].filter(Boolean).join(' ')}
+            accessibilityHint="Swipe up or down to move between the cards."
+            accessibilityValue={{ min: 1, max: TOUR.length, now: index + 1, text: `Card ${index + 1} of ${TOUR.length}` }}
+            accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }, { name: 'activate' }]}
+            onAccessibilityAction={(e) => {
+              if (e.nativeEvent.actionName === 'decrement') go(index - 1);
+              else go(index + 1);
+            }}
+            onPress={() => go(index + 1)}
+            style={{ paddingHorizontal: compact ? space.lg : space.xl, paddingTop: compact ? space.lg : space.xl, paddingBottom: compact ? space.lg : space.xl, gap: compact ? space.xs : space.sm }}
+          >
+            <Display size={compact ? 26 : 30}>{card.title}</Display>
+            {card.sub ? (
+              <Display size={compact ? 20 : 24} color={t.textSecondary}>
+                {card.sub}
+              </Display>
+            ) : null}
+            <Body size={compact ? typeScale.text.md : 16} weight="semi" style={{ marginTop: space.xs }}>
+              {card.body}
+            </Body>
+            {index === 0 ? (
+              <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-start', marginTop: space.xs }}>
+                <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done || practice === 'short' ? t.text : t.textSecondary}>
+                  {done ? '✓' : practice === 'sideways' ? '↔' : '↕'}
+                </Body>
+                <Body size={compact ? typeScale.text.md : 16} weight="heavy" color={done || practice === 'short' ? t.text : t.textSecondary} style={{ flex: 1 }}>
+                  {PRACTICE[practice]}
+                </Body>
+              </View>
+            ) : null}
+          </Pressable>
+        </ScrollView>
+      </View>
 
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
-          {suggestions.map((r, i) => {
-            const on = picked.includes(r.key);
-            const col = cardColors[CATEGORY_COLOR[r.category]];
-            return (
-              <Pressable
-                key={r.key}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: on }}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setPicked((l) => toggle(l, r.key));
-                }}
-                style={{
-                  width: '47.5%',
-                  aspectRatio: 0.72,
-                  backgroundColor: on ? col.bg : t.bgRaised,
-                  borderRadius: radius.lg,
-                  padding: space.lg,
-                  justifyContent: 'space-between',
-                  transform: [{ rotate: on ? `${i % 2 ? 2 : -2}deg` : '0deg' }, { scale: on ? 1.02 : 1 }],
-                }}
-              >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Label color={on ? col.ink : t.textSecondary}>{CATEGORIES[r.category]}</Label>
-                  <Display size={18} color={on ? col.ink : t.textFaint}>{on ? '✓' : '+'}</Display>
-                </View>
-                <View style={{ gap: 4 }}>
-                  <Display size={26} color={on ? col.ink : t.text}>{r.name}</Display>
-                  <Body size={12} weight="bold" color={on ? col.ink : t.textSecondary}>{`↑ ${r.ceiling}`}</Body>
-                  <Body size={12} weight="bold" color={on ? col.ink : t.textSecondary}>{`↓ ${r.floor}`}</Body>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-      </ScrollView>
-
-      <View style={{ position: 'absolute', left: space.xl, right: space.xl, bottom: insets.bottom + space.lg, gap: space.sm }}>
-        <Button label={chosen.length ? `Deal ${chosen.length} ${chosen.length === 1 ? 'card' : 'cards'}` : 'I’ll make my own'} busy={busy} onPress={() => finish(chosen)} />
-        {chosen.length > 3 ? <Body size={13} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>That’s a big deck to start. Fewer cards are easier to keep.</Body> : null}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+        <RoundButton glyph="‹" label="Previous card" disabled={index === 0} onPress={() => go(index - 1)} />
+        <Progress index={index} />
+        {last ? (
+          <Button label={replay ? 'Back to the game' : 'Build my deck'} onPress={() => go(index + 1)} style={{ minWidth: 150 }} />
+        ) : (
+          <RoundButton glyph="›" label="Next card" onPress={() => go(index + 1)} />
+        )}
       </View>
     </View>
+  );
+}
+
+function RoundButton({ glyph, label, disabled, onPress }: { glyph: string; label: string; disabled?: boolean; onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1.5,
+        borderColor: t.text,
+        opacity: disabled ? 0.25 : pressed ? 0.6 : 1,
+      })}
+    >
+      <Display size={30} maxFontSizeMultiplier={fontScale.graphic} style={{ marginTop: -3 }}>
+        {glyph}
+      </Display>
+    </Pressable>
+  );
+}
+
+/**
+ * Three little cards: the one you're on stands up, solid in the table's ink, so it reads on a light or
+ * a dark table alike (a card's own felt can sink into a dark table). Cards seen are filled in softer.
+ */
+function Progress({ index }: { index: number }) {
+  const t = useTheme();
+  return (
+    <View aria-hidden style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-end', gap: 6 }}>
+      {TOUR.map((_, i) => {
+        const on = i === index;
+        const seen = i < index;
+        return (
+          <View
+            key={i}
+            style={{
+              width: on ? 17 : 11,
+              height: on ? 24 : 15,
+              borderRadius: on ? 5 : 4,
+              backgroundColor: on ? t.text : seen ? t.textSecondary : 'transparent',
+              borderWidth: on || seen ? 0 : 1.5,
+              borderColor: t.textSecondary,
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+/** Every piece of art is drawn on this stage, then scaled to the room the card leaves it. */
+const STAGE = { w: 300, h: 236 };
+
+function FitStage({ w, h, children }: { w: number; h: number; children: (scale: number) => ReactNode }) {
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null);
+  const onLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setBox((b) => (b && Math.abs(b.w - width) < 1 && Math.abs(b.h - height) < 1 ? b : { w: width, h: height }));
+  };
+  const scale = box ? Math.max(0.45, Math.min(1.35, box.w / w, (box.h - 12) / h)) : 0;
+  return (
+    <View onLayout={onLayout} style={{ flex: 1 }}>
+      {box ? <View style={{ position: 'absolute', width: w, height: h, left: (box.w - w) / 2, top: (box.h - h) / 2, transform: [{ scale }] }}>{children(scale)}</View> : null}
+    </View>
+  );
+}
+
+/** Plays a little film once, from 0 to 1. Still at the end under Reduce Motion. */
+function useFilm(ms: number): SharedValue<number> {
+  const reduced = useReducedMotion();
+  const p = useSharedValue(reduced ? 1 : 0);
+  useEffect(() => {
+    if (reduced) {
+      p.set(1);
+      return;
+    }
+    p.set(withTiming(1, { duration: ms, easing: Easing.out(Easing.quad) }));
+    return () => cancelAnimation(p);
+  }, [reduced, ms, p]);
+  return p;
+}
+
+const HABIT = { w: 124, h: 168 };
+/** A stamp's tilt, kept in every animated frame (an animated transform replaces the static one). */
+const STAMP_TILT = '-9deg';
+
+/**
+ * The practice card: a Read card that goes down for its Floor or up for its Ceiling, and springs back
+ * from anything else. The FLOOR or CEILING stamp only lands at full strength, with a little pop and a
+ * tap you can feel, at the point where letting go counts (`armedWay`); before that it is a faint hint.
+ * A real attempt that falls short gets a line asking for a bit more.
+ */
+function PracticeArt({ scale, onKept, onSideways, onShort }: { scale: number; onKept: (level: Kept) => void; onSideways: () => void; onShort: () => void }) {
+  const c = cardColors.lilac;
+  const reduced = useReducedMotion();
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+  // 1 armed for the Floor, -1 for the Ceiling, 0 not armed.
+  const armed = useSharedValue(0);
+  const pop = useSharedValue(1);
+  const nudge = useSharedValue(0);
+
+  // A small bob up and down, now and then, until the card is touched: it can be dragged that way.
+  useEffect(() => {
+    if (reduced) return;
+    nudge.set(withRepeat(withSequence(withDelay(1400, withTiming(-1, { duration: 260 })), withTiming(1, { duration: 360 }), withTiming(0, { duration: 260 })), -1, false));
+    return () => cancelAnimation(nudge);
+  }, [reduced, nudge]);
+
+  const onArm = (on: boolean) => (on ? feel.arm() : feel.disarm());
+  const onFellShort = () => {
+    feel.disarm();
+    onShort();
+  };
+
+  const pan = Gesture.Pan()
+    .onBegin(() => {
+      cancelAnimation(nudge);
+      nudge.set(withTiming(0, { duration: 120 }));
+    })
+    .onUpdate((e) => {
+      // Measured in stage points, so the card keeps to the finger however the stage is scaled.
+      const dx = e.translationX / scale;
+      const dy = e.translationY / scale;
+      x.set(dx);
+      y.set(dy);
+      const way = armedWay(dx, dy);
+      const now = way === 'floor' ? 1 : way === 'ceiling' ? -1 : 0;
+      if (now !== armed.get()) {
+        armed.set(now);
+        if (now !== 0) pop.set(withSequence(withTiming(1.22, { duration: 70 }), withSpring(1, { damping: 10, stiffness: 280 })));
+        scheduleOnRN(onArm, now !== 0);
+      }
+    })
+    .onEnd((e) => {
+      const dx = x.get();
+      const dy = y.get();
+      const release = practiceRelease(dx, dy, e.velocityY);
+      if (release === 'floor' || release === 'ceiling') {
+        const way = release === 'floor' ? 1 : -1;
+        // A quick flick lands its stamp on the way out, so every kept swipe shows what it kept.
+        if (armed.get() !== way) {
+          armed.set(way);
+          pop.set(withSequence(withTiming(1.22, { duration: 70 }), withSpring(1, { damping: 10, stiffness: 280 })));
+        }
+        x.set(withTiming(dx * 0.5, { duration: 240 }));
+        y.set(
+          withTiming(way > 0 ? 320 : -340, { duration: 240, easing: Easing.in(Easing.quad) }, (finished) => {
+            'worklet';
+            if (finished) scheduleOnRN(onKept, release);
+          }),
+        );
+        return;
+      }
+      armed.set(0);
+      x.set(withSpring(0, { damping: 13 }));
+      y.set(withSpring(0, { damping: 13 }));
+      if (release === 'sideways') scheduleOnRN(onSideways);
+      else if (release === 'short') scheduleOnRN(onFellShort);
+    });
+
+  const card = useAnimatedStyle(() => ({
+    transform: [{ translateX: x.get() }, { translateY: y.get() + nudge.get() * 10 }, { rotate: `${-3 + x.get() / 14}deg` }],
+  }));
+  const down = useStamp(1, x, y, armed, pop);
+  const up = useStamp(-1, x, y, armed, pop);
+  const side = useAnimatedStyle(() => ({ opacity: Math.abs(y.get()) > Math.abs(x.get()) ? 0 : interpolate(Math.abs(x.get()), [14, 50], [0, 1], 'clamp'), transform: [{ rotate: STAMP_TILT }] }));
+  const hintUp = useAnimatedStyle(() => ({ opacity: interpolate(-y.get(), [0, PRACTICE_DISTANCE], [0.9, 1], 'clamp'), transform: [{ scale: interpolate(-y.get(), [0, PRACTICE_DISTANCE], [1, 1.15], 'clamp') }] }));
+  const hintDown = useAnimatedStyle(() => ({ opacity: interpolate(y.get(), [0, PRACTICE_DISTANCE], [0.9, 1], 'clamp'), transform: [{ scale: interpolate(y.get(), [0, PRACTICE_DISTANCE], [1, 1.15], 'clamp') }] }));
+
+  return (
+    <View style={{ width: STAGE.w, height: STAGE.h }}>
+      <Animated.View aria-hidden style={[{ position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center' }, hintUp]}>
+        <Body size={12} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic} style={{ letterSpacing: 1.6 }}>
+          ↑ CEILING
+        </Body>
+      </Animated.View>
+      <Animated.View aria-hidden style={[{ position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center' }, hintDown]}>
+        <Body size={12} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic} style={{ letterSpacing: 1.6 }}>
+          ↓ FLOOR
+        </Body>
+      </Animated.View>
+      {/* The rest of today's deck, waiting behind it. */}
+      <View aria-hidden style={{ position: 'absolute', left: (STAGE.w - HABIT.w) / 2, top: (STAGE.h - HABIT.h) / 2, width: HABIT.w, height: HABIT.h, borderRadius: 22, backgroundColor: cardColors.tomato.bg, transform: [{ translateX: 22 }, { translateY: 4 }, { rotate: '8deg' }] }} />
+      <View aria-hidden style={{ position: 'absolute', left: (STAGE.w - HABIT.w) / 2, top: (STAGE.h - HABIT.h) / 2, width: HABIT.w, height: HABIT.h, borderRadius: 22, backgroundColor: cardColors.sky.bg, transform: [{ translateX: -20 }, { translateY: 6 }, { rotate: '-7deg' }] }} />
+      <GestureDetector gesture={pan}>
+        <Animated.View
+          accessible
+          accessibilityRole="adjustable"
+          accessibilityLabel="Practice card: Read. Ceiling, 20 pages. Floor, 1 page."
+          accessibilityHint="Swipe down for the Floor or up for the Ceiling."
+          accessibilityActions={[
+            { name: 'decrement', label: 'Floor' },
+            { name: 'increment', label: 'Ceiling' },
+          ]}
+          onAccessibilityAction={(e) => onKept(e.nativeEvent.actionName === 'decrement' ? 'floor' : 'ceiling')}
+          style={[
+            {
+              position: 'absolute',
+              left: (STAGE.w - HABIT.w) / 2,
+              top: (STAGE.h - HABIT.h) / 2,
+              width: HABIT.w,
+              height: HABIT.h,
+              borderRadius: 22,
+              backgroundColor: c.bg,
+              padding: 14,
+              justifyContent: 'space-between',
+              boxShadow: '0 14px 26px rgba(0, 0, 0, 0.3)',
+              cursor: 'pointer',
+            },
+            card,
+          ]}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <SuitGlyph suit="clubs" size={12} color={c.ink} />
+            <Body size={10} weight="heavy" color={c.ink} maxFontSizeMultiplier={fontScale.graphic} style={{ letterSpacing: 1 }}>
+              MIND
+            </Body>
+          </View>
+          <View style={{ gap: 2 }}>
+            <Body size={12} weight="heavy" color={c.ink} maxFontSizeMultiplier={fontScale.graphic}>
+              ↑ 20 pages
+            </Body>
+            <Display size={38} color={c.ink} maxFontSizeMultiplier={fontScale.graphic}>
+              Read
+            </Display>
+            <Body size={12} weight="heavy" color={c.ink} maxFontSizeMultiplier={fontScale.graphic}>
+              ↓ 1 page
+            </Body>
+          </View>
+          <Stamp text="FLOOR" style={down} />
+          <Stamp text="CEILING" style={up} />
+          <Stamp text="LATER" style={side} />
+        </Animated.View>
+      </GestureDetector>
+    </View>
+  );
+}
+
+/**
+ * A stamp's look while the card is dragged its way (`way` 1 down, -1 up): a faint, small hint until the
+ * drag is armed, then full strength with a pop. Full strength means letting go now keeps the day.
+ */
+function useStamp(way: 1 | -1, x: SharedValue<number>, y: SharedValue<number>, armed: SharedValue<number>, pop: SharedValue<number>) {
+  return useAnimatedStyle(() => {
+    const along = way * y.get();
+    const vertical = Math.abs(y.get()) > Math.abs(x.get());
+    const on = armed.get() === way;
+    return {
+      opacity: on ? 1 : vertical ? interpolate(along, [14, PRACTICE_DISTANCE], [0, STAMP_PREVIEW], 'clamp') : 0,
+      transform: [{ rotate: STAMP_TILT }, { scale: on ? pop.get() : interpolate(along, [14, PRACTICE_DISTANCE], [0.8, 0.92], 'clamp') }],
+    };
+  });
+}
+
+function Stamp({ text, style }: { text: string; style: ReturnType<typeof useAnimatedStyle> }) {
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[{ position: 'absolute', top: 54, alignSelf: 'center', backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }, style]}
+    >
+      <Display size={20} color={INK} maxFontSizeMultiplier={fontScale.graphic}>
+        {text}
+      </Display>
+    </Animated.View>
+  );
+}
+
+/** After the practice swipe: the day's card turns over where the habit card was. */
+function DealtArt({ level }: { level: Kept }) {
+  const p = useFilm(520);
+  const face: CardFace = { kind: 'card', rank: level === 'floor' ? 7 : 10, suit: 'clubs' };
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateY: interpolate(p.get(), [0, 1], [level === 'floor' ? -30 : 30, 0]) }, { scaleX: interpolate(p.get(), [0, 0.5, 1], [0.05, 0.6, 1]) }, { rotate: `${interpolate(p.get(), [0, 1], [-10, 4])}deg` }],
+  }));
+  const tag = useAnimatedStyle(() => ({ opacity: interpolate(p.get(), [0.6, 1], [0, 1], 'clamp') }));
+  return (
+    <View aria-hidden style={{ width: STAGE.w, height: STAGE.h, alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View style={style}>
+        <PlayingCard face={face} size="lg" width={112} />
+      </Animated.View>
+      <Animated.View style={[{ position: 'absolute', top: 6, backgroundColor: WHITE, borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: 3 }, tag]}>
+        <Body size={12} weight="heavy" color={cardColors.pine.bg} maxFontSizeMultiplier={fontScale.graphic} style={{ letterSpacing: 1.4 }}>
+          {level === 'floor' ? 'FLOOR · KEPT' : 'CEILING · KEPT'}
+        </Body>
+      </Animated.View>
+    </View>
+  );
+}
+
+/** A week of seven cards, and the five that play: a Full house. */
+const WEEK: { label: string; face: CardFace; plays: boolean }[] = [
+  { label: 'M', face: { kind: 'card', rank: 11, suit: 'hearts' }, plays: true },
+  { label: 'T', face: { kind: 'card', rank: 4, suit: 'diamonds' }, plays: true },
+  { label: 'W', face: { kind: 'card', rank: 9, suit: 'clubs' }, plays: false },
+  { label: 'T', face: { kind: 'card', rank: 11, suit: 'spades' }, plays: true },
+  { label: 'F', face: { kind: 'card', rank: 2, suit: 'hearts' }, plays: false },
+  { label: 'S', face: { kind: 'card', rank: 4, suit: 'hearts' }, plays: true },
+  { label: 'S', face: { kind: 'card', rank: 11, suit: 'clubs' }, plays: true },
+];
+const HAND: CardFace[] = [WEEK[0].face, WEEK[3].face, WEEK[6].face, WEEK[1].face, WEEK[5].face];
+const MINI = 30;
+const FAN_W = 78;
+const FAN_STEP = 42;
+
+function HandArt() {
+  const p = useFilm(1300);
+  const caption = useAnimatedStyle(() => ({ opacity: interpolate(p.get(), [0.7, 1], [0, 1], 'clamp') }));
+  const chip = useAnimatedStyle(() => ({ opacity: interpolate(p.get(), [0.8, 1], [0, 1], 'clamp'), transform: [{ rotate: '8deg' }, { scale: interpolate(p.get(), [0.8, 0.92, 1], [0.4, 1.12, 1], 'clamp') }] }));
+  const stripLeft = (STAGE.w - (MINI * 7 + 6 * 6)) / 2;
+  return (
+    <View aria-hidden style={{ width: STAGE.w, height: STAGE.h }}>
+      <View style={{ position: 'absolute', top: 0, left: stripLeft, flexDirection: 'row', gap: 6 }}>
+        {WEEK.map((d, i) => (
+          <View key={i} style={{ alignItems: 'center', gap: 2 }}>
+            <Body size={10} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic}>
+              {d.label}
+            </Body>
+            <PlayingCard face={d.face} size="xs" width={MINI} dim={!d.plays} />
+          </View>
+        ))}
+      </View>
+      {HAND.map((face, i) => (
+        <FanCard key={i} i={i} face={face} p={p} />
+      ))}
+      <Animated.View style={[{ position: 'absolute', top: 66, right: 4 }, chip]}>
+        <Chips value={140} size={18} pill />
+      </Animated.View>
+      <Animated.View style={[{ position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center' }, caption]}>
+        <Body size={13} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic}>
+          Full house: three Jacks and a pair of 4s.
+        </Body>
+      </Animated.View>
+    </View>
+  );
+}
+
+function FanCard({ i, face, p }: { i: number; face: CardFace; p: SharedValue<number> }) {
+  const off = i - 2;
+  const left = (STAGE.w - (FAN_W + FAN_STEP * 4)) / 2 + i * FAN_STEP;
+  const top = 76 + 4 * off * off;
+  const style = useAnimatedStyle(() => {
+    const v = interpolate(p.get(), [i * 0.1, i * 0.1 + 0.5], [0, 1], 'clamp');
+    return {
+      opacity: interpolate(v, [0, 0.2], [0, 1], 'clamp'),
+      transform: [{ translateX: interpolate(v, [0, 1], [(2 - i) * FAN_STEP, 0]) }, { translateY: interpolate(v, [0, 1], [-40, 0]) }, { rotate: `${interpolate(v, [0, 1], [0, off * 8])}deg` }],
+    };
+  });
+  return (
+    <Animated.View style={[{ position: 'absolute', left, top }, style]}>
+      <PlayingCard face={face} size="md" width={FAN_W} />
+    </Animated.View>
+  );
+}
+
+/** Monday kept, Tuesday missed, Wednesday kept: Tuesday turns over a card of its own. */
+const SAVED: CardFace = { kind: 'card', rank: 3, suit: null };
+const DAY_W = 74;
+const DAY_H = Math.round((DAY_W * 104) / 74);
+
+function ComebackArt() {
+  const p = useFilm(1900);
+  const col = (i: number) => (STAGE.w - DAY_W * 3 - 24 * 2) / 2 + i * (DAY_W + 24);
+  const top = 30;
+  const today = useAnimatedStyle(() => ({
+    opacity: interpolate(p.get(), [0, 0.12], [0, 1], 'clamp'),
+    transform: [{ translateY: interpolate(p.get(), [0, 0.3, 0.36], [-46, 6, 0], 'clamp') }],
+  }));
+  const slot = useAnimatedStyle(() => ({ opacity: interpolate(p.get(), [0.46, 0.5], [1, 0], 'clamp') }));
+  const saved = useAnimatedStyle(() => ({
+    opacity: interpolate(p.get(), [0.46, 0.5], [0, 1], 'clamp'),
+    transform: [{ scaleX: interpolate(p.get(), [0.46, 0.62], [0.05, 1], 'clamp') }, { scale: interpolate(p.get(), [0.62, 0.7, 0.78], [1, 1.08, 1], 'clamp') }],
+  }));
+  const tags = useAnimatedStyle(() => ({ opacity: interpolate(p.get(), [0.72, 0.9], [0, 1], 'clamp') }));
+  const days = ['MON', 'TUE', 'WED'];
+  return (
+    <View aria-hidden style={{ width: STAGE.w, height: STAGE.h }}>
+      {days.map((d, i) => (
+        <View key={d} style={{ position: 'absolute', top: 0, left: col(i), width: DAY_W, alignItems: 'center' }}>
+          <Body size={11} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic} style={{ letterSpacing: 1.4 }}>
+            {d}
+          </Body>
+        </View>
+      ))}
+      <PlayingCard face={{ kind: 'card', rank: 8, suit: 'hearts' }} size="md" width={DAY_W} style={{ position: 'absolute', top, left: col(0), transform: [{ rotate: '-4deg' }] }} />
+      <Animated.View style={[{ position: 'absolute', top, left: col(1) }, slot]}>
+        <CardSlot size="md" color="rgba(255,255,255,0.75)" style={{ width: DAY_W, height: DAY_H }} />
+      </Animated.View>
+      <Animated.View style={[{ position: 'absolute', top, left: col(1) }, saved]}>
+        <PlayingCard face={SAVED} size="md" width={DAY_W} />
+      </Animated.View>
+      <Animated.View style={[{ position: 'absolute', top, left: col(2) }, today]}>
+        <PlayingCard face={{ kind: 'card', rank: 9, suit: 'spades' }} size="md" width={DAY_W} style={{ transform: [{ rotate: '4deg' }] }} />
+      </Animated.View>
+      <Animated.View style={[{ position: 'absolute', top: top + DAY_H + 14, left: 0, right: 0 }, tags]}>
+        <Tag left={col(1)} text="MISSED" />
+        <Tag left={col(2)} text="TODAY" />
+      </Animated.View>
+      <Animated.View style={[{ position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center' }, tags]}>
+        <Body size={13} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic}>
+          Wednesday kept, so Tuesday still gets a card.
+        </Body>
+      </Animated.View>
+    </View>
+  );
+}
+
+function Tag({ left, text }: { left: number; text: string }) {
+  return (
+    <View style={{ position: 'absolute', left, width: DAY_W, alignItems: 'center' }}>
+      <View style={{ backgroundColor: WHITE, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 2 }}>
+        <Body size={11} weight="heavy" color={cardColors.sky.bg} maxFontSizeMultiplier={fontScale.graphic} style={{ letterSpacing: 1.2 }}>
+          {text}
+        </Body>
+      </View>
+    </View>
+  );
+}
+
+/* ---------------------------------------------------------------- who you're becoming */
+
+function Identity({
+  identities,
+  onToggle,
+  northStar,
+  onNorthStar,
+  onBack,
+  onNext,
+}: {
+  identities: readonly string[];
+  onToggle: (id: string) => void;
+  northStar: string;
+  onNorthStar: (s: string) => void;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  const t = useTheme();
+  const insets = useSafeAreaInsets();
+  const scroll = useRef<ScrollView>(null);
+  // Where each suit's identities start on the page, for the suit cards to jump to.
+  const groupY = useRef<Partial<Record<Suit, number>>>({});
+  const [northStarHeight, setNorthStarHeight] = useState(NORTH_STAR_MIN);
+
+  const jumpTo = (suit: Suit) => {
+    feel.tick();
+    const y = groupY.current[suit];
+    if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.lg), animated: true });
+  };
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: insets.bottom + space.xxl, paddingHorizontal: space.xl, gap: space.xl }}>
+        <BackLink onPress={onBack} label="Back to the tour" />
+        <View style={{ gap: space.sm }}>
+          <Label>Step 1 of 2</Label>
+          <Display size={typeScale.display.xl} header>
+            Who are you becoming?
+          </Display>
+        </View>
+
+        {/* The four suits are an index: each card jumps to its part of you, and counts what you've picked there. */}
+        <View style={{ gap: space.sm }}>
+          <Body weight="heavy">Each part of you is a suit. Tap one to jump to it.</Body>
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            {SUITS.map((suit, i) => {
+              const part = SUIT_INFO[suit].part;
+              const count = IDENTITIES.find((g) => g.suit === suit)?.identities.filter((id) => identities.includes(id)).length ?? 0;
+              return (
+                <Pressable
+                  key={suit}
+                  accessibilityRole="button"
+                  accessibilityLabel={part}
+                  accessibilityHint={`Jumps to the ${part} identities.${count ? ` ${count} picked.` : ''}`}
+                  onPress={() => jumpTo(suit)}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    aspectRatio: 0.74,
+                    maxHeight: 112,
+                    backgroundColor: cardFace.bg,
+                    borderRadius: 12,
+                    borderWidth: count ? 2 : 1,
+                    borderColor: count ? suitColors[suit].glyph : cardFace.edge,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    transform: [{ rotate: `${(i - 1.5) * 2.5}deg` }, { translateY: pressed ? 3 : 0 }, { scale: pressed ? 0.96 : 1 }],
+                    boxShadow: pressed ? '0 2px 6px rgba(0, 0, 0, 0.16)' : '0 6px 14px rgba(0, 0, 0, 0.16)',
+                  })}
+                >
+                  <SuitGlyph suit={suit} size={30} color={suitColors[suit].glyph} />
+                  <Display size={16} color={INK} maxFontSizeMultiplier={fontScale.chrome}>
+                    {part}
+                  </Display>
+                  {count ? (
+                    <View aria-hidden style={{ position: 'absolute', top: -7, right: -7, minWidth: 24, height: 24, borderRadius: 12, paddingHorizontal: 6, backgroundColor: suitColors[suit].glyph, alignItems: 'center', justifyContent: 'center' }}>
+                      <Body size={13} weight="heavy" color={WHITE} maxFontSizeMultiplier={fontScale.graphic}>
+                        {count}
+                      </Body>
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <Body size={typeScale.text.lg} weight="semi">
+          Finish the sentence. Pick as many as feel true.
+        </Body>
+
+        {IDENTITIES.map((group) => (
+          <View
+            key={group.suit}
+            onLayout={(e) => {
+              groupY.current[group.suit] = e.nativeEvent.layout.y;
+            }}
+            style={{ gap: space.sm }}
+          >
+            <SuitTag suit={group.suit} size={14} />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm }}>
+              <Display size={typeScale.display.sm} color={t.textSecondary} aria-hidden>
+                I’m…
+              </Display>
+              {group.identities.map((id) => (
+                <Chip
+                  key={id}
+                  label={id}
+                  accessibilityLabel={`I’m ${id}`}
+                  active={identities.includes(id)}
+                  color={suitColors[group.suit].glyph}
+                  ink={WHITE}
+                  onPress={() => {
+                    feel.tick();
+                    onToggle(id);
+                  }}
+                />
+              ))}
+            </View>
+          </View>
+        ))}
+
+        <View style={[{ borderRadius: radius.lg, padding: space.xl, gap: space.sm }, raisedStyle(t)]}>
+          <Label color={t.onRaisedSecondary}>Your north star · optional</Label>
+          <TextInput
+            value={northStar}
+            onChangeText={onNorthStar}
+            accessibilityLabel="Your north star, optional"
+            placeholder="I’m becoming someone who…"
+            placeholderTextColor={t.onRaisedSecondary}
+            keyboardAppearance={t.scheme}
+            selectionColor={t.onRaised}
+            multiline
+            // It grows with what you write, up to a few lines, so the start of the sentence stays in view.
+            onContentSizeChange={(e) => setNorthStarHeight(growTo(e.nativeEvent.contentSize.height, NORTH_STAR_MIN, NORTH_STAR_MAX))}
+            scrollEnabled={northStarHeight >= NORTH_STAR_MAX}
+            style={{ fontFamily: fonts.display, fontSize: typeScale.display.md, lineHeight: 30, color: t.onRaised, height: northStarHeight, textAlignVertical: 'top', padding: 0, outlineWidth: 0 }}
+          />
+          <Body size={typeScale.text.sm} color={t.onRaisedSecondary}>
+            It sits at the top of You, so you see why on the hard days.
+          </Body>
+        </View>
+
+        <Button label={identities.length ? 'Build my deck' : 'Show me every card'} onPress={onNext} />
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+/** The north star field: two lines tall to begin with, growing to five as you write. */
+const NORTH_STAR_MIN = 64;
+const NORTH_STAR_MAX = 154;
+
+/** A field's height for its content, kept between `min` and `max`. */
+function growTo(content: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.ceil(content)));
+}
+
+function BackLink({ onPress, label }: { onPress: () => void; label: string }) {
+  const t = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={8} style={{ minHeight: TAP, alignSelf: 'flex-start', justifyContent: 'center' }}>
+      <Body weight="heavy" color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+        ‹ Back
+      </Body>
+    </Pressable>
+  );
+}
+
+/* ---------------------------------------------------------------- the first deal */
+
+function DeckStep({
+  groups,
+  more,
+  onEverything,
+  picked,
+  onToggle,
+  busy,
+  onBack,
+  onDeal,
+}: {
+  groups: DeckGroup[];
+  /** How many more cards "Show every card" would add; 0 when every card is on screen. */
+  more: number;
+  onEverything: () => void;
+  picked: readonly string[];
+  onToggle: (key: string) => void;
+  busy: boolean;
+  onBack: () => void;
+  onDeal: (recipes: Recipe[]) => void;
+}) {
+  const t = useTheme();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  // At least as tall as a playing card, and taller when large text needs the room.
+  const tileHeight = Math.round(((width - space.xl * 2) * 0.475) / 0.74);
+  const chosen = chosenRecipes(picked);
+  let tile = 0;
+  return (
+    <View style={{ flex: 1, backgroundColor: t.bg }}>
+      <ScrollView contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: insets.bottom + 170, paddingHorizontal: space.xl, gap: space.xl }}>
+        <BackLink onPress={onBack} label="Back to who you’re becoming" />
+        <View style={{ gap: space.sm }}>
+          <Label>Step 2 of 2</Label>
+          <Display size={typeScale.display.xl} header>
+            Deal your first cards.
+          </Display>
+          <Body color={t.textSecondary}>Start with one to three. A small deck you keep beats a big one you don’t. You can change every word later.</Body>
+        </View>
+
+        {groups.map((group) => (
+          <View key={group.key} style={{ gap: space.md }}>
+            {group.suit ? (
+              <View accessibilityRole="header" style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingTop: space.xs }}>
+                <SuitTag suit={group.suit} size={16} />
+                <View style={{ flex: 1, height: 1.5, borderRadius: 1, backgroundColor: t.border }} />
+              </View>
+            ) : group.title ? (
+              <View accessibilityRole="header">
+                <Label>{group.title}</Label>
+              </View>
+            ) : null}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
+              {group.recipes.map((r) => (
+                <RecipeTile key={r.key} recipe={r} on={picked.includes(r.key)} tilt={tile++ % 2 ? 2 : -2} minHeight={tileHeight} onPress={() => onToggle(r.key)} />
+              ))}
+            </View>
+          </View>
+        ))}
+
+        {more > 0 ? (
+          <Button
+            label="Show every card"
+            variant="ghost"
+            hint={`${more} more ready-made cards, by suit.`}
+            icon={<Display size={18} maxFontSizeMultiplier={fontScale.graphic}>{`+${more}`}</Display>}
+            onPress={() => {
+              feel.tick();
+              onEverything();
+            }}
+          />
+        ) : null}
+      </ScrollView>
+
+      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.lg, gap: space.sm, backgroundColor: t.bg, borderTopWidth: 1, borderTopColor: t.border }}>
+        {chosen.length > 3 ? (
+          <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>
+            That’s a big deck to start. Fewer cards are easier to keep.
+          </Body>
+        ) : null}
+        <Button label={chosen.length ? `Deal ${chosen.length} ${chosen.length === 1 ? 'card' : 'cards'}` : 'I’ll make my own'} busy={busy} onPress={() => onDeal(chosen)} />
+      </View>
+    </View>
+  );
+}
+
+function RecipeTile({ recipe: r, on, tilt, minHeight, onPress }: { recipe: Recipe; on: boolean; tilt: number; minHeight: number; onPress: () => void }) {
+  const t = useTheme();
+  const col = cardColors[suitColors[r.suit].habit];
+  const ink = on ? col.ink : t.text;
+  const quiet = on ? col.ink : t.textSecondary;
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityLabel={`${r.name}. ${SUIT_INFO[r.suit].part}. Ceiling, ${r.ceiling}. Floor, ${r.floor}.`}
+      accessibilityState={{ checked: on }}
+      // The web reads the checked state from aria-checked only.
+      aria-checked={on}
+      onPress={() => {
+        feel.tick();
+        onPress();
+      }}
+      style={({ pressed }) => ({
+        width: '47.5%',
+        minHeight,
+        backgroundColor: on ? col.bg : t.bgRaised,
+        borderRadius: radius.lg,
+        borderWidth: on ? 0 : 1.5,
+        borderColor: t.border,
+        padding: space.lg,
+        justifyContent: 'space-between',
+        opacity: pressed ? 0.85 : 1,
+        transform: [{ rotate: on ? `${tilt}deg` : '0deg' }, { scale: on ? 1.02 : 1 }],
+        boxShadow: on ? '0 10px 20px rgba(0, 0, 0, 0.18)' : undefined,
+      })}
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <SuitGlyph suit={r.suit} size={13} color={on ? col.ink : t.scheme === 'dark' ? suitColors[r.suit].bright : suitColors[r.suit].glyph} />
+          <Label color={quiet}>{SUIT_INFO[r.suit].part}</Label>
+        </View>
+        <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? col.ink : 'transparent', borderWidth: on ? 0 : 1.5, borderColor: t.border }}>
+          <Display size={16} color={on ? col.bg : t.textSecondary} maxFontSizeMultiplier={fontScale.graphic}>
+            {on ? '✓' : '+'}
+          </Display>
+        </View>
+      </View>
+      <View style={{ gap: 4 }}>
+        <Display size={typeScale.display.md} color={ink}>
+          {r.name}
+        </Display>
+        <Body size={typeScale.text.sm} weight="bold" color={quiet}>{`↑ ${r.ceiling}`}</Body>
+        <Body size={typeScale.text.sm} weight="bold" color={quiet}>{`↓ ${r.floor}`}</Body>
+      </View>
+    </Pressable>
   );
 }

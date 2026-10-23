@@ -1,58 +1,231 @@
-import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { usePreventRemove } from 'expo-router/react-navigation';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type TextInput } from 'react-native';
+import Animated, { Easing, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HabitCard } from '@/components/HabitCard';
+import { ask } from '@/components/Ask';
+import { ComebackCard, HabitCard } from '@/components/HabitCard';
+import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Field, Label } from '@/components/ui';
-import { PRINCIPLES, RECIPES } from '@/engine/playbook';
-import { CATEGORY_COLOR } from '@/lib/categoryColor';
+import { SUIT_INFO, SUITS } from '@/engine/cards';
+import { comebackExit, planLine } from '@/engine/comeback';
+import { exampleRecipe, inferSuit, ownWhy, PRINCIPLES, recipeFor, type EditField, type EditFocus } from '@/engine/playbook';
 import { useData } from '@/lib/data';
+import { useAdded, useDeck } from '@/lib/deck';
+import * as feel from '@/lib/feel';
+import { usePlans } from '@/lib/plans';
 import { draftFromHabit, draftProblem, type Habit, type HabitDraft } from '@/lib/types';
+import { withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
-import { CARD_COLORS, cardColors, space } from '@/theme/tokens';
+import { CARD_COLORS, cardColors, fontScale, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
-const BLANK: HabitDraft = { name: '', identity: '', floorLabel: '', ceilingLabel: '', twoMinuteLabel: '', color: 'tomato', anchor: '', whenWhere: '', why: '', recipeKey: null };
+const BLANK: HabitDraft = { name: '', identity: '', floorLabel: '', ceilingLabel: '', twoMinuteLabel: '', color: 'lilac', suit: 'clubs', anchor: '', whenWhere: '', why: '', recipeKey: null };
 
-function Tip({ principle }: { principle: keyof typeof PRINCIPLES }) {
+/** Moments that happen every day, for "When it plays". None waits for a workday or a payday. */
+const MOMENTS = ['after waking up', 'after my first coffee', 'after lunch', 'after dinner', 'before bed'] as const;
+
+const FIELDS: readonly EditField[] = ['name', 'ceilingLabel', 'floorLabel', 'identity', 'anchor', 'twoMinuteLabel', 'why'];
+const isFocus = (v: unknown): v is EditFocus => typeof v === 'string' && (v === 'archive' || (FIELDS as readonly string[]).includes(v));
+
+type TipText = { title: string; body: string };
+
+const TIPS: Partial<Record<EditField, TipText>> = {
+  ceilingLabel: { title: PRINCIPLES.stretch.title, body: PRINCIPLES.stretch.idea },
+  floorLabel: { title: 'Small enough for your worst day', body: 'On a bad day the Floor is the whole habit, and it still keeps the day. If it takes courage, make it smaller.' },
+  identity: { title: PRINCIPLES.identity.title, body: PRINCIPLES.identity.idea },
+  anchor: { title: PRINCIPLES['when-it-plays'].title, body: PRINCIPLES['when-it-plays'].idea },
+  twoMinuteLabel: { title: PRINCIPLES['first-move'].title, body: PRINCIPLES['first-move'].idea },
+};
+
+/** One idea, folded to its title until tapped. */
+function Tip({ tip }: { tip: TipText }) {
   const t = useTheme();
-  const p = PRINCIPLES[principle];
+  const [open, setOpen] = useState(false);
   return (
-    <Body size={13} color={t.textSecondary}>
-      <Body size={13} weight="heavy" color={t.text}>{`${p.title}. `}</Body>
-      {`${p.idea} (${p.source})`}
-    </Body>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      accessibilityLabel={open ? `${tip.title}. ${tip.body}` : tip.title}
+      onPress={() => {
+        feel.tick();
+        setOpen((o) => !o);
+      }}
+      hitSlop={6}
+      style={({ pressed }) => ({ flexDirection: 'row', gap: space.sm, minHeight: 32, paddingHorizontal: space.xs, paddingVertical: 6, opacity: pressed ? 0.6 : 1 })}
+    >
+      <View aria-hidden style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: t.textSecondary, alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+        <Body weight="heavy" size={12} color={t.textSecondary} maxFontSizeMultiplier={fontScale.graphic} style={{ lineHeight: 14 }}>
+          {open ? '–' : '+'}
+        </Body>
+      </View>
+      <Body size={typeScale.text.sm} color={t.textSecondary} style={{ flex: 1 }}>
+        <Body size={typeScale.text.sm} weight="heavy" color={t.text}>
+          {tip.title}
+        </Body>
+        {open ? `. ${tip.body}` : ''}
+      </Body>
+    </Pressable>
   );
 }
 
-/** Make or edit a card. You write on the card itself: the preview at the top updates as you type. */
+/** The fields that write the card's other side: focusing one turns the preview over to its Comeback. */
+const DARK_SIDE: readonly EditField[] = ['twoMinuteLabel', 'why'];
+
+/**
+ * The card as you write it, pinned above the form. It shows its everyday face, and turns over to the dark
+ * Comeback side (the same turn as on Today) while you write the First move or the why, the words that side
+ * leads with. While the why is written, it shows in the first move's box (`why`), since a card this small
+ * has no room for its own why line. With Reduce Motion it crossfades.
+ */
+function PinnedPreview({ habit, kept, plan, dark, why, height, short }: { habit: Habit; kept: number; plan: string | null; dark: boolean; why: boolean; height: number; short: boolean }) {
+  const reduced = useReducedMotion();
+  const side = useSharedValue(dark ? 1 : 0);
+  useEffect(() => {
+    const { flipMs, crossfadeMs } = comebackExit({ firstMove: false, reduced });
+    side.set(withTiming(dark ? 1 : 0, { duration: reduced ? crossfadeMs : flipMs, easing: Easing.inOut(Easing.cubic), reduceMotion: ReduceMotion.Never }));
+  }, [dark, reduced, side]);
+  // Past its edge the card shows its other side, coming round to face you; it lifts a little as it turns.
+  const face = (s: number, back: boolean) => {
+    'worklet';
+    const shown = reduced ? (back ? s : 1 - s) : (s < 0.5) === !back ? 1 : 0;
+    const angle = reduced ? 0 : (s < 0.5 ? s : s - 1) * 180;
+    return { opacity: shown, transform: [{ perspective: 900 }, { rotateY: `${angle}deg` }, { scale: 1 + 0.04 * Math.sin(Math.PI * s) }] };
+  };
+  const front = useAnimatedStyle(() => face(side.get(), false));
+  const back = useAnimatedStyle(() => face(side.get(), true));
+  return (
+    <View aria-hidden importantForAccessibility="no-hide-descendants" style={{ height, transform: [{ rotate: '-1deg' }] }}>
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, front]}>
+        <HabitCard habit={habit} kept={kept} compact />
+      </Animated.View>
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, back]}>
+        <ComebackCard habit={habit} kept={kept} gap="yesterday" plan={plan} showWhy={why} compact tight tiny={short} />
+      </Animated.View>
+    </View>
+  );
+}
+
+/**
+ * Make or edit a card. You write on the card itself: the preview pinned at the top updates as you type. A new
+ * card guesses its suit from its name until you pick one, and takes its suit's colour until you pick one.
+ * Empty fields show examples from the card's own ready-made card, or from one of its suit.
+ * Opened with `focus`, it scrolls to that field and puts the cursor in it, ready to change, or with
+ * `focus=archive`, to the Archive button, ringed.
+ */
 export default function EditHabit() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { id, recipe } = useLocalSearchParams<{ id?: string; recipe?: string }>();
-  const { state, createHabit, updateHabit, archiveHabit } = useData();
+  const navigation = useNavigation();
+  const { id, recipe, focus } = useLocalSearchParams<{ id?: string; recipe?: string; focus?: string }>();
+  const { state, today, createHabit, updateHabit, archiveHabit } = useData();
+  const { noteAdded } = useAdded();
   const existing = state.status === 'ready' && id ? state.habits.find((h) => h.id === id) : undefined;
+  const fromRecipe = existing ? undefined : recipeFor(recipe);
+  // The Archive button can only be opened on a card that is already in the deck.
+  const target = isFocus(focus) && (focus !== 'archive' || existing) ? focus : null;
 
-  const [draft, setDraft] = useState<HabitDraft>(() => {
-    if (existing) return draftFromHabit(existing);
-    const r = RECIPES.find((x) => x.key === recipe);
-    if (r) return { name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color: CATEGORY_COLOR[r.category], anchor: r.anchor, whenWhere: '', why: r.why, recipeKey: r.key };
+  const [start] = useState<HabitDraft>(() => {
+    // A ready-made card's own line is the app talking, not the player: their "why" starts empty.
+    if (existing) return { ...draftFromHabit(existing), why: ownWhy(existing) ?? '' };
+    const r = fromRecipe;
+    if (r) return { name: r.name, identity: r.identity, floorLabel: r.floor, ceilingLabel: r.ceiling, twoMinuteLabel: r.twoMinute, color: suitColors[r.suit].habit, suit: r.suit, anchor: r.anchor, whenWhere: '', why: '', recipeKey: r.key };
     return BLANK;
   });
+  const [draft, setDraft] = useState<HabitDraft>(start);
+  const [suitPicked, setSuitPicked] = useState(!!existing || !!fromRecipe);
+  const [colorPicked, setColorPicked] = useState(!!existing);
   const [busy, setBusy] = useState(false);
+  // Which field has the cursor, so the preview can show the side it writes.
+  const [writing, setWriting] = useState<EditField | null>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const { height: screenH } = useWindowDimensions();
+  const deck = useDeck();
+  const plans = usePlans();
   const set = (patch: Partial<HabitDraft>) => setDraft((d) => ({ ...d, ...patch }));
-  const problem = draftProblem(draft);
 
+  const suit = suitPicked ? draft.suit : inferSuit(draft.name, draft.identity);
+  // Until there is a name to guess from, no suit is shown as chosen and nothing claims a guess.
+  const nameless = !draft.name.trim() && !draft.identity.trim();
+  const suitShown = suitPicked || !nameless;
+  const color = colorPicked ? draft.color : suitColors[suit].habit;
+  const example = exampleRecipe(draft.recipeKey, suit);
+  const final: HabitDraft = { ...draft, suit, color };
+  const problem = draftProblem(final);
+  // Changed from how it opened, with the same guesses it opened with.
+  const startSuit = existing || fromRecipe ? start.suit : inferSuit(start.name, start.identity);
+  const dirty = JSON.stringify(final) !== JSON.stringify({ ...start, suit: startSuit, color: existing ? start.color : suitColors[startSuit].habit });
+  // Both Save buttons stand out once there is something to save. A card with no changes just closes.
+  const ready = !problem && (dirty || !existing);
+
+  // Once a day before today has been dealt, a new suit would change hands already played. Only a suit
+  // that was guessed, on a card made before suits existed, can still be picked, and then only once.
+  const played = !!existing && state.status === 'ready' && state.days.some((d) => d.habitId === existing.id && d.day < today);
+  const suitLocked = played && !!existing?.suitSet;
+  const guessed = played && existing?.suitSet === false;
+  const suitLabel = guessed ? 'Suit · guessed, pick the one that fits' : suitPicked || nameless ? 'Suit · the part of you it builds' : 'Suit · guessed from the name, tap to choose';
+
+  // One input per field, so the return key can move on and a Playbook tip can open the right one.
+  const name = useRef<TextInput>(null);
+  const ceiling = useRef<TextInput>(null);
+  const floor = useRef<TextInput>(null);
+  const identity = useRef<TextInput>(null);
+  const anchor = useRef<TextInput>(null);
+  const firstMove = useRef<TextInput>(null);
+  const why = useRef<TextInput>(null);
+  const scroll = useRef<ScrollView>(null);
+  const tops = useRef<Partial<Record<EditFocus, number>>>({});
+  // Leaving after a save, or after "Discard", goes straight through.
+  const leaving = useRef(false);
+
+  useEffect(() => {
+    if (!target) return;
+    const input: Record<EditField, RefObject<TextInput | null>> = { name, ceilingLabel: ceiling, floorLabel: floor, identity, anchor, twoMinuteLabel: firstMove, why };
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    timers.push(
+      setTimeout(() => {
+        const y = tops.current[target];
+        if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.xxxl), animated: true });
+        // Focus once the scroll has settled: a scroll still running can count as a drag and put the keyboard away.
+        // The Archive button is only ringed: archiving always asks first.
+        if (target !== 'archive') timers.push(setTimeout(() => input[target].current?.focus(), y === undefined ? 0 : 450));
+      }, 450),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [target]);
+
+  usePreventRemove(dirty && !busy, ({ data }) => {
+    if (leaving.current) {
+      navigation.dispatch(data.action);
+      return;
+    }
+    ask(existing ? 'Discard your changes?' : 'Discard this card?', existing ? 'The card stays as it was.' : 'Nothing has been added to your deck yet.', [
+      { text: 'Keep editing', style: 'cancel' },
+      {
+        text: 'Discard',
+        style: 'destructive',
+        onPress: () => {
+          leaving.current = true;
+          navigation.dispatch(data.action);
+        },
+      },
+    ]);
+  });
+
+  // An existing card keeps its own id here, so the preview wears exactly as it does in the deck: its seeded
+  // crease and corners, and the thumb mark saved where this player holds it.
   const preview: Habit = {
-    id: 'preview',
+    id: existing?.id ?? 'preview',
     name: draft.name || 'Name it',
     identity: draft.identity || null,
     floorLabel: draft.floorLabel || 'Your worst-day minimum',
     ceilingLabel: draft.ceilingLabel || 'Your best day',
     twoMinuteLabel: draft.twoMinuteLabel || null,
-    color: draft.color,
+    color,
+    suit,
+    suitSet: true,
     anchor: draft.anchor || null,
     whenWhere: draft.whenWhere || null,
     why: draft.why || null,
@@ -61,20 +234,41 @@ export default function EditHabit() {
     startedOn: '',
     archivedAt: null,
   };
+  const keptSoFar = (existing && deck?.cards.find((c) => c.habit.id === existing.id)?.allTime.kept) || 0;
+  const savedPlan = existing ? plans[existing.id] : undefined;
+  // The dark side leads with the saved plan, except while the First move is written under a plan that
+  // keeps the Floor: that plan never says the first move, so the box shows the first move being typed.
+  const planShown = savedPlan && !(writing === 'twoMinuteLabel' && savedPlan.then !== 'first') ? planLine(savedPlan, preview) : null;
+  const short = screenH < 760;
+  /** Focus and blur for the fields that write the other side, so the preview turns over for them. */
+  const writes = (field: EditField) => ({
+    onFocus: () => setWriting(field),
+    onBlur: () => setWriting((w) => (w === field ? null : w)),
+  });
 
   async function save() {
     if (problem) {
-      Alert.alert('Almost there', problem);
+      ask('Almost there', problem);
+      return;
+    }
+    if (existing && !dirty) {
+      // Nothing changed, so nothing is written.
+      leaving.current = true;
+      router.back();
       return;
     }
     setBusy(true);
     try {
-      if (existing) await updateHabit(existing.id, draft);
-      else await createHabit(draft);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (existing) await updateHabit(existing.id, final);
+      else {
+        const made = await createHabit(final);
+        noteAdded({ id: made.id, name: made.name, back: false });
+      }
+      feel.ceiling();
+      leaving.current = true;
       router.back();
     } catch (e) {
-      Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Try again.');
+      ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
     } finally {
       setBusy(false);
     }
@@ -82,81 +276,304 @@ export default function EditHabit() {
 
   function archive() {
     if (!existing) return;
-    Alert.alert(`Archive ${existing.name}?`, 'It leaves your deck. Every day you kept still counts toward your pile and your collection.', [
+    ask(`Archive ${existing.name}?`, 'It leaves your deck. Every day you kept still counts: its cards stay in old hands and its kept days stay in the Court.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Archive',
         style: 'destructive',
-        onPress: () =>
+        onPress: () => {
+          leaving.current = true;
           archiveHabit(existing.id)
             .then(() => router.dismissAll())
-            .catch((e: unknown) => Alert.alert('That didn’t save', e instanceof Error ? e.message : 'Try again.')),
+            .catch((e: unknown) => {
+              leaving.current = false;
+              ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
+            });
+        },
       },
     ]);
   }
 
+  /** A field's wrapper: remembers where it sits, and rings the field a Playbook tip opened. */
+  const spot = (field: EditField, children: ReactNode) => (
+    <View
+      key={field}
+      onLayout={(e) => {
+        tops.current[field] = e.nativeEvent.layout.y;
+      }}
+      style={[{ gap: 2 }, target === field ? { borderRadius: radius.md + 4, borderWidth: 2.5, borderColor: t.text, padding: 2, margin: -4.5 } : null]}
+    >
+      {children}
+      {TIPS[field] ? <Tip tip={TIPS[field]} /> : null}
+    </View>
+  );
+
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.xl, paddingTop: space.lg, paddingBottom: insets.bottom + space.xxxl, gap: space.lg }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
-            <Body weight="bold" color={t.textSecondary}>Cancel</Body>
+    <View style={{ flex: 1, backgroundColor: t.bg }}>
+      {/* The header and the card stay pinned while the form scrolls under them. One Save, up here. */}
+      <View
+        style={{
+          paddingHorizontal: space.xl,
+          paddingTop: space.lg,
+          paddingBottom: space.md,
+          gap: space.md,
+          backgroundColor: t.bg,
+          zIndex: 1,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: scrolled ? t.border : 'transparent',
+          boxShadow: scrolled ? `0 12px 18px -14px ${withAlpha('#17121F', t.scheme === 'light' ? 0.45 : 0.9)}` : undefined,
+        }}
+      >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: TAP }}>
+          <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Cancel" style={{ minHeight: TAP, justifyContent: 'center' }}>
+            <Body weight="bold" color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+              Cancel
+            </Body>
           </Pressable>
-          <Display size={22}>{existing ? 'Edit card' : 'New card'}</Display>
-          <Pressable onPress={save} hitSlop={12} disabled={busy}>
-            <Body weight="heavy" color={problem ? t.textFaint : t.text}>Save</Body>
+          <Display size={typeScale.display.sm} header>
+            {existing ? 'Edit card' : 'New card'}
+          </Display>
+          <Pressable
+            onPress={save}
+            hitSlop={12}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={existing ? 'Save card' : 'Add to deck'}
+            accessibilityState={{ disabled: busy }}
+            style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: ready ? t.text : 'transparent', borderWidth: 1.5, borderColor: ready ? t.text : t.border, justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
+          >
+            <Body weight="heavy" color={ready ? t.bg : t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+              Save
+            </Body>
           </Pressable>
         </View>
-
-        <View style={{ height: 380, transform: [{ rotate: '-1.5deg' }] }}>
-          <HabitCard habit={preview} />
+        <View style={{ marginHorizontal: space.xs }}>
+          <PinnedPreview
+            habit={preview}
+            kept={keptSoFar}
+            plan={planShown}
+            dark={!!writing && DARK_SIDE.includes(writing)}
+            why={writing === 'why'}
+            height={short ? 204 : 224}
+            short={short}
+          />
         </View>
+      </View>
+      <ScrollView
+        ref={scroll}
+        keyboardShouldPersistTaps="handled"
+        // On the web every scroll counts as a drag, so a field opened by a tip would lose its focus as it scrolls into view.
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : Platform.OS === 'web' ? 'none' : 'on-drag'}
+        automaticallyAdjustKeyboardInsets
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          const now = e.nativeEvent.contentOffset.y > 4;
+          if (now !== scrolled) setScrolled(now);
+        }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: space.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.xxxl, gap: space.lg }}
+      >
+        <Label>The card</Label>
+        {spot('name', <Field label="Name" value={draft.name} onChangeText={(v) => set({ name: v })} placeholder={example.name} autoFocus={!existing && !recipe && !target} inputRef={name} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => ceiling.current?.focus()} />)}
 
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }} accessibilityRole="radiogroup" accessibilityLabel="Card colour">
-          {CARD_COLORS.map((color) => (
-            <Pressable
-              key={color}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: draft.color === color }}
-              accessibilityLabel={color}
-              onPress={() => {
-                Haptics.selectionAsync();
-                set({ color });
-              }}
-              style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: cardColors[color].bg, borderWidth: draft.color === color ? 3 : 0, borderColor: t.text }}
-            />
-          ))}
-        </View>
+        {suitLocked ? (
+          // A suit set at the first deal is one quiet row: there is nothing here to choose.
+          <View
+            accessible
+            accessibilityLabel={`Suit: ${SUIT_INFO[suit].name}, ${SUIT_INFO[suit].part}, set at the first deal`}
+            accessibilityHint="A suit is set once its days are dealt, so your past hands never change. To build another part of you, archive this card and start a new one."
+            style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: TAP, borderRadius: radius.md, backgroundColor: t.bgRaised, paddingHorizontal: space.lg }}
+          >
+            <SuitGlyph suit={suit} size={18} color={suitColors[suit].glyph} />
+            <Body weight="heavy" size={typeScale.text.sm} color={t.text} style={{ flex: 1 }}>
+              {`Suit: ${SUIT_INFO[suit].name} (set at the first deal)`}
+            </Body>
+          </View>
+        ) : (
+          <View style={{ gap: space.sm }}>
+            <Label>{suitLabel}</Label>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }} accessibilityRole="radiogroup" accessibilityLabel="Suit">
+              {SUITS.map((s) => {
+                const on = suitShown && suit === s;
+                const info = SUIT_INFO[s];
+                return (
+                  <Pressable
+                    key={s}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`${info.name}, ${info.part}. ${info.about}`}
+                    onPress={() => {
+                      feel.tick();
+                      setSuitPicked(true);
+                      set({ suit: s });
+                    }}
+                    style={({ pressed }) => ({
+                      width: '48.5%',
+                      borderRadius: radius.md,
+                      padding: space.md,
+                      gap: 4,
+                      backgroundColor: on ? suitColors[s].glyph : t.bgRaised,
+                      opacity: pressed ? 0.8 : 1,
+                      transform: [{ rotate: on ? (SUITS.indexOf(s) % 2 ? '1deg' : '-1deg') : '0deg' }],
+                    })}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                      <SuitGlyph suit={s} size={20} color={on ? WHITE : undefined} />
+                      <Body weight="heavy" color={on ? WHITE : t.text}>
+                        {info.part}
+                      </Body>
+                    </View>
+                    <Body size={12} color={on ? WHITE : t.textSecondary}>
+                      {info.about.slice(0, info.about.indexOf('.') + 1)}
+                    </Body>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {guessed ? (
+              <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
+                This card was made before suits, so its suit is a guess. When you save, its past days are dealt in the suit you pick, and the suit is set for good.
+              </Body>
+            ) : null}
+          </View>
+        )}
 
-        <Field label="Name" value={draft.name} onChangeText={(name) => set({ name })} placeholder="Read" autoFocus={!existing && !recipe} />
-        <Field label="Ceiling · a great day" value={draft.ceilingLabel} onChangeText={(ceilingLabel) => set({ ceilingLabel })} placeholder="20 pages" />
-        <View style={{ gap: space.sm }}>
-          <Field label="Floor · still counts" value={draft.floorLabel} onChangeText={(floorLabel) => set({ floorLabel })} placeholder="1 page" hint="Small enough to do on your worst day. Hitting it keeps the day." />
-          <Tip principle="two-minute" />
-        </View>
+        {spot('ceilingLabel', <Field label="Ceiling · a great day" value={draft.ceilingLabel} onChangeText={(v) => set({ ceilingLabel: v })} placeholder={example.ceiling} inputRef={ceiling} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => floor.current?.focus()} />)}
+        {spot(
+          'floorLabel',
+          <Field label="Floor · still counts" value={draft.floorLabel} onChangeText={(v) => set({ floorLabel: v })} placeholder={example.floor} hint="Small enough to do on your worst day. Keeping it keeps the day and deals its card." inputRef={floor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => identity.current?.focus()} />,
+        )}
 
         <Label style={{ marginTop: space.md }}>Make it stick</Label>
-        <View style={{ gap: space.sm }}>
-          <Field label="Who this makes you" value={draft.identity} onChangeText={(identity) => set({ identity })} placeholder="a reader" hint="Every kept day is a vote for this person." />
-          <Tip principle="identity" />
-        </View>
-        <View style={{ gap: space.sm }}>
-          <Field label="After I…" value={draft.anchor} onChangeText={(anchor) => set({ anchor })} placeholder="After I get into bed" />
-          <Tip principle="habit-stacking" />
-        </View>
-        <View style={{ gap: space.sm }}>
-          <Field label="When and where" value={draft.whenWhere} onChangeText={(whenWhere) => set({ whenWhere })} placeholder="10 pm, in bed" />
-          <Tip principle="when-where" />
-        </View>
-        <View style={{ gap: space.sm }}>
-          <Field label="Two-minute version" value={draft.twoMinuteLabel} onChangeText={(twoMinuteLabel) => set({ twoMinuteLabel })} placeholder="Open the book to your bookmark" hint="Offered the morning after a miss." />
-          <Tip principle="never-miss-twice" />
-        </View>
-        <Field label="Why it matters to you" value={draft.why} onChangeText={(why) => set({ why })} placeholder="I want to finish a book a month again." multiline />
+        {spot(
+          'identity',
+          <Field label="I’m…" value={draft.identity} onChangeText={(v) => set({ identity: v })} placeholder={example.identity} hint="Every time you keep this card, it counts for this person in your Court." autoCapitalize="none" inputRef={identity} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => anchor.current?.focus()} />,
+        )}
+        {spot(
+          'anchor',
+          <View style={{ gap: space.sm }}>
+            <Field label="When it plays" value={draft.anchor} onChangeText={(v) => set({ anchor: v })} placeholder={example.anchor} hint="A moment that already happens every day. Add a time, like 7 am, if it has one." autoCapitalize="none" inputRef={anchor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => firstMove.current?.focus()} />
+            {/* The moments run edge to edge, except inside the ring a Playbook tip draws, where they scroll within it. */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              style={{ marginHorizontal: target === 'anchor' ? 0 : -space.xl, marginVertical: -4 }}
+              contentContainerStyle={{ paddingHorizontal: target === 'anchor' ? space.xs : space.xl, paddingVertical: 4, gap: space.sm }}
+            >
+              {MOMENTS.map((m) => {
+                const on = draft.anchor.trim().toLowerCase() === m;
+                return (
+                  <Pressable
+                    key={m}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Plays ${m}`}
+                    accessibilityState={{ selected: on }}
+                    hitSlop={{ top: 4, bottom: 4 }}
+                    onPress={() => {
+                      feel.tick();
+                      set({ anchor: m });
+                    }}
+                    style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? t.text : t.border, backgroundColor: on ? t.text : 'transparent', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
+                  >
+                    <Body weight="heavy" size={typeScale.text.sm} color={on ? t.bg : t.text} maxFontSizeMultiplier={fontScale.chrome}>
+                      {m}
+                    </Body>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            {draft.whenWhere.trim() ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.xs }}>
+                <Body size={typeScale.text.sm} color={t.textSecondary} style={{ flex: 1 }}>
+                  <Body size={typeScale.text.sm} weight="heavy" color={t.text}>
+                    {'Also noted: '}
+                  </Body>
+                  {draft.whenWhere.trim()}
+                </Body>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Remove the note ${draft.whenWhere.trim()}`} onPress={() => set({ whenWhere: '' })} hitSlop={8} style={{ minHeight: TAP, justifyContent: 'center' }}>
+                  <Body weight="heavy" size={typeScale.text.sm} color={t.textSecondary} style={{ textDecorationLine: 'underline' }}>
+                    Remove
+                  </Body>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>,
+        )}
+        {spot(
+          'twoMinuteLabel',
+          <Field
+            label="First move"
+            value={draft.twoMinuteLabel}
+            onChangeText={(v) => set({ twoMinuteLabel: v })}
+            placeholder={example.twoMinute}
+            hint="Offered the day after a miss. That day, doing just this keeps it."
+            inputRef={firstMove}
+            {...writes('twoMinuteLabel')}
+            returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => why.current?.focus()}
+          />,
+        )}
+        {spot(
+          'why',
+          <Field
+            label="Why it matters to you"
+            value={draft.why}
+            onChangeText={(v) => set({ why: v })}
+            placeholder={example.prompt}
+            hint="In your own words. The card shows it back on the hard days."
+            multiline
+            inputRef={why}
+            {...writes('why')}
+          />,
+        )}
 
-        <Button label={existing ? 'Save card' : 'Add to deck'} busy={busy} onPress={save} style={{ marginTop: space.md }} />
-        {existing ? <Button label="Archive card" variant="quiet" onPress={archive} /> : null}
+        <View style={{ gap: space.sm }}>
+          <Label>Card colour</Label>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }} accessibilityRole="radiogroup" accessibilityLabel="Card colour">
+            {CARD_COLORS.map((c) => {
+              const on = color === c;
+              return (
+                <Pressable
+                  key={c}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={c}
+                  onPress={() => {
+                    feel.tick();
+                    setColorPicked(true);
+                    set({ color: c });
+                  }}
+                  style={{ width: TAP + 4, height: TAP + 4, borderRadius: (TAP + 4) / 2, borderWidth: on ? 3 : 0, borderColor: t.text, padding: 3 }}
+                >
+                  <View style={{ flex: 1, borderRadius: TAP / 2, backgroundColor: cardColors[c].bg, alignItems: 'center', justifyContent: 'center' }}>
+                    {on ? (
+                      <Body weight="heavy" color={cardColors[c].ink} maxFontSizeMultiplier={fontScale.graphic}>
+                        ✓
+                      </Body>
+                    ) : null}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {existing ? (
+          <View
+            onLayout={(e) => {
+              tops.current.archive = e.nativeEvent.layout.y;
+            }}
+            style={target === 'archive' ? { borderRadius: radius.lg, borderWidth: 2.5, borderColor: t.text, padding: space.md, gap: space.sm } : null}
+          >
+            {target === 'archive' ? (
+              <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>
+                {`Archived, ${existing.name} leaves Today. Its kept days still count in your Court, and it can come back from You any time.`}
+              </Body>
+            ) : null}
+            <Button label="Archive card" variant={target === 'archive' ? 'ghost' : 'quiet'} onPress={archive} />
+          </View>
+        ) : null}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
