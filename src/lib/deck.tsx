@@ -11,6 +11,7 @@ import type { HeldGrip } from '@/engine/wear';
 import { CueScheduler } from './cues';
 import { useData } from './data';
 import { courtHabits, dealHabits, playGameFor } from './play';
+import { usePlans } from './plans';
 import { usePrefs, type Look } from './prefs';
 import type { Habit, Profile, RecoveryPrompt } from './types';
 
@@ -71,8 +72,9 @@ function useComputedDeck(back: readonly string[]): Deck | null {
   const { state, today, seed } = useData();
   const { prefs } = usePrefs();
   const perHabit = prefs.reminders.perHabit;
-  // Your plan for each card, saved on this phone. The coach asks for one only where there is none.
-  const plans = prefs.plans[seed];
+  // Your plan for each card, saved on this phone (and the demo's sample plan, wherever usePlans adds it).
+  // The coach asks for one only where there is none, so it reads the same plans the card's page shows.
+  const plans = usePlans();
   return useMemo(() => {
     if (state.status !== 'ready') return null;
     const byHabit = indexCheckIns(state.days);
