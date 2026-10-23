@@ -463,15 +463,23 @@ export function ComebackCard({
     </Press>
   );
 
-  /** The Ceiling, as a round arrow beside the Floor: still a full way in, never the loudest. */
+  /**
+   * The Ceiling, beside the Floor: still a full way in, never the loudest. It says its name where there is
+   * room, and folds to its round arrow on a folded card.
+   */
   const ceilingButton = (
     <Press
       onPress={onCeiling}
       label={`Reach the Ceiling: ${habit.ceilingLabel}`}
       testID="comeback-ceiling"
-      style={{ alignItems: 'center', justifyContent: 'center', minHeight: 48, minWidth: 48, borderRadius: radius.pill, borderWidth: 1.5, borderColor: line, padding: 5 }}
+      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 48, minWidth: 48, borderRadius: radius.pill, borderWidth: 1.5, borderColor: line, padding: 5, paddingRight: compact ? 5 : space.md }}
     >
       <Arrow arrow="↑" fg={INK} bg={withAlpha(accent, 0.85)} size={36} />
+      {compact ? null : (
+        <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+          Ceiling
+        </Label>
+      )}
     </Press>
   );
 
