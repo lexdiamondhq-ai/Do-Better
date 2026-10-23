@@ -16,7 +16,7 @@ import { WeekStrip } from '@/components/WeekStrip';
 import { rankLabel, rankName, SUITS, type Rank } from '@/engine/cards';
 import { weekday, type Day } from '@/engine/day';
 import { bestWeek, lastShowdown, weekReview, weekTotal, type BackKey, type Game, type HallEntry, type Week } from '@/engine/game';
-import { callGap, callLine, outCards, outName, outs, outsLine, outsWorthSaying, riverOutsLine, type OutGroup } from '@/engine/outs';
+import { callGap, callLine, outCards, outName, outs, outsLine, outsWorthSaying, phrase, riverOutsLine, type OutGroup } from '@/engine/outs';
 import { handIndex, HANDS, makesCall, type HandKind } from '@/engine/poker';
 import { captionsFor, stampsFor, type CaptionFacts } from '@/engine/showdown';
 import { useData } from '@/lib/data';
@@ -639,7 +639,7 @@ function GhostGroup({ group, from, count, w, h, lift, reduced, secretKnown }: { 
     <View style={{ alignItems: 'center', gap: 5 }}>
       <View style={{ flexDirection: 'row', gap: GHOST_GAP }}>
         {group.ranks.map((rank, i) => (
-          <Ghost key={rank} rank={rank} index={from + i} count={count} w={w} h={h} lift={lift} reduced={reduced} said={`Any ${rankName(rank)} makes ${name === 'Secret hand' ? 'the secret hand' : name}`} />
+          <Ghost key={rank} rank={rank} index={from + i} count={count} w={w} h={h} lift={lift} reduced={reduced} said={`Any ${rankName(rank)} makes ${phrase(group.makes, { secretKnown })}`} />
         ))}
       </View>
       <Animated.View style={[{ alignSelf: 'stretch', alignItems: 'center', gap: 3 }, label]}>
