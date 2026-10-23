@@ -9,9 +9,14 @@ import { cardColors, fontScale, hasEdge, radius, space, TAP } from '@/theme/toke
 /**
  * One choice. `cancel` is the way out, drawn quietest. `isPreferred` marks the one main next step: it is
  * the solid pill in the browser sheet and the bold button in an iOS alert. An iOS action sheet can't mark
- * a choice, so a menu with a preferred choice opens as an alert there instead.
+ * a choice, so a menu with a preferred choice opens as an alert there instead. `quiet` draws a destructive
+ * choice as red words on an outline instead of a solid red pill, for one that is there but not the point
+ * (Undo on a kept card's sheet). iOS draws destructive choices in red words already.
  */
-export type AskButton = { text: string; style?: 'cancel' | 'destructive'; isPreferred?: boolean; onPress?: () => void };
+export type AskButton = { text: string; style?: 'cancel' | 'destructive'; isPreferred?: boolean; quiet?: boolean; onPress?: () => void };
+
+/** Red words that keep 4.5:1 on the sheet in either scheme. */
+const QUIET_RED = { light: '#B5301A', dark: '#FF8A6E' } as const;
 
 type Question = { title: string; message?: string; buttons: AskButton[] };
 
@@ -117,6 +122,8 @@ export function AskHost() {
               const destructive = b.style === 'destructive';
               const isCancel = b.style === 'cancel';
               const preferred = !!b.isPreferred && !destructive && !isCancel;
+              const quietRed = destructive && !!b.quiet;
+              const red = QUIET_RED[t.scheme];
               return (
                 <Pressable
                   key={b.text}
@@ -132,13 +139,13 @@ export function AskHost() {
                     justifyContent: 'center',
                     // A destructive choice is a solid tomato pill: red text on a pale surface can't keep 4.5:1 on every table.
                     // The preferred choice is the solid ink pill, like a primary button, so the main next step stands out.
-                    backgroundColor: isCancel ? 'transparent' : destructive ? cardColors.tomato.bg : preferred ? t.text : t.surface,
-                    borderWidth: isCancel ? 1.5 : 0,
-                    borderColor: t.border,
+                    backgroundColor: isCancel || quietRed ? 'transparent' : destructive ? cardColors.tomato.bg : preferred ? t.text : t.surface,
+                    borderWidth: isCancel || quietRed ? 1.5 : 0,
+                    borderColor: quietRed ? red : t.border,
                     opacity: pressed ? 0.75 : 1,
                   })}
                 >
-                  <Body weight="heavy" color={destructive ? cardColors.tomato.ink : preferred ? t.bg : t.text} maxFontSizeMultiplier={fontScale.chrome} style={{ textAlign: 'center' }}>
+                  <Body weight="heavy" color={quietRed ? red : destructive ? cardColors.tomato.ink : preferred ? t.bg : t.text} maxFontSizeMultiplier={fontScale.chrome} style={{ textAlign: 'center' }}>
                     {b.text}
                   </Body>
                 </Pressable>

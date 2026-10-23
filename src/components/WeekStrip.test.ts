@@ -9,15 +9,18 @@ vi.mock('react-native', () => ({ Pressable: () => null, Text: () => null, View: 
 vi.mock('react-native-svg', () => ({ default: () => null, Circle: () => null, Defs: () => null, G: () => null, LinearGradient: () => null, Path: () => null, RadialGradient: () => null, Rect: () => null, Stop: () => null }));
 vi.mock('react-native-reanimated', () => ({
   default: { Text: () => null, View: () => null },
+  Easing: { out: () => () => 0, cubic: () => 0 },
   ReduceMotion: { System: 'system' },
   useAnimatedStyle: () => ({}),
   useSharedValue: () => ({ set: () => {}, get: () => 0 }),
+  withDelay: () => 0,
   withRepeat: () => 0,
   withSequence: () => 0,
+  withSpring: () => 0,
   withTiming: () => 0,
 }));
 
-const { describeWeek } = await import('./WeekStrip');
+const { describeWeek, savedLine } = await import('./WeekStrip');
 
 const card = (day: string, rank: number, suits: string[], extra: Record<string, unknown> = {}) =>
   ({ kind: 'card', day, rank, suits, ceilingSuits: [], tier: 'showed-up', lo: 2, rescued: false, ...extra }) as unknown as DayCard;
@@ -48,5 +51,27 @@ describe('the week strip read aloud', () => {
     expect(text).toContain('Monday, Seven, saved, in your hand');
     expect(text).toContain('Tuesday, Two of Clubs.');
     expect(text).not.toContain('Two of Clubs, in your hand');
+  });
+
+  it('names yesterday’s saved card when the strip shows it face up, and never a suit', () => {
+    const jack = card('2026-10-15', 11, [], { rescued: true });
+    const w = week(
+      [slot('2026-10-12', card('2026-10-12', 8, ['spades'])), slot('2026-10-13', null, { state: 'blank' }), slot('2026-10-14', null, { state: 'blank' }), slot('2026-10-15', null, { state: 'blank' }), slot('2026-10-16', null, { state: 'open', isToday: true }), slot('2026-10-17', null, { state: 'future' }), slot('2026-10-18', null, { state: 'future' })],
+      [played('2026-10-12', 8, 'spades')],
+    );
+    const text = describeWeek(w, '2026-10-15', jack);
+    expect(text).toContain('Yesterday, a Jack, waits to be saved.');
+    expect(text).not.toContain('Thursday');
+    // Without the saved card face up, the place is still described as one that can be saved.
+    expect(describeWeek(w, '2026-10-15')).toContain('Thursday, no card yet, and it can still be saved today');
+    expect(savedLine(jack)).toBe('Yesterday, a Jack, waits to be saved. Keep any habit today and it’s yours.');
+    expect(savedLine(card('2026-10-15', 8, [], { rescued: true }))).toMatch(/^Yesterday, an Eight,/);
+  });
+
+  it('counts the days to come as cards still to be dealt', () => {
+    const w = week([slot('2026-10-12', null, { state: 'open', isToday: true }), ...['2026-10-13', '2026-10-14'].map((d) => slot(d, null, { state: 'future' }))], []);
+    expect(describeWeek(w, null)).toContain('2 cards to come');
+    const one = week([slot('2026-10-17', null, { state: 'open', isToday: true }), slot('2026-10-18', null, { state: 'future' })], []);
+    expect(describeWeek(one, null)).toContain('1 card to come');
   });
 });

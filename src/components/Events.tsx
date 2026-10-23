@@ -1,20 +1,25 @@
-import { usePathname } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { AccessibilityInfo, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { SUIT_INFO } from '@/engine/cards';
+import { SUIT_INFO, type Suit } from '@/engine/cards';
+import { comebackKeptToday } from '@/engine/comeback';
 import { weekday } from '@/engine/day';
 import type { BackKey } from '@/engine/game';
 import { improves } from '@/engine/game';
-import { eventStale, grouped, JOKER_LINE, momentOf, receiptCopy, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
+import type { Level } from '@/engine/kept';
+import { HANDS, type Hand } from '@/engine/poker';
+import { eventStale, grouped, JOKER_LINE, jokerResult, keepWore, momentDelay, momentOf, receiptCopy, receiptOffersPlan, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
 import { useData, useEvents, type GameEvent } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
+import { usePlans } from '@/lib/plans';
+import { hasSeen, usePrefs } from '@/lib/prefs';
 import { useReviewAsk } from '@/lib/review';
 import { identityPhrase } from '@/lib/share';
 import { playSound, type SoundName } from '@/lib/sound';
@@ -42,11 +47,8 @@ const MOON_SOFT = 'rgba(255, 253, 248, 0.78)';
 const NIGHT_SOLID = '#0A080E';
 /** Below this window height a big moment shows its card one size smaller, so its buttons stay on screen. */
 const SHORT_SCREEN = 760;
-/**
- * A big moment waits this long after the check-in that caused it, so the card can finish leaving the
- * table, its stamp ("First move done") can be read and the burst can play before the night comes down.
- */
-const MOMENT_DELAY_MS = 520;
+/** The seen key for the Joker's rule: it is explained once, on the first Joker the player meets (on this phone). */
+const JOKER_RULE = 'joker-rule';
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 /** The tab screens. Anything else (a habit's page) has its own header across the top, which a receipt must not cover. */
 const TAB_PATHS = new Set(['/', '/hands', '/you', '/playbook']);
@@ -56,6 +58,63 @@ const shortName = (face: CardFace) => faceLabel(face.kind === 'card' ? { ...face
 
 /** "And 150 days of Mind in the Court." for a rung reached by the same check-in as a bigger moment. */
 const rungLine = (rung: Rung) => `And ${grouped(rung.days)} days of ${SUIT_INFO[rung.suit].part} in the Court.`;
+
+// What Today tells the moments ---------------------------------------------------------------------------
+
+/**
+ * The latest keep made on Today: which card, at what level, the level it had before (`was`), and whether
+ * it was kept from its Comeback side. A moment from that keep waits for the Comeback's turnover, and only a
+ * keep made on the Comeback card itself offers a plan.
+ */
+/**
+ * A keep made on Today: the habit and its suit, the level, what today was before, whether it was on the
+ * Comeback card, and the week's hand just before it (a face card's Joker says how far it lifted the hand).
+ */
+export type KeepNote = { habitId: string; suit: Suit; level: Level; was: Level | null; comeback: boolean; handWas: Hand | null };
+
+/** A tiny store, so Today can tell the moments drawn over every screen about itself without a prop. */
+function store<T>(initial: T) {
+  let value = initial;
+  const listeners = new Set<() => void>();
+  return {
+    set(next: T) {
+      if (Object.is(next, value)) return;
+      value = next;
+      listeners.forEach((l) => l());
+    },
+    get: () => value,
+    subscribe(l: () => void) {
+      listeners.add(l);
+      return () => {
+        listeners.delete(l);
+      };
+    },
+  };
+}
+
+const lastKeep = store<KeepNote | null>(null);
+const receiptAnchor = store<number | null>(null);
+
+/** Today calls this from every keep. */
+export function noteKeep(keep: KeepNote) {
+  lastKeep.set(keep);
+}
+
+/**
+ * Today calls this with the window y of the bottom of its week strip: on Today a receipt drops in below the
+ * strip, never over it, so the card landing in today's place stays in view. Null puts receipts back at the top.
+ */
+export function anchorReceipts(y: number | null) {
+  receiptAnchor.set(y === null ? null : Math.round(y));
+}
+
+const useLastKeep = () => useSyncExternalStore(lastKeep.subscribe, lastKeep.get, lastKeep.get);
+const useReceiptAnchor = () => useSyncExternalStore(receiptAnchor.subscribe, receiptAnchor.get, receiptAnchor.get);
+
+/** The habit a moment's check-in was on, if it says. */
+const habitOf = (e: GameEvent): string | null => ('habitId' in e ? e.habitId : null);
+/** Whether a moment came from this keep: its check-in was on the keep's habit, or it is a face card in the keep's suit. */
+const fromKeep = (e: GameEvent, keep: KeepNote): boolean => habitOf(e) === keep.habitId || (e.kind === 'face' && e.suit === keep.suit);
 
 /**
  * What the last check-in did, one moment at a time and never a stack: a face card earned in the Court,
@@ -67,6 +126,8 @@ export function GameEvents({ back }: { back: BackKey }) {
   const { events, dismissEvent, markShown } = useEvents();
   const { undoCheckIn } = useData();
   const deck = useDeck();
+  const keep = useLastKeep();
+  const reduced = useReducedMotion();
   // A receipt whose check-in was undone or changed since (from the Undo chip, a pill or a habit's page)
   // goes at once, so nothing celebrates a card that is no longer there.
   const stale = deck
@@ -93,7 +154,11 @@ export function GameEvents({ back }: { back: BackKey }) {
   }, [gone, dismissEvent]);
 
   if (!moment) return null;
-  const done = () => moment.ids.forEach(dismissEvent);
+  const done = () => {
+    moment.ids.forEach(dismissEvent);
+    // The keep has had its moment: a later one from another screen never borrows it.
+    lastKeep.set(null);
+  };
   const { main } = moment;
   const milestone = moment.also.find((e): e is Extract<GameEvent, { kind: 'milestone' }> => e.kind === 'milestone');
   const rung = moment.also.find((e): e is Rung => e.kind === 'rung');
@@ -108,26 +173,37 @@ export function GameEvents({ back }: { back: BackKey }) {
       }
     : null;
 
-  // A big moment rises once the card that caused it has left the table.
+  // A moment rises once the card that caused it has left the table and today's card has landed in the
+  // week: after a Comeback's turnover too, when the keep was on the Comeback card.
+  const ownKeep = keep && [main, ...moment.also].some((e) => fromKeep(e, keep)) ? keep : null;
+  const fromComeback = !!ownKeep?.comeback;
+  const wait = momentDelay({ comeback: fromComeback, reduced });
   if (main.kind === 'face')
     return (
-      <Later key={main.id} ms={MOMENT_DELAY_MS}>
-        <FaceEarned event={main} also={alsoLine} onUndoLate={undoLate} onDone={done} />
+      <Later key={main.id} ms={wait}>
+        {/* A face card that brings a Joker never has a deal of its own (play.ts leaves it out): any deal folded into
+            this moment is an earlier keep's, so the hand from before comes from the keep that earned the face. */}
+        <FaceEarned event={main} handWas={ownKeep ? ownKeep.handWas : undefined} also={alsoLine} onUndoLate={undoLate} onDone={done} />
       </Later>
     );
   if (main.kind === 'first')
     return (
-      <Later key={main.id} ms={MOMENT_DELAY_MS}>
+      <Later key={main.id} ms={wait}>
         <FirstCard event={main} back={back} also={alsoLine} onDone={done} />
       </Later>
     );
   if (main.kind === 'milestone')
     return (
-      <Later key={main.id} ms={MOMENT_DELAY_MS}>
+      <Later key={main.id} ms={wait}>
         <Milestone count={main.count} also={rung ? rungLine(rung) : null} onUndoLate={undoLate} onDone={done} />
       </Later>
     );
-  return <ReceiptBanner key={main.id} moment={moment} back={back} onDone={done} />;
+  // A late log isn't a keep on the table: its receipt comes at once.
+  return (
+    <Later key={main.id} ms={main.kind === 'deal' ? wait : 0}>
+      <ReceiptBanner moment={moment} back={back} keep={ownKeep} onDone={done} />
+    </Later>
+  );
 }
 
 /** Shows its children only after `ms`. Remount it with a new key to wait again. */
@@ -166,16 +242,25 @@ function Flip({ from, to, back, size = 'sm', delay = 220 }: { from: CardFace | n
  * was saved. Drops in at the top, leaves on its own after a few seconds (longer with a screen reader),
  * and can be flicked away upward or closed. A late log carries its own Undo.
  */
-function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; back: BackKey; onDone: () => void }) {
+function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEvent>; back: BackKey; keep: KeepNote | null; onDone: () => void }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const deck = useDeck();
-  const { undoCheckIn } = useData();
+  const { undoCheckIn, seed } = useData();
+  const { prefs, markSeen } = usePrefs();
+  const plans = usePlans();
+  const path = usePathname();
   // On a habit's page the receipt drops in under the page's own back and Edit buttons, never over them.
-  const pushed = !TAB_PATHS.has(usePathname());
+  const pushed = !TAB_PATHS.has(path);
+  // On Today it drops in below the week strip, so the card just dealt into today's place stays in view.
+  const anchor = useReceiptAnchor();
+  const anchored = path === '/' && anchor !== null;
   const main = moment.main;
-  const y = useSharedValue(-240);
+  const y = useSharedValue(anchored ? -36 : -240);
   const finish = useEffectEvent(onDone);
+  // The Joker's rule is explained on the first Joker only; read once, so marking it seen can't take the line away mid-read.
+  const [explainJoker] = useState(() => !hasSeen(prefs, seed, JOKER_RULE));
 
   let card: { from: CardFace | null; to: CardFace } | null = null;
   let glyph: ReactNode = null;
@@ -183,6 +268,9 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
   let sound: SoundName = 'flip';
   let joker = false;
   let undo: (() => void) | null = null;
+  let planFor: string | null = null;
+  // The mark before the last line: ↑ for what would lift today's card, ✓ when nothing more can, ✦ for wear.
+  let nextMark = '↑';
   const nameOf = (id: string) => deck?.cards.find((c) => c.habit.id === id)?.habit.name ?? null;
   const rungEvent = main.kind === 'rung' ? null : moment.also.find((e): e is Rung => e.kind === 'rung');
   const rung: RungNote | null = rungEvent ? { part: SUIT_INFO[rungEvent.suit].part, days: rungEvent.days } : null;
@@ -195,6 +283,20 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
     const wentUp = !!was && was.kind === 'card' && main.deal.card.kind === 'card' && main.deal.card.rank > was.rank;
     joker = main.deal.card.kind === 'joker';
     card = { from: was ? faceOfDay(was) : null, to: faceOfDay(main.deal.card) };
+    const habitId = main.habitId;
+    const view = deck?.cards.find((c) => c.habit.id === habitId);
+    // This keep was made on the card's Comeback side (Done it, the Floor or the Ceiling), not a raise later on.
+    const keptComeback = !!deck && comebackKeptToday(deck.prompts, habitId, deck.today);
+    const ownKeep = !!keep && keep.habitId === habitId && keep.level === main.level;
+    const onComeback = ownKeep && keep.comeback;
+    const held = main.level === 'floor' && keptComeback;
+    // A keep that took the card's own kept days exactly onto a wear stage: only a first keep today adds a kept day.
+    const wore = view ? keepWore(view.allTime.kept, ownKeep ? keep.was : null) : null;
+    // What would lift today's card next: the climb tip the game already gives, as the receipt's last line.
+    const tip = deck?.game.tips.find((x) => x.tone === 'climb' || x.tone === 'done') ?? null;
+    const next = tip?.text ?? null;
+    nextMark = wore ? '✦' : tip?.tone === 'done' ? '✓' : '↑';
+    if (deck && receiptOffersPlan({ level: main.level, keptComebackToday: keptComeback, onComebackCard: onComeback, plan: plans[habitId] ?? null, today: deck.today })) planFor = habitId;
     copy = receiptCopy({
       kind: 'deal',
       level: main.level,
@@ -207,6 +309,11 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
       handWas: run[0]?.deal.handWas ?? main.deal.handWas,
       saved: run.some((e) => !!e.saved),
       rung,
+      held,
+      next,
+      explainJoker: joker ? explainJoker : undefined,
+      plan: planFor,
+      wore: wore ?? undefined,
     });
     sound = joker ? 'joker' : main.deal.handDropped ? 'flip' : wentUp ? 'cardUp' : 'flip';
   } else if (main.kind === 'backfill') {
@@ -230,6 +337,7 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
       level: main.level,
       card: shortName(card.to),
       joker,
+      explainJoker,
       blank: !was,
       hand: main.deal.hand,
       handWas: main.deal.handWas,
@@ -258,24 +366,36 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
     // The name wraps as one unit, so a second line holds all of "Reach out" rather than splitting it.
     if (name) copy = { ...copy, eyebrow: `${copy.eyebrow} · ${name.replace(/ /g, '\u00A0')}` };
   }
-  const spoken = [copy.eyebrow, copy.title, copy.lead, copy.line, ...copy.notes]
+  const spoken = [copy.eyebrow, copy.title, copy.lead, copy.line, ...copy.notes, copy.next]
     .filter(Boolean)
     .map((part) => String(part).replace(/\.$/, ''))
     .join('. ')
     .concat('.');
+  const explained = copy.notes.includes(JOKER_LINE);
+  // Below the strip a receipt only drops a little way, fading in, so it never passes over the strip.
+  const away = anchored ? -36 : -240;
+  const offersPlan = !!planFor;
+
+  useEffect(() => {
+    if (explained) markSeen(seed, JOKER_RULE);
+  }, [explained, markSeen, seed]);
 
   useEffect(() => {
     const end = () => finish();
     y.set(withSpring(0, { mass: 1, damping: 16, stiffness: 180, reduceMotion: ReduceMotion.System }));
-    playSound(sound, 200);
-    if (joker) feel.joker();
-    else feel.flip();
+    // On Today the keep has had its haptic and its sound, and the card dealt into the week its tick: the
+    // receipt adds no haptic (one per beat) and only a sound that carries news (a card up, a Joker).
+    if (!anchored || sound !== 'flip') playSound(sound, 200);
+    if (!anchored) {
+      if (joker) feel.joker();
+      else feel.flip();
+    }
     AccessibilityInfo.announceForAccessibility(spoken);
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const leave = () =>
       y.set(
-        withTiming(-240, { duration: 240, reduceMotion: ReduceMotion.Never }, (ok) => {
+        withTiming(away, { duration: 240, reduceMotion: ReduceMotion.Never }, (ok) => {
           'worklet';
           if (ok) scheduleOnRN(end);
         }),
@@ -283,15 +403,23 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
     AccessibilityInfo.isScreenReaderEnabled()
       .catch(() => false)
       .then((reader) => {
-        if (alive) timer = setTimeout(leave, reader && Platform.OS !== 'web' ? 8000 : 5000);
+        // A receipt with a next step to take stays a little longer, so there is time to take it.
+        if (alive) timer = setTimeout(leave, reader && Platform.OS !== 'web' ? 9000 : offersPlan ? 7500 : 5000);
       });
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [y, sound, joker, spoken]);
+  }, [y, sound, joker, spoken, away, offersPlan, anchored]);
 
   const close = () => onDone();
+  const plan = planFor
+    ? () => {
+        feel.tick();
+        router.push({ pathname: '/plan', params: { habit: planFor } });
+        onDone();
+      }
+    : null;
   const flick = Gesture.Pan()
     .activeOffsetY([-8, 8])
     .onUpdate((e) => {
@@ -300,17 +428,21 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
     .onEnd((e) => {
       if (e.translationY < -24 || e.velocityY < -600) {
         y.set(
-          withTiming(-240, { duration: 160, reduceMotion: ReduceMotion.Never }, (ok) => {
+          withTiming(away, { duration: 160, reduceMotion: ReduceMotion.Never }, (ok) => {
             'worklet';
             if (ok) scheduleOnRN(close);
           }),
         );
       } else y.set(withSpring(0, { mass: 1, damping: 16, stiffness: 200 }));
     });
-  const panel = useAnimatedStyle(() => ({ transform: [{ translateY: y.get() }] }));
+  const panel = useAnimatedStyle(() => ({
+    // Anchored, it fades as it rises, so it is gone before it could reach the strip.
+    opacity: anchored ? Math.max(0, Math.min(1, 1 + y.get() / 36)) : 1,
+    transform: [{ translateY: y.get() }, { scale: anchored ? 0.96 + 0.04 * Math.max(0, Math.min(1, 1 + y.get() / 36)) : 1 }],
+  }));
 
   return (
-    <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + space.sm + (pushed ? TAP + space.sm : 0), paddingHorizontal: space.md }}>
+    <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: anchored ? anchor + space.sm : insets.top + space.sm + (pushed ? TAP + space.sm : 0), paddingHorizontal: space.md }}>
       {joker ? (
         <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 440 }}>
           <Burst kind="joker" color="#FFFFFF" />
@@ -322,11 +454,12 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
           accessibilityRole="alert"
           accessibilityLabel={spoken}
           // The banner reads as one element, so its Undo is offered as an action too.
-          accessibilityActions={undo ? [{ name: 'undo', label: 'Undo the late log' }, { name: 'escape', label: 'Close' }] : [{ name: 'escape', label: 'Close' }]}
+          accessibilityActions={[...(undo ? [{ name: 'undo', label: 'Undo the late log' }] : []), ...(plan ? [{ name: 'plan', label: 'Plan for next time' }] : []), { name: 'escape', label: 'Close' }]}
           onAccessibilityEscape={close}
           onAccessibilityAction={(e) => {
             if (e.nativeEvent.actionName === 'escape') close();
             if (e.nativeEvent.actionName === 'undo' && undo) undo();
+            if (e.nativeEvent.actionName === 'plan' && plan) plan();
           }}
           style={[
             { flexDirection: 'row', alignItems: 'center', gap: space.md, borderRadius: 26, padding: space.md, paddingRight: space.sm, boxShadow: '0 14px 34px rgba(10, 8, 14, 0.38)' },
@@ -359,6 +492,41 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
                 {note}
               </Body>
             ))}
+            {copy.next ? (
+              // The next step closes the receipt: what would lift today's card, or how the card just wore in.
+              <View style={{ flexDirection: 'row', gap: 6, marginTop: 5, paddingTop: 6, borderTopWidth: 1, borderColor: withAlpha(t.onRaised, 0.16) }}>
+                <Body size={12} weight="heavy" color={chip.bg} maxFontSizeMultiplier={1} style={{ lineHeight: 16 }}>
+                  {nextMark}
+                </Body>
+                <Body size={12} weight="heavy" color={t.onRaised} numberOfLines={3} maxFontSizeMultiplier={fontScale.chrome} style={{ flex: 1, lineHeight: 16 }}>
+                  {copy.next}
+                </Body>
+              </View>
+            ) : null}
+            {plan ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Plan for next time"
+                accessibilityHint="Opens a short plan for this card’s next Comeback"
+                onPress={plan}
+                hitSlop={{ top: 6, bottom: 8 }}
+                style={({ pressed }) => ({
+                  alignSelf: 'flex-start',
+                  marginTop: 8,
+                  minHeight: 32,
+                  justifyContent: 'center',
+                  paddingHorizontal: 12,
+                  borderRadius: radius.pill,
+                  borderWidth: 1.5,
+                  borderColor: withAlpha(t.onRaised, 0.4),
+                  opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <Body size={13} weight="heavy" color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
+                  Plan for next time →
+                </Body>
+              </Pressable>
+            ) : null}
           </View>
           <View style={{ alignItems: 'center', gap: 2 }}>
             {undo ? (
@@ -499,11 +667,14 @@ function MomentButton({ label, ready, onPress }: { label: string; ready: boolean
 
 function FaceEarned({
   event,
+  handWas,
   also,
   onUndoLate,
   onDone,
 }: {
   event: Extract<GameEvent, { kind: 'face' }>;
+  /** The week's hand before the keep that earned this, when it is known (null: there was none yet). */
+  handWas: Hand | null | undefined;
   also: string | null;
   /** Takes back the day logged late that earned this face card, when one did. */
   onUndoLate: (() => void) | null;
@@ -514,10 +685,20 @@ function FaceEarned({
   const short = height < SHORT_SCREEN;
   const info = SUIT_INFO[event.suit];
   const askReview = useReviewAsk();
+  const deck = useDeck();
+  const { seed } = useData();
+  const { prefs, markSeen } = usePrefs();
+  // The Joker's rule is told once, the first time a Joker comes (read once, so marking it seen keeps it on screen).
+  const [explainJoker] = useState(() => !hasSeen(prefs, seed, JOKER_RULE));
   const scale = useSharedValue(0.3);
   const rotate = useSharedValue(-28);
   const joker = useSharedValue(0);
   const withJoker = event.joker;
+  const explained = withJoker && explainJoker;
+
+  useEffect(() => {
+    if (explained) markSeen(seed, JOKER_RULE);
+  }, [explained, markSeen, seed]);
 
   useEffect(() => {
     feel.joker();
@@ -537,9 +718,13 @@ function FaceEarned({
   // "29 kept days. You’re a good friend." in the player's own words, or the part of them it built when they gave none.
   const who = identityPhrase(event.identities, 'you');
   const days = who ? `${grouped(event.face.votes)} kept days. ${who}.` : `${grouped(event.face.votes)} kept days of ${info.part}.`;
-  // A Joker always lands on a day kept on the day itself, so it is today's card when it comes now. Otherwise, where it will.
+  // A Joker always lands on a day kept on the day itself, so it is today's card when it comes now: say what it
+  // did for the hand. Otherwise, where it will land.
+  const hand = deck?.game.current.hand ?? null;
+  const chips = hand ? HANDS[hand.kind].chips : 0;
+  const result = withJoker ? jokerResult(hand, { chips, chipsWas: handWas ? HANDS[handWas.kind].chips : chips, warmup: !!deck?.game.current.warmup }) : null;
   const jokerLine = withJoker
-    ? `Today’s card turned into a Joker. ${JOKER_LINE}`
+    ? (result ?? 'Today’s card turned into a Joker.')
     : event.jokerLands === 'today'
       ? 'Keep any habit today and it’s dealt as a Joker.'
       : event.jokerLands === 'next-week'
@@ -570,11 +755,16 @@ function FaceEarned({
             <Display size={short ? 30 : 34} color={MOON} header style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>{`${event.face.name} of ${info.name}`}</Display>
             <Display size={20} color={chip.bg} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>{`“${event.face.title}”`}</Display>
             <Body color={MOON_SOFT} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
-              {`${days} Once the day ends, face cards are never lost.`}
+              {days}
             </Body>
             {jokerLine ? (
-              <Body weight="bold" color={MOON} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
+              <Body weight="heavy" color={MOON} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
                 {jokerLine}
+              </Body>
+            ) : null}
+            {explained ? (
+              <Body size={13} weight="bold" color={MOON_SOFT} style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
+                {JOKER_LINE}
               </Body>
             ) : null}
             {also ? (
@@ -586,11 +776,16 @@ function FaceEarned({
           <SaveDeckCard moment="face" />
           <View style={{ alignSelf: 'stretch', gap: space.sm }}>
             <MomentButton label="Keep playing" ready={ready} onPress={close} />
-            {/* Share draws itself from the theme: on the night it needs the light text of a dark table. */}
-            <ThemeScope theme={themeOn(NIGHT_SOLID, t)}>
-              <ShareButton target={{ kind: 'face', suit: event.suit, face: event.face, identities: event.identities, days: event.face.votes }} />
-            </ThemeScope>
-            {onUndoLate ? <Button label="Undo the late log" variant="quiet" onPress={onUndoLate} disabled={!ready} colors={{ bg: 'transparent', fg: MOON_SOFT }} hint="Takes back yesterday’s check-in" /> : null}
+            {/* Share draws itself from the theme: on the night it needs the light text of a dark table. On a short
+                screen the late log's Undo shares its row as a quiet text button, so the moment stays on one screen. */}
+            <View style={short && onUndoLate ? { flexDirection: 'row', alignItems: 'center', gap: space.sm } : { gap: space.sm }}>
+              <ThemeScope theme={themeOn(NIGHT_SOLID, t)}>
+                <ShareButton target={{ kind: 'face', suit: event.suit, face: event.face, identities: event.identities, days: event.face.votes }} style={short && onUndoLate ? { flex: 1 } : undefined} />
+              </ThemeScope>
+              {onUndoLate ? (
+                <Button label="Undo the late log" variant="quiet" onPress={onUndoLate} disabled={!ready} colors={{ bg: 'transparent', fg: MOON_SOFT }} hint="Takes back yesterday’s check-in" style={short ? { paddingHorizontal: space.sm } : undefined} />
+              ) : null}
+            </View>
           </View>
         </>
       )}

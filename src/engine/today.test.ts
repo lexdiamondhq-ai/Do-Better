@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import { cardColors, on, tables, themes } from '@/theme/tokens';
 
+import { comebackExit } from './comeback';
 import {
   aCard,
   allKeptCopy,
   allowFor,
+  arcAt,
+  dealArc,
   buildQueue,
   cardKey,
   cardOnFelt,
@@ -19,12 +22,22 @@ import {
   ideaLabel,
   interruptionFor,
   JOKER_LINE,
+  jokerResult,
+  keepWore,
   keptLine,
   keyMove,
   laterTag,
+  momentDelay,
   momentOf,
   partOfDayAt,
+  pillMenu,
   receiptCopy,
+  receiptOffersPlan,
+  wearNote,
+  weekDealDue,
+  weekDealSlot,
+  weekDealtKey,
+  woreAt,
   timing,
   todayTips,
   whenLine,
@@ -290,6 +303,43 @@ describe('the chrome', () => {
     expect(handLineCopy({ warmup: true, hand, chips: 0, sunday: true })).toMatchObject({ label: 'Warm-up hand', pays: null });
   });
 
+  it('says “New week” on a Monday before any card, and still names Sunday’s stake', () => {
+    expect(handLineCopy({ warmup: false, hand: null, chips: 0, sunday: false, fresh: true })).toEqual({
+      label: 'New week',
+      title: 'Seven cards to play for',
+      pays: null,
+      spoken: 'New week. Seven days, seven cards to play for.',
+    });
+    expect(handLineCopy({ warmup: false, hand: { title: 'Pair of Eights' }, chips: 30, sunday: true, fresh: true }).label).toBe('Showdown tonight');
+    expect(handLineCopy({ warmup: false, hand: null, chips: 0, sunday: false, fresh: false }).label).toBe('Your hand');
+  });
+
+  describe('the week’s backs dealt in on Monday', () => {
+    const due = { seen: false, reduced: false, inFront: true, list: false, cards: 6 };
+
+    it('deals once per week, keyed by the week’s Monday', () => {
+      expect(weekDealDue(due)).toBe(true);
+      expect(weekDealDue({ ...due, seen: true })).toBe(false);
+      expect(weekDealtKey('2026-10-26')).toBe('week-dealt:2026-10-26');
+      expect(weekDealtKey('2026-10-26')).not.toBe(weekDealtKey('2026-11-02'));
+    });
+
+    it('never deals with Reduce Motion, in the list, while Today is out of sight, or with no backs to deal', () => {
+      expect(weekDealDue({ ...due, reduced: true })).toBe(false);
+      expect(weekDealDue({ ...due, list: true })).toBe(false);
+      expect(weekDealDue({ ...due, inFront: false })).toBe(false);
+      expect(weekDealDue({ ...due, cards: 0 })).toBe(false);
+    });
+
+    it('spaces the backs 70 ms apart and lands all six within 600 ms', () => {
+      expect(weekDealSlot(0, 6).startMs).toBe(0);
+      expect(weekDealSlot(1, 6).startMs).toBe(70);
+      expect(weekDealSlot(5, 6).endMs).toBeLessThanOrEqual(600);
+      // Seven would run long, so the whole deal is squeezed to fit.
+      expect(weekDealSlot(6, 7).endMs).toBeLessThanOrEqual(600);
+    });
+  });
+
   it('labels today’s idea once, with its reason only when it has a real one', () => {
     expect(ideaLabel('Today’s idea')).toBe('Today’s idea');
     expect(ideaLabel("Today's idea.")).toBe('Today’s idea');
@@ -299,10 +349,20 @@ describe('the chrome', () => {
 
   it('sums up a kept day with the hand in words', () => {
     const hand = { kind: 'pair' as const, title: 'Pair of Jacks' };
-    expect(allKeptCopy({ count: 4, hand, warmup: false, chips: 30 })).toEqual({ title: 'All 4 kept.', hand: 'Your hand: a Pair of Jacks, worth 30 chips if the week ended now.' });
+    expect(allKeptCopy({ count: 4, hand, warmup: false, chips: 30 })).toEqual({ eyebrow: 'Today', title: 'All 4 kept.', hand: 'Pair of Jacks · 30 chips' });
     expect(allKeptCopy({ count: 1, hand, warmup: true, chips: 0 }).title).toBe('Kept.');
-    expect(allKeptCopy({ count: 1, hand, warmup: true, chips: 0 }).hand).not.toMatch(/chips/);
+    expect(allKeptCopy({ count: 1, hand, warmup: true, chips: 0 }).hand).toBe('Pair of Jacks · warm-up week');
     expect(allKeptCopy({ count: 2, hand: null, warmup: false, chips: 0 }).hand).toBe('Today’s card is in your hand.');
+  });
+
+  it('never repeats the Joker’s rule when everything is kept, and always carries the hand', () => {
+    const queens = { kind: 'pair' as const, title: 'Pair of Queens' };
+    for (const warmup of [false, true]) {
+      const copy = allKeptCopy({ count: 4, hand: queens, warmup, chips: 30 });
+      expect(Object.values(copy).join(' ')).not.toContain(JOKER_LINE);
+      expect(copy.hand).toContain('Pair of Queens');
+      expect(copy.eyebrow).toBe('Today');
+    }
   });
 });
 
@@ -403,9 +463,12 @@ describe('receipts', () => {
     expect(receiptCopy({ ...deal, level: 'ceiling', first: true }).title).toBe('Today’s card');
   });
 
-  it('says a better side card is just that, not a stronger hand of the same name', () => {
-    expect(receiptCopy({ ...deal, card: 'Ten of Hearts', hand: pairBetter, handWas: pair }).line).toBe('Ten of Hearts. Still a Pair of Eights, now with a higher side card.');
-    expect(receiptCopy({ ...deal, card: 'Ten of Hearts', hand: { ...trips, score: 410 }, handWas: trips }).line).toBe('Ten of Hearts. Still Three Eights, now with a higher side card.');
+  it('says a better kicker in plain words, never as a side card', () => {
+    expect(receiptCopy({ ...deal, card: 'Ten of Hearts', hand: pairBetter, handWas: pair }).line).toBe('Ten of Hearts. Same hand, a little stronger: a Pair of Eights.');
+    expect(receiptCopy({ ...deal, card: 'Ten of Hearts', hand: { ...trips, score: 410 }, handWas: trips }).line).toBe('Ten of Hearts. Same hand, a little stronger: Three Eights.');
+    const fives = { kind: 'pair' as const, title: 'Pair of Fives', score: 150 };
+    expect(receiptCopy({ ...deal, card: 'Nine of Clubs', hand: { ...fives, score: 160 }, handWas: fives }).line).toBe('Nine of Clubs. Same hand, a little stronger: a Pair of Fives.');
+    expect(Object.values(receiptCopy({ ...deal, hand: pairBetter, handWas: pair })).join(' ')).not.toMatch(/side card/);
   });
 
   it('says plainly when a higher card broke a match', () => {
@@ -426,7 +489,7 @@ describe('receipts', () => {
   it('leads with a saved yesterday, so it is never the line that gets cut', () => {
     const r = receiptCopy({ ...deal, card: 'Ten of Diamonds', hand: pairBetter, handWas: pair, saved: true });
     expect(r.lead).toBe('Yesterday’s card was saved too.');
-    expect(r.line).toBe('Ten of Diamonds. Still a Pair of Eights, now with a higher side card.');
+    expect(r.line).toBe('Ten of Diamonds. Same hand, a little stronger: a Pair of Eights.');
   });
 
   it('celebrates a Joker with the one rule every screen uses', () => {
@@ -435,6 +498,57 @@ describe('receipts', () => {
     expect(r.line).toBe('Your hand: a Pair of Eights.');
     expect(r.notes).toEqual([JOKER_LINE]);
     expect(JOKER_LINE).toBe('It has no suit and plays as any rank.');
+  });
+
+  it('leaves the Joker’s rule off once the player has seen it', () => {
+    const joker = { ...deal, card: 'Joker', joker: true, handWas: pair };
+    expect(receiptCopy({ ...joker, explainJoker: true }).notes).toEqual([JOKER_LINE]);
+    expect(receiptCopy({ ...joker, explainJoker: false }).notes).toEqual([]);
+    expect(Object.values(receiptCopy({ ...joker, explainJoker: false })).join(' ')).not.toContain(JOKER_LINE);
+  });
+
+  it('ends on what would lift today’s card next, and is still one receipt', () => {
+    const next = 'One more Ceiling makes today’s card 6 or better.';
+    const r = receiptCopy({ ...deal, next });
+    expect(r.next).toBe(next);
+    expect(Object.keys(r).sort()).toEqual(['eyebrow', 'lead', 'line', 'next', 'notes', 'title']);
+    expect(receiptCopy({ ...deal, next, saved: true, rung: { part: 'Mind', days: 150 } }).next).toBe(next);
+    expect(receiptCopy({ ...deal, next: null }).next).toBeNull();
+    expect(receiptCopy({ ...deal, next: '  ' }).next).toBeNull();
+  });
+
+  it('says “Floor held” only for a Floor kept on a Comeback card', () => {
+    expect(receiptCopy({ ...deal, held: true }).eyebrow).toBe('Floor held');
+    expect(receiptCopy({ ...deal, held: false }).eyebrow).toBe('Floor kept');
+    expect(receiptCopy({ ...deal, level: 'ceiling', held: true }).eyebrow).toBe('Ceiling reached');
+    const late = { kind: 'backfill' as const, level: 'floor' as const, card: 'Seven of Spades', joker: false, blank: true, hand: pair, handWas: high };
+    expect(receiptCopy(late).eyebrow).toBe('Floor kept');
+    expect(Object.values(receiptCopy({ ...deal, held: true })).join(' ')).not.toMatch(/\d+ (days? )?held/);
+  });
+
+  it('ends on the wear line instead when the keep wore the card into a new stage', () => {
+    const next = 'One more Ceiling makes today’s card 6 or better.';
+    expect(receiptCopy({ ...deal, next, wore: 'played' }).next).toBe('Well played · 30 kept days. It holds your thumb mark now.');
+    expect(receiptCopy({ ...deal, next, wore: 'worn' }).next).toBe('Worn in · 10 kept days on this card.');
+    expect(receiptCopy({ ...deal, next, wore: 'gilt' }).next).toBe('Gilt edge · 100 kept days on this card.');
+    expect(receiptCopy({ ...deal, next, wore: 'heirloom' }).next).toBe('Heirloom · a year of kept days on this card.');
+    expect(wearNote('new')).toBeNull();
+  });
+
+  it('finds the wear stage a card reaches on exactly its threshold, and no other day', () => {
+    expect(woreAt(10)).toBe('worn');
+    expect(woreAt(30)).toBe('played');
+    expect(woreAt(100)).toBe('gilt');
+    expect(woreAt(365)).toBe('heirloom');
+    for (const kept of [0, 1, 9, 11, 29, 31, 99, 101, 364, 366]) expect(woreAt(kept)).toBeNull();
+  });
+
+  it('wears a card only on its first keep of the day, never again on a raise to the Ceiling', () => {
+    // The keep that takes Read to its 30th kept day wears it in; raising the same day to the Ceiling adds no kept day.
+    expect(keepWore(30, null)).toBe('played');
+    expect(keepWore(30, 'floor')).toBeNull();
+    expect(keepWore(10, null)).toBe('worn');
+    expect(keepWore(31, null)).toBeNull();
   });
 
   it('tells a rung reached on the same keep', () => {
@@ -476,6 +590,98 @@ describe('receipts', () => {
     expect(aCard('Eight of Clubs')).toBe('an Eight of Clubs');
     expect(aCard('Ace of Spades')).toBe('an Ace of Spades');
     expect(aCard('Ten of Hearts')).toBe('a Ten of Hearts');
+  });
+});
+
+describe('Plan for next time on the receipt', () => {
+  const today = '2026-10-23';
+  const base = { keptComebackToday: true, onComebackCard: true, plan: null, today };
+
+  it('is offered after a Floor held, Done it included, and after a Ceiling kept on the Comeback card', () => {
+    expect(receiptOffersPlan({ ...base, level: 'floor' })).toBe(true);
+    // Done it records the Floor from the Comeback card; a Floor kept later from the card's own page still answers it.
+    expect(receiptOffersPlan({ ...base, level: 'floor', onComebackCard: false })).toBe(true);
+    expect(receiptOffersPlan({ ...base, level: 'ceiling' })).toBe(true);
+  });
+
+  it('is never offered for a Ceiling raised later, or a keep that answered no Comeback', () => {
+    expect(receiptOffersPlan({ ...base, level: 'ceiling', onComebackCard: false })).toBe(false);
+    expect(receiptOffersPlan({ ...base, level: 'floor', keptComebackToday: false })).toBe(false);
+    expect(receiptOffersPlan({ ...base, level: 'ceiling', keptComebackToday: false })).toBe(false);
+  });
+
+  it('rests for 14 days after the card’s last plan, then is offered again', () => {
+    const plan = (made: string) => ({ when: 'tired', then: 'first' as const, made });
+    expect(receiptOffersPlan({ ...base, level: 'floor', plan: plan('2026-10-20') })).toBe(false);
+    expect(receiptOffersPlan({ ...base, level: 'floor', plan: plan('2026-10-10') })).toBe(false);
+    expect(receiptOffersPlan({ ...base, level: 'floor', plan: plan('2026-10-09') })).toBe(true);
+  });
+});
+
+describe('the face-card moment', () => {
+  const played = (rank: number, joker = false) => ({ rank, suit: joker ? null : 'hearts', day: '2026-10-23', joker }) as never;
+  const queens = { kind: 'pair' as const, title: 'Pair of Queens', cards: [played(12), played(12, true), played(9)] };
+
+  it('says what the Joker plays as, with the right article', () => {
+    expect(jokerResult(queens, { chips: 30, chipsWas: 10, warmup: false })).toBe('Your Joker plays as a Queen: Pair of Queens, 10 → 30 chips.');
+    const aceHigh = { kind: 'high-card' as const, title: 'Ace high', cards: [played(14, true), played(9)] };
+    expect(jokerResult(aceHigh, { chips: 10, chipsWas: 10, warmup: false })).toBe('Your Joker plays as an Ace: Ace high.');
+    const eights = { kind: 'pair' as const, title: 'Pair of Eights', cards: [played(8), played(8, true)] };
+    expect(jokerResult(eights, { chips: 30, chipsWas: 10, warmup: false })).toMatch(/^Your Joker plays as an Eight:/);
+  });
+
+  it('shows the chips only when they changed, and none in a warm-up week', () => {
+    expect(jokerResult(queens, { chips: 30, chipsWas: 30, warmup: false })).toBe('Your Joker plays as a Queen: Pair of Queens.');
+    expect(jokerResult(queens, { chips: 30, chipsWas: 10, warmup: true })).toBe('Your Joker plays as a Queen: Pair of Queens.');
+    expect(jokerResult({ ...queens, cards: [played(12)] }, { chips: 1200, chipsWas: 140, warmup: false })).toBeNull();
+  });
+
+  it('returns nothing with no Joker in the hand, or no hand', () => {
+    expect(jokerResult({ ...queens, cards: [played(12), played(12)] }, { chips: 30, chipsWas: 10, warmup: false })).toBeNull();
+    expect(jokerResult(null, { chips: 0, chipsWas: 0, warmup: false })).toBeNull();
+  });
+});
+
+describe('the kept pill’s sheet', () => {
+  it('leads a Floor-kept card with its Ceiling, and keeps Undo quiet near the end', () => {
+    expect(pillMenu('floor')).toEqual(['ceiling', 'open', 'undo', 'cancel']);
+    expect(pillMenu('ceiling')).toEqual(['open', 'undo', 'cancel']);
+  });
+});
+
+describe('the deal arc and the moment after it', () => {
+  it('flies, turns and settles within 700 ms', () => {
+    const arc = dealArc({ reduced: false });
+    expect(arc).toEqual({ flyMs: 360, flipMs: 200, settleMs: 120, totalMs: 680 });
+    expect(arc.totalMs).toBeLessThanOrEqual(700);
+    expect(dealArc({ reduced: true })).toEqual({ flyMs: 0, flipMs: 0, settleMs: 180, totalMs: 180 });
+  });
+
+  it('waits for a Comeback’s turnover and the arc before a moment', () => {
+    const exit = comebackExit({ firstMove: true, reduced: false }).totalMs;
+    expect(momentDelay({ comeback: true, reduced: false })).toBeGreaterThanOrEqual(exit + dealArc({ reduced: false }).totalMs);
+    expect(momentDelay({ comeback: true, reduced: false })).toBe(1750);
+    expect(momentDelay({ comeback: false, reduced: false })).toBe(800);
+    expect(momentDelay({ comeback: false, reduced: false })).toBeGreaterThanOrEqual(dealArc({ reduced: false }).totalMs);
+  });
+
+  it('keeps Reduce Motion under 600 ms', () => {
+    expect(momentDelay({ comeback: true, reduced: true })).toBeLessThan(600);
+    expect(momentDelay({ comeback: false, reduced: true })).toBeLessThan(600);
+  });
+
+  it('arcs from the card to the slot, growing from 0.6 to full size and landing square', () => {
+    const from = { x: 195, y: 520 };
+    const to = { x: 245, y: 95 };
+    expect(arcAt(0, from, to)).toMatchObject({ x: 195, y: 520, scale: 0.6 });
+    const end = arcAt(1, from, to);
+    expect(end.x).toBeCloseTo(245);
+    expect(end.y).toBeCloseTo(95);
+    expect(end.scale).toBeCloseTo(1);
+    expect(end.rotate).toBeCloseTo(0);
+    // It rises above the slot on the way and drops into it.
+    expect(arcAt(0.85, from, to).y).toBeLessThan(to.y);
+    expect(arcAt(0.5, from, to).scale).toBeGreaterThan(1);
   });
 });
 
