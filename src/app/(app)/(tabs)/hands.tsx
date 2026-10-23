@@ -1,7 +1,8 @@
 import { useRouter } from 'expo-router';
 import { useId, useState } from 'react';
-import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
-import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import Animated, { Easing, interpolate, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
+import Svg, { Defs, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import { CardBack } from '@/components/CardBack';
 import { Chips } from '@/components/Chips';
@@ -12,19 +13,24 @@ import { SharePreview } from '@/components/ShareButton';
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Label, Page, PageTitle, raisedStyle, Section } from '@/components/ui';
 import { WeekStrip } from '@/components/WeekStrip';
-import { weekday } from '@/engine/day';
+import { rankLabel, rankName, SUITS, type Rank } from '@/engine/cards';
+import { weekday, type Day } from '@/engine/day';
 import { lastShowdown, weekReview, weekTotal, type BackKey, type Game, type HallEntry, type Week } from '@/engine/game';
-import { lateIndex } from '@/engine/ledger';
+import { callGap, callLine, outCards, outName, outs, outsLine, outsWorthSaying, riverOutsLine, type OutGroup } from '@/engine/outs';
 import { HANDS, makesCall } from '@/engine/poker';
 import { captionsFor, stampsFor, type CaptionFacts } from '@/engine/showdown';
 import { useData } from '@/lib/data';
 import { useDeck, useLook } from '@/lib/deck';
+import * as feel from '@/lib/feel';
 import { shortDate, weekOf, weekRange } from '@/lib/format';
 import { gameInput } from '@/lib/play';
 import { usePrefs } from '@/lib/prefs';
 import { callWindow, feltFor, firstShowdownDate, hallLine, handLines, riverLine, showdownWhen, type Felt } from '@/lib/share';
+import { playSound } from '@/lib/sound';
+import type { HabitDay } from '@/lib/types';
+import { withAlpha } from '@/theme/color';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
-import { fontScale, radius, space, suitColors } from '@/theme/tokens';
+import { cardFace, fontScale, fonts, radius, space, suitColors } from '@/theme/tokens';
 
 const PAGE = 8;
 /** A non-breaking space, so a check never wraps onto a line of its own. */
@@ -59,13 +65,11 @@ export default function Hands() {
   const weeks = finished.slice(0, count);
   const spotted = game.hall.filter((e) => e.count > 0).length;
   const lead = state.status === 'ready' && current.slots.some((s) => s.card) ? weekReview(current, gameInput(state, today, seed)).lead : null;
-  // What a held card's caption says about its day beyond the card: whose habits were kept, a Ceiling, a late log.
-  const late = state.status === 'ready' ? lateIndex(state.days) : null;
-  const facts: CaptionFacts = {
-    names: (day) => deck.cards.filter((c) => c.checkIns.has(day)).map((c) => c.habit.name),
-    ceiling: (day) => deck.cards.some((c) => c.checkIns.get(day) === 'ceiling'),
-    late: (day) => deck.cards.some((c) => (late?.get(c.habit.id)?.get(day) ?? day) > day),
-  };
+  // What a held card's caption says about its day beyond the card: whose habits were kept (archived ones
+  // too, so past weeks caption every card), a Ceiling, a late log.
+  const facts = captionFacts(state.status === 'ready' ? state.days : [], [...deck.cards.map((c) => c.habit), ...deck.archived]);
+  // The secret hand keeps its name hidden in the outs until a week has held it.
+  const secretKnown = game.hall.some((e) => e.kind === 'five-of-a-kind' && e.count > 0);
 
   // Showdowns that happened while you were away: newer than the last one you saw, older than the latest.
   const seen = prefs.showdownSeen[seed];
@@ -81,9 +85,9 @@ export default function Hands() {
 
   return (
     <Page header={<PageTitle eyebrow={weekOf(current.start)} title="Your hand" right={<RulesButton topic="week" />} />} onRefresh={refresh}>
-      <ThisWeek game={game} back={back} felt={feltFor(t, lead)} today={today} facts={facts} />
+      <ThisWeek game={game} back={back} felt={feltFor(t, lead)} today={today} facts={facts} secretKnown={secretKnown} />
 
-      <CallPanel game={game} onCall={() => router.push('/call')} />
+      <CallPanel game={game} today={today} secretKnown={secretKnown} onCall={() => router.push('/call')} />
 
       {away.length ? (
         <Section title="While you were away">
@@ -140,12 +144,11 @@ export default function Hands() {
  * This week on the felt: the hand as it stands, the river card it has earned (or how far off it is),
  * what it pays at the very least, and the seven days.
  */
-function ThisWeek({ game, back, felt, today, facts }: { game: Game; back: BackKey; felt: Felt; today: string; facts: CaptionFacts }) {
+function ThisWeek({ game, back, felt, today, facts, secretKnown }: { game: Game; back: BackKey; felt: Felt; today: string; facts: CaptionFacts; secretKnown: boolean }) {
   const { width } = useWindowDimensions();
   const id = useId().replace(/[^a-zA-Z0-9]/g, '');
   const { current } = game;
   const hand = current.hand;
-  const draw = game.tips.find((tip) => tip.tone === 'draw');
   const inner = width - space.xl * 2 - space.lg * 2;
   const cardW = fanCardWidth(inner, 104);
   const faces: FanItem[] = hand ? playedFaces(hand.cards) : [];
@@ -204,6 +207,7 @@ function ThisWeek({ game, back, felt, today, facts }: { game: Game; back: BackKe
                   {showdownWhen(today)}
                 </Body>
               </View>
+              <OutsRow week={current} width={inner} secretKnown={secretKnown} />
             </>
           ) : (
             <View style={{ alignItems: 'center', gap: space.md, paddingVertical: space.sm }}>
@@ -217,15 +221,7 @@ function ThisWeek({ game, back, felt, today, facts }: { game: Game; back: BackKe
               </Body>
             </View>
           )}
-          {!current.warmup ? <River week={current} back={back} today={today} /> : null}
-          {draw ? (
-            <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center', backgroundColor: felt.theme.raised, borderRadius: radius.md, paddingVertical: space.sm, paddingHorizontal: space.md }}>
-              <Display size={16}>◆</Display>
-              <Body size={14} weight="bold" style={{ flex: 1 }}>
-                {draw.text}
-              </Body>
-            </View>
-          ) : null}
+          {!current.warmup ? <River week={current} back={back} today={today} secretKnown={secretKnown} /> : null}
           <View style={{ marginTop: space.xs }}>
             <WeekStrip week={current} back={back} rescue={game.rescue} />
           </View>
@@ -236,10 +232,12 @@ function ThisWeek({ game, back, felt, today, facts }: { game: Game; back: BackKe
 }
 
 /** The river card: earned by five days you kept something, and turned last at the Showdown. */
-function River({ week, back, today }: { week: Week; back: BackKey; today: string }) {
+function River({ week, back, today, secretKnown }: { week: Week; back: BackKey; today: string; secretKnown: boolean }) {
   const t = useTheme();
   const { earned } = week.river;
   const line = riverLine(week, today);
+  // What the river could still do for the hand: from its band up, never the card itself.
+  const outsSaid = riverOutsLine(week, { secretKnown });
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border }}>
       {earned ? (
@@ -255,13 +253,32 @@ function River({ week, back, today }: { week: Week; back: BackKey; today: string
         <Body size={14} color={t.textSecondary}>
           {line.detail}
         </Body>
+        {outsSaid ? (
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: space.xs }}>
+            <Waves color={t.text} />
+            <Body size={14} weight="heavy" style={{ flex: 1 }}>
+              {outsSaid}
+            </Body>
+          </View>
+        ) : null}
       </View>
     </View>
   );
 }
 
-/** Your call for this week: what you called and whether the week makes it so far, or how to make one. */
-function CallPanel({ game, onCall }: { game: Game; onCall: () => void }) {
+/** Three small river waves, the river card's own mark, to set its outs apart from the week's. */
+function Waves({ color }: { color: string }) {
+  return (
+    <Svg width={14} height={18} viewBox="0 0 14 18" aria-hidden>
+      {[5, 9, 13].map((y) => (
+        <Path key={y} d={`M1 ${y} q1.5 -2.2 3 0 t3 0 t3 0 t3 0`} stroke={color} strokeWidth={1.6} strokeLinecap="round" fill="none" />
+      ))}
+    </Svg>
+  );
+}
+
+/** Your call for this week: what you called and whether the week makes it so far, or how far it is. */
+function CallPanel({ game, today, secretKnown, onCall }: { game: Game; today: Day; secretKnown: boolean; onCall: () => void }) {
   const t = useTheme();
   const { call, hand, warmup, callMultiplier } = game.current;
   if (warmup) return null;
@@ -290,6 +307,9 @@ function CallPanel({ game, onCall }: { game: Game; onCall: () => void }) {
   const onTrack = makesCall(hand, call);
   const pays = HANDS[call].chips * callMultiplier;
   const closes = callWindow(game.current);
+  const gap = game.callGap ?? callGap(game.current, call, today);
+  // The outs toward the call ("Any Jack or Eight makes your Full house. 3 days left."), or how it's made.
+  const progress = onTrack ? 'Your hand already makes it. Hold on to it through Sunday.' : (callLine(game.current, call, today, { secretKnown }) ?? `Not made yet. ${HANDS[call].how}`);
   return (
     <Pressable
       onPress={game.callOpen ? onCall : undefined}
@@ -316,15 +336,18 @@ function CallPanel({ game, onCall }: { game: Game; onCall: () => void }) {
         </View>
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border }}>
-        <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: onTrack ? t.onRaised : 'transparent', borderWidth: onTrack ? 0 : 1.5, borderColor: t.onRaisedSecondary, marginTop: 1 }}>
+        {/* Made is a check; one or two cards away is one or two pips, the same marks as the chip on Today. */}
+        <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 3, backgroundColor: onTrack ? t.onRaised : 'transparent', borderWidth: onTrack ? 0 : 1.5, borderColor: t.onRaisedSecondary, marginTop: 1 }}>
           {onTrack ? (
             <Body size={12} weight="heavy" color={t.raised} maxFontSizeMultiplier={fontScale.graphic}>
               ✓
             </Body>
+          ) : gap.cards === 1 || gap.cards === 2 ? (
+            Array.from({ length: gap.cards }, (_, i) => <View key={i} style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: t.onRaised }} />)
           ) : null}
         </View>
         <Body size={14} weight="bold" color={t.onRaised} style={{ flex: 1 }}>
-          {onTrack ? 'Your hand already makes it. Hold on to it through Sunday.' : `Not made yet. ${HANDS[call].how}`}
+          {progress}
         </Body>
       </View>
       {game.callOpen ? (
@@ -458,5 +481,177 @@ function WeekRow({ week, facts, onPress, onShare }: { week: Week; facts: Caption
         </View>
       </View>
     </Pressable>
+  );
+}
+
+/**
+ * Caption facts for the held cards, from every day row: whose habits were kept that day (archived habits
+ * too, so a past week captions every card), whether one reached its Ceiling, and whether one was logged late.
+ */
+function captionFacts(days: readonly HabitDay[], habits: readonly { id: string; name: string }[]): CaptionFacts {
+  const order = new Map(habits.map((h, i) => [h.id, i]));
+  const byDay = new Map<Day, HabitDay[]>();
+  for (const row of days) {
+    if (!order.has(row.habitId)) continue;
+    const list = byDay.get(row.day);
+    if (list) list.push(row);
+    else byDay.set(row.day, [row]);
+  }
+  const rows = (day: Day) => byDay.get(day) ?? [];
+  return {
+    names: (day) => [...rows(day)].sort((a, b) => order.get(a.habitId)! - order.get(b.habitId)!).map((r) => habits[order.get(r.habitId)!].name),
+    ceiling: (day) => rows(day).some((r) => r.level === 'ceiling'),
+    late: (day) => rows(day).some((r) => !!r.loggedOn && r.loggedOn > day),
+  };
+}
+
+/** How far a ghost card rises out of the outs row, and how much later each one leaves than the one before. */
+const GHOST_RISE = 38;
+const GHOST_STAGGER = 0.11;
+const GHOST_GAP = 6;
+const GROUP_GAP = 18;
+/** A ghost card is this much taller than it is wide, like every card in the deck. */
+const GHOST_RATIO = 74 / 52;
+
+/** An ease that runs a little past the end and settles back: a card that hops as it lands. */
+function hop(x: number): number {
+  'worklet';
+  const c1 = 2.1;
+  const c3 = c1 + 1;
+  return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2;
+}
+
+/**
+ * The hand's outs on the felt: "Drawing to a Straight: any Nine makes it." Tap it and a row of ghost cards
+ * rises out of it, one for each rank that would lift the hand, grouped under the hand it makes. Ghosts
+ * are dashed and see-through: cards the week hasn't dealt. With Reduce Motion they appear in place.
+ */
+function OutsRow({ week, width, secretKnown }: { week: Week; width: number; secretKnown: boolean }) {
+  const t = useTheme();
+  const reduced = useReducedMotion();
+  const [open, setOpen] = useState(false);
+  const lift = useSharedValue(0);
+  const worth = outsWorthSaying(week);
+  const groups = worth ? outs(week.slots.flatMap((s) => (s.card ? [s.card] : []))) : [];
+  const line = outsLine(groups, { call: week.call, secretKnown });
+  const shown = outCards(groups);
+  const count = shown.reduce((n, g) => n + g.ranks.length, 0);
+  const total = groups.slice(0, 2).reduce((n, g) => n + g.ranks.length, 0);
+  // As wide as the row allows, never wider than a small card.
+  const inner = width - space.md * 2;
+  const ghostW = Math.max(28, Math.min(44, Math.floor((inner - (count - shown.length) * GHOST_GAP - (shown.length - 1) * GROUP_GAP) / Math.max(1, count))));
+  const ghostH = Math.round(ghostW * GHOST_RATIO);
+  const trayH = ghostH + space.sm + 30;
+  const tray = useAnimatedStyle(() => ({ height: interpolate(lift.get(), [0, 0.4], [0, trayH], 'clamp') }));
+  const deck = useAnimatedStyle(() => ({ transform: [{ translateY: -4 * lift.get() }, { rotate: `${-10 + 18 * lift.get()}deg` }] }));
+  if (!line) return null;
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    feel.tick();
+    if (next) playSound('deal');
+    if (reduced) lift.set(next ? 1 : 0);
+    else lift.set(withTiming(next ? 1 : 0, { duration: next ? 560 : 260, easing: next ? Easing.linear : Easing.in(Easing.quad), reduceMotion: ReduceMotion.Never }));
+  };
+
+  // Where each kind's ghosts start in the whole row, so they rise one after another across the groups.
+  const starts = shown.map((_, i) => shown.slice(0, i).reduce((n, g) => n + g.ranks.length, 0));
+  return (
+    <Pressable
+      onPress={toggle}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      accessibilityLabel={`Outs. ${line}`}
+      accessibilityHint={open ? 'Puts the cards away' : 'Shows the cards that would lift your hand'}
+      style={({ pressed }) => ({ borderRadius: radius.md, backgroundColor: t.raised, paddingVertical: space.sm + 2, paddingHorizontal: space.md, transform: [{ scale: pressed ? 0.985 : 1 }] })}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Label color={t.textSecondary}>◆  Outs</Label>
+          <Body size={15} weight="heavy" color={t.text}>
+            {line}
+          </Body>
+        </View>
+        {/* The outs as a little face-down pile: it fans open with the row. */}
+        <Animated.View aria-hidden style={[{ width: 26, height: 36, borderRadius: 5, borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.textSecondary, alignItems: 'center', justifyContent: 'center' }, deck]}>
+          <Text allowFontScaling={false} style={{ fontFamily: fonts.display, fontSize: 15, color: t.text }}>
+            {total}
+          </Text>
+        </Animated.View>
+      </View>
+      <Animated.View style={[{ overflow: 'hidden' }, tray]} aria-hidden={!open} importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'flex-start', gap: GROUP_GAP, paddingTop: space.sm }}>
+          {shown.map((g, i) => (
+            <GhostGroup key={g.makes} group={g} from={starts[i]} count={count} w={ghostW} h={ghostH} lift={lift} reduced={reduced} secretKnown={secretKnown} />
+          ))}
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+/** One kind's ghosts, side by side over a bracket and the hand they make. */
+function GhostGroup({ group, from, count, w, h, lift, reduced, secretKnown }: { group: OutGroup; from: number; count: number; w: number; h: number; lift: SharedValue<number>; reduced: boolean; secretKnown: boolean }) {
+  const t = useTheme();
+  const name = outName(group.makes, { secretKnown });
+  const label = useAnimatedStyle(() => ({ opacity: interpolate(lift.get(), [0.35, 0.8], [0, 1], 'clamp') }));
+  return (
+    <View style={{ alignItems: 'center', gap: 5 }}>
+      <View style={{ flexDirection: 'row', gap: GHOST_GAP }}>
+        {group.ranks.map((rank, i) => (
+          <Ghost key={rank} rank={rank} index={from + i} count={count} w={w} h={h} lift={lift} reduced={reduced} said={`Any ${rankName(rank)} makes ${name === 'Secret hand' ? 'the secret hand' : name}`} />
+        ))}
+      </View>
+      <Animated.View style={[{ alignSelf: 'stretch', alignItems: 'center', gap: 3 }, label]}>
+        <View style={{ alignSelf: 'stretch', height: 5, marginHorizontal: 2, borderLeftWidth: 1.5, borderRightWidth: 1.5, borderBottomWidth: 1.5, borderColor: t.textSecondary, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 }} />
+        <Text allowFontScaling={false} numberOfLines={1} style={{ fontFamily: fonts.bodyHeavy, fontSize: 11, letterSpacing: 0.9, textTransform: 'uppercase', color: t.text }}>
+          {name}
+        </Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+/**
+ * A card the week hasn't dealt: cream at 60% with a dashed edge, its rank in the middle and every suit
+ * under it, because any suit will do. It rises out of the row a beat after the one before it.
+ */
+function Ghost({ rank, index, count, w, h, lift, reduced, said }: { rank: Rank; index: number; count: number; w: number; h: number; lift: SharedValue<number>; reduced: boolean; said: string }) {
+  const style = useAnimatedStyle(() => {
+    const span = 1 + GHOST_STAGGER * Math.max(0, count - 1);
+    const p = Math.min(1, Math.max(0, lift.get() * span - GHOST_STAGGER * index));
+    if (reduced) return { opacity: p > 0 ? 1 : 0, transform: [{ translateY: 0 }, { rotate: '0deg' }] };
+    const y = hop(p);
+    return { opacity: Math.min(1, p * 2.4), transform: [{ translateY: (1 - y) * GHOST_RISE }, { rotate: `${(1 - y) * (index % 2 ? 10 : -10)}deg` }] };
+  });
+  const glyph = Math.max(6, Math.round(w * 0.17));
+  return (
+    <Animated.View accessible accessibilityRole="image" accessibilityLabel={said} style={style}>
+      <View
+        style={{
+          width: w,
+          height: h,
+          borderRadius: Math.round(w * 0.17),
+          backgroundColor: cardFace.bg,
+          opacity: 0.6,
+          borderWidth: 1.5,
+          borderStyle: 'dashed',
+          borderColor: cardFace.faint,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: Math.round(h * 0.05),
+        }}
+      >
+        <Text allowFontScaling={false} style={{ fontFamily: fonts.display, fontSize: Math.round(w * 0.5), lineHeight: Math.round(w * 0.56), color: cardFace.ink, letterSpacing: rank === 10 ? -2 : 0 }}>
+          {rankLabel(rank)}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 1 }}>
+          {SUITS.map((suit) => (
+            <SuitGlyph key={suit} suit={suit} size={glyph} color={withAlpha(suitColors[suit].glyph, 0.9)} />
+          ))}
+        </View>
+      </View>
+    </Animated.View>
   );
 }

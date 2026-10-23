@@ -69,6 +69,8 @@ export default function Call() {
   const [busy, setBusy] = useState(false);
   const [others, setOthers] = useState(false);
   const [called, setCalled] = useState<Offer | null>(null);
+  // A swipe brings the next call forward from under the card, so it arrives already in place; a tap deals it in.
+  const [swiped, setSwiped] = useState(false);
   const leave = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The pinned footer, measured, so large text never lets it cover the end of the list.
   const [measured, setMeasured] = useState(0);
@@ -103,16 +105,20 @@ export default function Call() {
   const closes = callWindow(game.current);
   const short = height < SHORT_SCREEN;
 
-  const choose = (k: HandKind) => {
+  const choose = (k: HandKind, bySwipe = false) => {
     if (k === kind) return;
     feel.tick();
+    setSwiped(bySwipe);
     setPicked(k);
   };
-  const step = (by: 1 | -1) => {
-    if (!choices.length) return;
-    const next = choices[(Math.max(0, index) + by + choices.length) % choices.length];
-    choose(next.kind);
+  const around = (by: 1 | -1) => (choices.length ? choices[(Math.max(0, index) + by + choices.length) % choices.length] : null);
+  const step = (by: 1 | -1, bySwipe = false) => {
+    const next = around(by);
+    if (next) choose(next.kind, bySwipe);
   };
+  // The calls a sideways swipe would bring: the next one (swipe left) and the one before (swipe right).
+  const nextOffer = canStep ? around(1) : null;
+  const prevOffer = canStep ? around(-1) : null;
 
   async function confirm(): Promise<boolean> {
     if (!offer) return false;
@@ -138,7 +144,7 @@ export default function Call() {
   }
 
   const footer = measured || 80 + insets.bottom;
-  const behind = Math.min(2, Math.max(0, choices.length - 1));
+  const behind = Math.min(2, Math.max(0, choices.length - 1, canStep ? 1 : 0));
   // As tall as the screen allows with the Other hands heading still in view above the button, never
   // shorter than MIN_CARD or taller than 380. Until it's measured, a guess from the window.
   const room = viewH && stackTop ? viewH - footer - stackTop - (behind * 10 + 8) - space.lg - TAP - space.sm : height - insets.top - footer - 330;
@@ -199,7 +205,21 @@ export default function Call() {
 
         {offer ? (
           <View onLayout={(e) => setStackTop(e.nativeEvent.layout.y)}>
-            <Stack key={offer.kind} offer={offer} behind={behind} height={cardH} onUp={confirm} onSide={step} canSide={canStep} mine={offer.kind === current} tabbed={choices.length > 1 && index >= 0} />
+            <Stack
+              key={offer.kind}
+              offer={offer}
+              next={nextOffer && nextOffer.kind !== offer.kind ? nextOffer : null}
+              prev={prevOffer && prevOffer.kind !== offer.kind && prevOffer.kind !== nextOffer?.kind ? prevOffer : null}
+              arrived={swiped}
+              behind={behind}
+              height={cardH}
+              onUp={confirm}
+              onSide={(by) => step(by, true)}
+              canSide={canStep}
+              mine={offer.kind === current}
+              yours={current}
+              tabbed={choices.length > 1 && index >= 0}
+            />
           </View>
         ) : (
           <Body weight="bold" color={t.textSecondary}>
@@ -319,8 +339,15 @@ function Called({ offer }: { offer: Offer }) {
         <Body size={13} weight="bold" color={CARD_QUIET} maxFontSizeMultiplier={fontScale.graphic} style={{ textAlign: 'center' }}>
           Make it or better by Sunday midnight.
         </Body>
-        <Animated.View aria-hidden style={[{ position: 'absolute', top: -22, right: -10, width: 56, height: 56, borderRadius: 28, backgroundColor: cardFace.ink, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: cardFace.bg }, badge]}>
-          <Display size={28} color={cardFace.bg} maxFontSizeMultiplier={fontScale.graphic}>
+        {/* Inset inside the card, so the check is whole on every screen and never runs off the edge. */}
+        <Animated.View
+          aria-hidden
+          style={[
+            { position: 'absolute', top: space.md, right: space.md, width: 48, height: 48, borderRadius: 24, backgroundColor: cardFace.ink, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: cardFace.bg, boxShadow: '0px 4px 10px rgba(0, 0, 0, 0.22)' },
+            badge,
+          ]}
+        >
+          <Display size={24} color={cardFace.bg} maxFontSizeMultiplier={fontScale.graphic}>
             ✓
           </Display>
         </Animated.View>
@@ -335,27 +362,43 @@ function Called({ offer }: { offer: Offer }) {
  */
 function Stack({
   offer,
+  next,
+  prev,
+  arrived,
   behind,
   height,
   onUp,
   onSide,
   canSide,
   mine,
+  yours,
   tabbed,
 }: {
   offer: Offer;
+  /** The call a swipe left brings, shown face up under this one. */
+  next: Offer | null;
+  /** The call a swipe right brings, when it isn't the same as `next`. */
+  prev: Offer | null;
+  /** This card came forward from under the last one, so it starts in place instead of being dealt in. */
+  arrived: boolean;
   behind: number;
   height: number;
   onUp: () => Promise<boolean>;
   onSide: (by: 1 | -1) => void;
   canSide: boolean;
   mine: boolean;
+  /** The hand already called this week, so the card underneath can say so too. */
+  yours: HandKind | null;
   /** The tabs above already name this choice, so a short card can leave its label off. */
   tabbed: boolean;
 }) {
+  const { width } = useWindowDimensions();
   const x = useSharedValue(0);
   const y = useSharedValue(0);
-  const enter = useSharedValue(0.94);
+  const enter = useSharedValue(arrived ? 1 : 0.94);
+  // The card underneath sits 8 points in on each side; it grows to full width as the top card leaves.
+  const cardW = width - space.xl * 2 - space.sm * 2;
+  const under = Math.max(0.8, (cardW - 16) / cardW);
 
   useEffect(() => {
     enter.set(withSpring(1, { damping: 14, stiffness: 220 }));
@@ -401,29 +444,50 @@ function Stack({
   }));
   const hint = useAnimatedStyle(() => ({ opacity: interpolate(-y.get(), [10, SWIPE], [0, 1], 'clamp') }));
   const rest = useAnimatedStyle(() => ({ opacity: interpolate(-y.get(), [0, SWIPE * 0.6], [1, 0], 'clamp') }));
+  // The next call, face up underneath: as the top card goes sideways it comes forward, straightens and grows.
+  const rise = useAnimatedStyle(() => {
+    const k = interpolate(Math.abs(x.get()), [0, SWIPE * 1.8], [0, 1], 'clamp');
+    return { opacity: 0.86 + 0.14 * k, transform: [{ translateY: 10 * (1 - k) }, { scale: under + (1 - under) * k }, { rotate: `${2.5 * (1 - k)}deg` }] };
+  });
+  // Which call is underneath follows the way the top card is going: the next one to the left, the one before to the right.
+  const showNext = useAnimatedStyle(() => ({ opacity: prev ? interpolate(x.get(), [0, 6], [1, 0], 'clamp') : 1 }));
+  const showPrev = useAnimatedStyle(() => ({ opacity: interpolate(x.get(), [0, 6], [0, 1], 'clamp') }));
 
   return (
     <View style={{ height: height + behind * 10 + 8, marginHorizontal: space.sm }}>
-      {Array.from({ length: behind }, (_, i) => behind - i).map((d) => (
-        <View
-          key={d}
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            left: d * 8,
-            right: d * 8,
-            top: d * 10,
-            height,
-            borderRadius: 26,
-            backgroundColor: cardFace.bg,
-            borderWidth: 1,
-            borderColor: cardFace.edge,
-            opacity: 1 - d * 0.18,
-            transform: [{ rotate: `${d % 2 ? 2.5 : -2}deg` }],
-            boxShadow: '0px 6px 16px rgba(0, 0, 0, 0.18)',
-          }}
-        />
-      ))}
+      {Array.from({ length: behind }, (_, i) => behind - i).map((d) =>
+        d === 1 && next ? (
+          <Animated.View key={d} pointerEvents="none" aria-hidden style={[{ position: 'absolute', left: 0, right: 0, top: 0, height }, rise]}>
+            <Animated.View style={[StyleSheet.absoluteFill, showNext]}>
+              <ChoiceCard offer={next} height={height} mine={next.kind === yours} named={!tabbed} />
+            </Animated.View>
+            {prev ? (
+              <Animated.View style={[StyleSheet.absoluteFill, showPrev]}>
+                <ChoiceCard offer={prev} height={height} mine={prev.kind === yours} named={!tabbed} />
+              </Animated.View>
+            ) : null}
+          </Animated.View>
+        ) : (
+          <View
+            key={d}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: d * 8,
+              right: d * 8,
+              top: d * 10,
+              height,
+              borderRadius: 26,
+              backgroundColor: cardFace.bg,
+              borderWidth: 1,
+              borderColor: cardFace.edge,
+              opacity: 1 - d * 0.18,
+              transform: [{ rotate: `${d % 2 ? 2.5 : -2}deg` }],
+              boxShadow: '0px 6px 16px rgba(0, 0, 0, 0.18)',
+            }}
+          />
+        ),
+      )}
       <GestureDetector gesture={pan}>
         <Animated.View
           accessible
@@ -463,8 +527,9 @@ function ChoiceCard({ offer, height, mine, named = true, hinted = false }: { off
   // The shortest phones: everything a little closer together, and no label when the tabs above say it.
   const tight = height < 250;
   const label = !tight || named;
-  const corner = (flip: boolean) => (
-    <View style={{ position: 'absolute', alignItems: 'center', ...(flip ? { right: 16, bottom: 14, transform: [{ rotate: '180deg' }] } : { left: 16, top: 14 }) }}>
+  // Both corners read upright: the multiplier is a number to read at a glance, not a pip to turn over.
+  const corner = (end: boolean) => (
+    <View style={{ position: 'absolute', alignItems: 'center', ...(end ? { right: 16, bottom: 14 } : { left: 16, top: 14 }) }}>
       <Display size={28} color={ink} maxFontSizeMultiplier={fontScale.graphic}>
         {offer.multiplier ? `×${offer.multiplier}` : '✓'}
       </Display>
