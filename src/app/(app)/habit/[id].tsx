@@ -466,11 +466,11 @@ function LateLog({ day, onPress }: { day: Day; onPress: () => void }) {
 }
 
 const FAN = CARD_SIZES.md;
-const WEEKDAY = new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: 'UTC' });
-/** "Tue": short enough to sit under a card in the fan. The date is read as a calendar date, not a moment. */
+const WEEKDAY = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
+/** "Tue": short enough to sit under a card in the fan. The local calendar day at local midnight, as `@/lib/format` reads a day. */
 const weekday = (day: Day) => {
   const [y, m, d] = day.split('-').map(Number);
-  return WEEKDAY.format(Date.UTC(y, m - 1, d));
+  return WEEKDAY.format(new Date(y, m - 1, d));
 };
 /** How far each card in the fan turns from the one before it. */
 const FAN_TURN = 6;
