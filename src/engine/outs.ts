@@ -262,8 +262,11 @@ export function callLine(week: Week, call: HandKind, today: Day, o?: { secretKno
   return `Not made yet. ${HANDS[call].how}`;
 }
 
-/** The river's outs in words, or null when the river is out of reach: "On the river: any Seven makes Four of a kind." */
-export function riverOutsLine(week: Week, o?: { secretKnown?: boolean }): string | null {
+/**
+ * The river's outs in words, or null when the river is out of reach: "On the river: any Seven makes Four of a
+ * kind." With `call`, the called hand is "your" hand, as in the outs row and the call panel.
+ */
+export function riverOutsLine(week: Week, o?: LineOpts): string | null {
   const r = riverOuts(week);
   if (!r) return null;
   const suffix = r.ifToday ? ' If you keep something today.' : '';
@@ -273,7 +276,8 @@ export function riverOutsLine(week: Week, o?: { secretKnown?: boolean }): string
   if (!r.groups.length) return null;
   // The river is one card, so the line names what it makes: "On the river: any Nine makes a Straight."
   const [g, h] = r.groups;
-  const first = g.ranks.length > MAX_NAMED ? `${g.ranks.length} ranks make ${phrase(g.makes, o)}` : `any ${either(g.ranks.map(rankName))} makes ${phrase(g.makes, o)}`;
+  const target = o?.call === g.makes ? yours(g.makes, o) : phrase(g.makes, o);
+  const first = g.ranks.length > MAX_NAMED ? `${g.ranks.length} ranks make ${target}` : `any ${either(g.ranks.map(rankName))} makes ${target}`;
   const second = h ? ` ${sentence(h, o ?? {}, false)}` : '';
   return `On the river: ${first}.${second}${suffix}`;
 }

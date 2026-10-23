@@ -238,7 +238,7 @@ function River({ week, back, today, secretKnown }: { week: Week; back: BackKey; 
   const { earned } = week.river;
   const line = riverLine(week, today);
   // What the river could still do for the hand: from its band up, never the card itself.
-  const outsSaid = riverOutsLine(week, { secretKnown });
+  const outsSaid = riverOutsLine(week, { call: week.call, secretKnown });
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.border }}>
       {earned ? (

@@ -460,6 +460,14 @@ describe('words', () => {
     expect(riverOutsLine(live([7, null, 7, 7, null, 13, 9], SUN))).not.toContain('If you keep something today');
   });
 
+  it('names the called hand as yours on the river, as the outs row and the call panel do', () => {
+    const week = live([7, 7, 7, 13, 9], DAYS[4]);
+    expect(riverOutsLine(week, { call: 'full-house' })).toBe('On the river: any Seven makes Four of a kind. A King or a Nine makes your Full house.');
+    expect(riverOutsLine(week, { call: 'four-of-a-kind' })).toBe('On the river: any Seven makes your Four of a kind. A King or a Nine makes a Full house.');
+    // A call the river can't reach changes nothing.
+    expect(riverOutsLine(week, { call: 'royal-flush' })).toBe(riverOutsLine(week));
+  });
+
   it('caps the ghost cards at six, best kind first', () => {
     const cards = outCards([
       { makes: 'straight', ranks: [10, 5] },
