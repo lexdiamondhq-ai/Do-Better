@@ -13,6 +13,7 @@ import {
   loOf,
   rankFor,
   rescueWaiting,
+  riverBand,
   riverCard,
   savedCard,
   TIER_ORDER,
@@ -22,6 +23,7 @@ import {
   unit,
   type DayCard,
   type DealHabit,
+  type Slot,
 } from './deal';
 import type { CheckIns, Level } from './kept';
 import { bestHand } from './poker';
@@ -431,6 +433,40 @@ describe('the river card', () => {
     expect(saved.filter((s) => s.card).length).toBe(7);
     expect(keptCards(saved)).toHaveLength(4);
     expect(riverCard(MON, saved, 'me')).toBeNull();
+  });
+
+  // The river card as it was dealt before its band was split out into riverBand, kept here word for word.
+  function riverBefore(start: string, slots: readonly Slot[], seed: string): DayCard | null {
+    const los = keptCards(slots)
+      .map((c) => c.lo)
+      .sort((a, b) => a - b);
+    if (los.length < 5) return null;
+    const lo = los[Math.floor((los.length - 1) / 2)];
+    const tier = lo >= TOP_LO ? 'perfect' : lo >= KEPT_LO ? 'kept-all' : 'showed-up';
+    return { kind: 'card', day: addDays(start, 7), rank: rankFor(lo, unit(`${seed}:${start}:river`), unit(`${seed}:${start}:river:again`)), suits: [], ceilingSuits: [], tier, lo, rescued: false, river: true };
+  }
+
+  it('deals exactly the card it dealt before riverBand was split out, across many weeks and seeds', () => {
+    const three = [habit('read', 'clubs'), habit('walk', 'spades'), habit('call', 'hearts')];
+    let x = 11;
+    const next = () => (x = (x * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+    let earned = 0;
+    for (let i = 0; i < 400; i++) {
+      const start = addDays(MON, 7 * (i % 20));
+      const entries: Record<string, Record<string, Level>> = { read: {}, walk: {}, call: {} };
+      for (let d = 0; d < 7; d++) {
+        for (const h of three) {
+          const roll = next();
+          if (roll < 0.55) entries[h.id][addDays(start, d)] = roll < 0.2 ? 'ceiling' : 'floor';
+        }
+      }
+      const slots = dealWeek(start, addDays(start, 7), three, log(entries), `seed-${i}`);
+      const river = riverCard(start, slots, `seed-${i}`);
+      expect(river).toEqual(riverBefore(start, slots, `seed-${i}`));
+      expect(riverBand(slots)).toBe(river ? river.lo : null);
+      if (river) earned++;
+    }
+    expect(earned).toBeGreaterThan(50);
   });
 });
 

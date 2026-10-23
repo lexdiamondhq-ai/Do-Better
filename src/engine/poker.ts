@@ -156,6 +156,15 @@ export function scoreOf(kind: HandKind, ranks: readonly Rank[]): number {
   return score;
 }
 
+/** A straight's run, low card to high: "Six to Ten", or "Ace to Five" for the wheel. */
+export function runName(high: Rank): string {
+  return high === 5 ? 'Ace to Five' : `${rankName((high - 4) as Rank)} to ${rankName(high)}`;
+}
+
+/**
+ * The hand's one name, used everywhere it is written: "Full house, Kings over Sevens", "Straight, Six to
+ * Ten", "Straight flush, Six to Ten in Clubs". A Royal flush only needs its suit.
+ */
 export function handTitle(kind: HandKind, ranks: readonly Rank[], suit: Suit | null): string {
   const [a, b] = ranks;
   const suitName = suit ? SUIT_INFO[suit].name : '';
@@ -169,13 +178,13 @@ export function handTitle(kind: HandKind, ranks: readonly Rank[], suit: Suit | n
     case 'three-of-a-kind':
       return `Three ${rankPlural(a)}`;
     case 'straight':
-      return `Straight to the ${rankName(a)}`;
+      return `Straight, ${runName(a)}`;
     case 'full-house':
       return `Full house, ${rankPlural(a)} over ${rankPlural(b)}`;
     case 'four-of-a-kind':
       return `Four ${rankPlural(a)}`;
     case 'straight-flush':
-      return `Straight flush in ${suitName}`;
+      return suitName ? `Straight flush, ${runName(a)} in ${suitName}` : `Straight flush, ${runName(a)}`;
     case 'royal-flush':
       return `Royal flush in ${suitName}`;
     case 'five-of-a-kind':
@@ -186,7 +195,7 @@ export function handTitle(kind: HandKind, ranks: readonly Rank[], suit: Suit | n
   }
 }
 
-/** The hand in a sentence: "a Pair of Jacks", "Two pair, Kings and Sevens", "Ace high". */
+/** The hand in a sentence: "a Pair of Jacks", "Two pair, Kings and Sevens", "a Straight, Six to Ten", "Ace high". */
 export function handPhrase(hand: Pick<Hand, 'kind' | 'title'>): string {
   const article = hand.kind === 'pair' || hand.kind === 'straight' || hand.kind === 'full-house' || hand.kind === 'straight-flush' || hand.kind === 'royal-flush';
   return article ? `a ${hand.title}` : hand.title;

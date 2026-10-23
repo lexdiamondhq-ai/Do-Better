@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { rankName, type Rank } from './cards';
 import { addDays, weekDays, type Day } from './day';
 import { dealDay, savedCard, type DayCard, type DealHabit, type Slot } from './deal';
 import {
@@ -29,7 +30,8 @@ import {
   type Week,
 } from './game';
 import type { CheckIns, Level } from './kept';
-import { atLeast, HAND_LADDER, HANDS, type Hand, type HandKind } from './poker';
+import { callGap, outs } from './outs';
+import { atLeast, bestHand, HAND_LADDER, HANDS, JOKER_LINE, type Hand, type HandKind } from './poker';
 
 // Mondays.
 const W1 = '2026-09-21';
@@ -182,7 +184,7 @@ describe('Jokers', () => {
     const game = playGame(input({ habits: four, today, days: days({}) }));
     expect(game.current.slots[2].card?.kind).toBe('joker');
     expect(game.pendingJoker).toBe('hearts');
-    expect(game.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Jack of Spades today, so today’s card is a Joker. It has no suit and plays as any rank.' });
+    expect(game.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Jack of Spades today, so today’s card is a Joker.' });
     const monday = playGame(input({ habits: four, today: W3, days: days({}) }));
     expect(monday.pendingJoker).toBe('hearts');
     expect(monday.tips[0]).toEqual({ tone: 'joker', text: 'Keep any habit today and it’s dealt as a Joker.' });
@@ -242,7 +244,7 @@ describe('Jokers and days logged late', () => {
     expect(game.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today. Keep any habit today and it’s dealt as a Joker.' });
     const kept = playGame({ ...input({ today, habits: deck, days: { ...days, move: { ...spades, [today]: 'floor' } } }), late: late('call', yesterday, today) });
     expect(jokerDay(kept)).toBe(today);
-    expect(kept.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today, so today’s card is a Joker. It has no suit and plays as any rank.' });
+    expect(kept.tips[0]).toEqual({ tone: 'joker', text: 'You earned the Queen of Hearts today, so today’s card is a Joker.' });
   });
 
   it('never lands a waiting Joker on a day that was only logged late', () => {
@@ -857,9 +859,100 @@ describe('tips', () => {
     expect(game.tips).toContainEqual({ tone: 'showdown', text: 'One more day you keep something earns a river card at the Showdown.' });
   });
 
-  it('says on Sunday that the hand pays out at midnight', () => {
-    const game = playGame(input({ today: addDays(W3, 6), days: { read: keep(W3, 'floor', 7) } }));
-    expect(game.tips).toContainEqual({ tone: 'showdown', text: 'Last day of the week. Showdown at midnight: your hand pays out.' });
+  it('says on Sunday that the hand pays out at midnight, and names the last draws while any are left', () => {
+    const sunday = addDays(W3, 6);
+    // Sunday kept with the river earned: the river is the last draw.
+    expect(playGame(input({ today: sunday, days: { read: keep(W3, 'floor', 7) } })).tips).toContainEqual({ tone: 'showdown', text: 'Showdown at midnight. The river is your last draw.' });
+    // Sunday not kept yet, with the river earned or one keep away: today's card and the river.
+    expect(playGame(input({ today: sunday, days: { read: keep(W3, 'floor', 6) } })).tips).toContainEqual({ tone: 'showdown', text: 'Showdown at midnight. Today’s card and the river are your last two draws.' });
+    expect(playGame(input({ today: sunday, days: { read: keep(W3, 'floor', 4) } })).tips).toContainEqual({ tone: 'showdown', text: 'Showdown at midnight. Today’s card and the river are your last two draws.' });
+    // No river in reach and Sunday kept: nothing left to draw.
+    expect(playGame(input({ today: sunday, days: { read: { ...run(W3, 2), [sunday]: 'floor' } } })).tips).toContainEqual({ tone: 'showdown', text: 'Last day of the week. Showdown at midnight: your hand pays out.' });
+  });
+
+  it('names yesterday’s saved card in the rescue tip, and says when it lifts the hand', () => {
+    const game = playGame(input({ days: { read: { ...keep(W2), [W3]: 'floor' } } }));
+    const saved = rankOf(game.rescueCard);
+    const tip = game.tips.find((t) => t.tone === 'rescue')!;
+    expect(tip.text.startsWith(`Yesterday’s ${rankName(saved as Rank)} can still be saved`)).toBe(true);
+    // Across many seeds: the tip says it makes a hand exactly when adding the saved card lifts the kind.
+    let lifted = 0;
+    let plain = 0;
+    for (let i = 0; i < 80; i++) {
+      const seed = `save-${i}`;
+      const g = playGame(input({ seed, today: '2026-10-09', days: { read: { ...keep(W2), ...run(W3, 3) } } }));
+      const r = g.tips.find((t) => t.tone === 'rescue');
+      if (!r) continue;
+      const cards = g.current.slots.flatMap((s) => (s.card ? [s.card] : []));
+      const kindNow = g.current.hand!.kind;
+      const kindWith = bestHand([...cards, g.rescueCard!])!.kind;
+      const rank = rankName(rankOf(g.rescueCard) as Rank);
+      if (HAND_LADDER.indexOf(kindWith) > HAND_LADDER.indexOf(kindNow)) {
+        lifted++;
+        expect(r.text).toBe(`Yesterday’s ${rank} can still be saved, and it makes your ${HANDS[kindWith].name}. Keep any habit today.`);
+      } else {
+        plain++;
+        expect(r.text).toBe(`Yesterday’s ${rank} can still be saved. Keep any habit today and it’s yours.`);
+      }
+    }
+    expect(lifted).toBeGreaterThan(0);
+    expect(plain).toBeGreaterThan(0);
+  });
+
+  it('never repeats the Joker rule in the Joker tip', () => {
+    const nine = Object.fromEntries(weekDays(W2).concat(weekDays(W3).slice(0, 2)).map((d) => [d, 'floor' as Level]));
+    const after = playGame(input({ days: { read: { ...nine, '2026-10-07': 'floor' } } }));
+    const joker = after.tips.find((t) => t.tone === 'joker')!;
+    expect(joker.text).toBe('You earned the Jack of Clubs today, so today’s card is a Joker.');
+    for (const tip of after.tips) expect(tip.text).not.toContain(JOKER_LINE);
+  });
+
+  it('gives a draw tip only for an out one card from the call, or a Straight or better with three cards', () => {
+    let toCall = 0;
+    let straights = 0;
+    for (let i = 0; i < 160; i++) {
+      const seed = `draw-${i}`;
+      const today = '2026-10-08';
+      const calls = new Map([[W3, 'full-house' as HandKind]]);
+      const g = playGame(input({ seed, today, habits: [read, walk], calls, days: { read: { ...keep(W2), ...run(W3, 4) }, walk: { ...keep(W2), ...run(W3, 4) } } }));
+      const tip = g.tips.find((t) => t.tone === 'draw');
+      const gap = callGap(g.current, 'full-house', today);
+      expect(g.callGap).toEqual(gap);
+      const big = outs(g.current.slots.flatMap((s) => (s.card ? [s.card] : []))).filter((o) => atLeast(o.makes, 'straight'));
+      if (gap.cards === 1) {
+        toCall++;
+        expect(tip?.text).toMatch(/your Full house/);
+      } else if (big.length) {
+        straights++;
+        expect(tip).toBeDefined();
+      } else expect(tip).toBeUndefined();
+      if (tip) {
+        expect(tip.text).not.toMatch(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b|%/);
+      }
+    }
+    expect(toCall).toBeGreaterThan(0);
+    expect(straights).toBeGreaterThan(0);
+  });
+
+  it('gives no draw tip with no day left to play, before three cards, or in a warm-up week', () => {
+    const sunday = addDays(W3, 6);
+    for (let i = 0; i < 40; i++) {
+      const seed = `none-${i}`;
+      // Sunday kept: today is dealt, so no day is left to draw.
+      const locked = playGame(input({ seed, today: sunday, habits: [read, walk], calls: new Map([[W3, 'four-of-a-kind' as HandKind]]), days: { read: { ...keep(W2), ...keep(W3) }, walk: { ...keep(W2), ...keep(W3) } } }));
+      expect(locked.tips.some((t) => t.tone === 'draw')).toBe(false);
+      // Two cards, no call: too early to talk about outs.
+      const early = playGame(input({ seed, today: addDays(W3, 1), days: { read: { ...keep(W2), ...run(W3, 2) } } }));
+      expect(early.tips.some((t) => t.tone === 'draw')).toBe(false);
+    }
+    // A warm-up week: the first habit started on a Thursday.
+    const late: DealHabit = { ...read, startedOn: '2026-10-08' };
+    for (let i = 0; i < 40; i++) {
+      const warm = playGame(input({ seed: `warm-${i}`, today: '2026-10-11', habits: [late], days: { read: run('2026-10-08', 3) } }));
+      expect(warm.current.warmup).toBe(true);
+      expect(warm.tips.some((t) => t.tone === 'draw')).toBe(false);
+      expect(warm.callGap).toBeNull();
+    }
   });
 
   it('never uses a casino word', () => {
