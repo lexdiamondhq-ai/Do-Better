@@ -210,7 +210,7 @@ export function SwipeCard({
    */
   backFace?: (dir: SwipeDirection) => ReactNode;
 }>) {
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale: textScale } = useWindowDimensions();
   const reduced = useReducedMotion();
   const x = useSharedValue(0);
   const y = useSharedValue(0);
@@ -248,6 +248,9 @@ export function SwipeCard({
   const lifting = useSharedValue(0);
   const slam = useSharedValue(0);
   const wait = useSharedValue(0);
+  // 1 once the bright side is on screen. Until then the dark side stays up, so a slow render of the keep
+  // never leaves an empty card turning in the hand.
+  const backIn = useSharedValue(0);
   // While it turns, the card holds both its sides as they were when it was kept, so nothing on it reflows
   // as the day it just kept updates the screen behind it.
   const [turning, setTurning] = useState<{ dir: 'up' | 'down'; face: TurnFace | null; compact: boolean; front: ReactNode; back: ReactNode } | null>(null);
@@ -326,7 +329,8 @@ export function SwipeCard({
   /** The bright side comes in under the turning card: mounted now, shown once the card is past its edge. */
   const beginTurn = (dir: 'up' | 'down') => {
     const h = cardH.get();
-    const compact = densityFor({ cardHeight: h || height, windowHeight: height, fontScale: 1, screenReader: false }).mode === 'compact';
+    // The same reading of the room as Today's, text size included, so the bright side folds when the deck does.
+    const compact = densityFor({ cardHeight: h || height, windowHeight: height, fontScale: textScale, screenReader: false }).mode === 'compact';
     setTurning({ dir, face: face.get(), compact, front: children, back: backFace?.(dir) ?? null });
     setNote((n) => turnNote(dir, n));
   };
@@ -403,8 +407,13 @@ export function SwipeCard({
     const hold = () => {
       'worklet';
       scheduleOnRN(setBurst, true);
-      slam.set(1);
-      noteIn.set(withSpring(1, { damping: 13, stiffness: 320, mass: 0.7, ...never }));
+      if (reduced) {
+        // With Reduce Motion the note simply appears: nothing lands or grows.
+        noteIn.set(withTiming(1, { duration: 120, ...never }));
+      } else {
+        slam.set(1);
+        noteIn.set(withSpring(1, { damping: 13, stiffness: 320, mass: 0.7, ...never }));
+      }
       wait.set(
         withDelay(
           timing.holdMs,
@@ -568,7 +577,8 @@ export function SwipeCard({
   });
   // The dark side until the card is past its edge, then the bright one. With Reduce Motion the bright side
   // fades in over the dark one, which stays solid underneath so nothing behind the card shows through.
-  const frontStyle = useAnimatedStyle(() => ({ opacity: turn.get() > 1 || cross.get() >= 1 ? 0 : 1 }));
+  // The dark side only goes once the bright side is really there.
+  const frontStyle = useAnimatedStyle(() => ({ opacity: backIn.get() > 0 && (turn.get() > 1 || cross.get() >= 1) ? 0 : 1 }));
   const backStyle = useAnimatedStyle(() => ({ opacity: turn.get() > 1 ? 1 : cross.get() }));
 
   // Each style reads the shared values itself: Reanimated only re-runs a style for values read in its own body.
@@ -599,11 +609,11 @@ export function SwipeCard({
   const noteStyle = useAnimatedStyle(() => {
     const n = noteIn.get();
     const slammed = slam.get() > 0;
-    return { opacity: Math.min(1, slammed ? n * 5 : n), transform: [{ rotate: '-6deg' }, { scale: slammed ? 1.35 - 0.35 * n : 0.8 + 0.2 * n }] };
+    return { opacity: Math.min(1, slammed ? n * 5 : n), transform: [{ rotate: '-6deg' }, { scale: reduced ? 1 : slammed ? 1.35 - 0.35 * n : 0.8 + 0.2 * n }] };
   });
   const turnStampStyle = useAnimatedStyle(() => {
     const n = noteIn.get();
-    return { opacity: Math.min(1, n * 5), transform: [{ rotate: '-9deg' }, { scale: 1.35 - 0.35 * n }] };
+    return { opacity: Math.min(1, reduced ? n : n * 5), transform: [{ rotate: '-9deg' }, { scale: reduced ? 1 : 1.35 - 0.35 * n }] };
   });
 
   const ways: { dir: SwipeDirection; style: typeof upStyle; at: ViewStyle }[] = [
@@ -645,7 +655,15 @@ export function SwipeCard({
           {turns ? <TurnContext.Provider value={turnover}>{turning ? turning.front : children}</TurnContext.Provider> : children}
         </Animated.View>
         {turning ? (
-          <Animated.View pointerEvents="none" aria-hidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, backStyle]}>
+          <Animated.View
+            pointerEvents="none"
+            aria-hidden
+            importantForAccessibility="no-hide-descendants"
+            style={[StyleSheet.absoluteFill, backStyle]}
+            onLayout={() => {
+              backIn.set(1);
+            }}
+          >
             <BackDensity.Provider value={{ compact: turning.compact }}>{turning.back}</BackDensity.Provider>
             {burst ? (
               <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius.card, overflow: 'hidden' }]}>
