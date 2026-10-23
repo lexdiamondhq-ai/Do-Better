@@ -7,13 +7,13 @@ import Animated, { Easing, ReduceMotion, useAnimatedStyle, useReducedMotion, use
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { SUIT_INFO } from '@/engine/cards';
+import { SUIT_INFO, type Suit } from '@/engine/cards';
 import { comebackKeptToday, planOffered } from '@/engine/comeback';
 import { weekday } from '@/engine/day';
 import type { BackKey } from '@/engine/game';
 import { improves } from '@/engine/game';
 import type { Level } from '@/engine/kept';
-import { HANDS } from '@/engine/poker';
+import { HANDS, type Hand } from '@/engine/poker';
 import { eventStale, grouped, JOKER_LINE, jokerResult, momentDelay, momentOf, receiptCopy, woreAt, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
 import { useData, useEvents, type GameEvent } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
@@ -66,7 +66,11 @@ const rungLine = (rung: Rung) => `And ${grouped(rung.days)} days of ${SUIT_INFO[
  * it was kept from its Comeback side. A moment from that keep waits for the Comeback's turnover, and only a
  * keep made on the Comeback card itself offers a plan.
  */
-export type KeepNote = { habitId: string; level: Level; was: Level | null; comeback: boolean };
+/**
+ * A keep made on Today: the habit and its suit, the level, what today was before, whether it was on the
+ * Comeback card, and the week's hand just before it (a face card's Joker says how far it lifted the hand).
+ */
+export type KeepNote = { habitId: string; suit: Suit; level: Level; was: Level | null; comeback: boolean; handWas: Hand | null };
 
 /** A tiny store, so Today can tell the moments drawn over every screen about itself without a prop. */
 function store<T>(initial: T) {
@@ -109,6 +113,8 @@ const useReceiptAnchor = () => useSyncExternalStore(receiptAnchor.subscribe, rec
 
 /** The habit a moment's check-in was on, if it says. */
 const habitOf = (e: GameEvent): string | null => ('habitId' in e ? e.habitId : null);
+/** Whether a moment came from this keep: its check-in was on the keep's habit, or it is a face card in the keep's suit. */
+const fromKeep = (e: GameEvent, keep: KeepNote): boolean => habitOf(e) === keep.habitId || (e.kind === 'face' && e.suit === keep.suit);
 
 /**
  * What the last check-in did, one moment at a time and never a stack: a face card earned in the Court,
@@ -148,7 +154,11 @@ export function GameEvents({ back }: { back: BackKey }) {
   }, [gone, dismissEvent]);
 
   if (!moment) return null;
-  const done = () => moment.ids.forEach(dismissEvent);
+  const done = () => {
+    moment.ids.forEach(dismissEvent);
+    // The keep has had its moment: a later one from another screen never borrows it.
+    lastKeep.set(null);
+  };
   const { main } = moment;
   const milestone = moment.also.find((e): e is Extract<GameEvent, { kind: 'milestone' }> => e.kind === 'milestone');
   const rung = moment.also.find((e): e is Rung => e.kind === 'rung');
@@ -165,13 +175,14 @@ export function GameEvents({ back }: { back: BackKey }) {
 
   // A moment rises once the card that caused it has left the table and today's card has landed in the
   // week: after a Comeback's turnover too, when the keep was on the Comeback card.
-  const fromComeback = !!keep?.comeback && [main, ...moment.also].some((e) => habitOf(e) === keep.habitId);
+  const ownKeep = keep && [main, ...moment.also].some((e) => fromKeep(e, keep)) ? keep : null;
+  const fromComeback = !!ownKeep?.comeback;
   const wait = momentDelay({ comeback: fromComeback, reduced });
   const deal = moment.also.find((e): e is Deal => e.kind === 'deal') ?? null;
   if (main.kind === 'face')
     return (
       <Later key={main.id} ms={wait}>
-        <FaceEarned event={main} deal={deal} also={alsoLine} onUndoLate={undoLate} onDone={done} />
+        <FaceEarned event={main} deal={deal} handWas={deal ? deal.deal.handWas : ownKeep ? ownKeep.handWas : undefined} also={alsoLine} onUndoLate={undoLate} onDone={done} />
       </Later>
     );
   if (main.kind === 'first')
@@ -189,7 +200,7 @@ export function GameEvents({ back }: { back: BackKey }) {
   // A late log isn't a keep on the table: its receipt comes at once.
   return (
     <Later key={main.id} ms={main.kind === 'deal' ? wait : 0}>
-      <ReceiptBanner moment={moment} back={back} keep={keep} onDone={done} />
+      <ReceiptBanner moment={moment} back={back} keep={ownKeep} onDone={done} />
     </Later>
   );
 }
@@ -652,6 +663,7 @@ function MomentButton({ label, ready, onPress }: { label: string; ready: boolean
 function FaceEarned({
   event,
   deal,
+  handWas,
   also,
   onUndoLate,
   onDone,
@@ -659,6 +671,8 @@ function FaceEarned({
   event: Extract<GameEvent, { kind: 'face' }>;
   /** Today's card from the same keep, when it dealt one: what the Joker did for the hand. */
   deal: Deal | null;
+  /** The week's hand before the keep that earned this, when it is known (null: there was none yet). */
+  handWas: Hand | null | undefined;
   also: string | null;
   /** Takes back the day logged late that earned this face card, when one did. */
   onUndoLate: (() => void) | null;
@@ -705,7 +719,6 @@ function FaceEarned({
   // A Joker always lands on a day kept on the day itself, so it is today's card when it comes now: say what it
   // did for the hand. Otherwise, where it will land.
   const hand = deal?.deal.hand ?? deck?.game.current.hand ?? null;
-  const handWas = deal?.deal.handWas ?? null;
   const chips = hand ? HANDS[hand.kind].chips : 0;
   const result = withJoker ? jokerResult(hand, { chips, chipsWas: handWas ? HANDS[handWas.kind].chips : chips, warmup: !!deck?.game.current.warmup }) : null;
   const jokerLine = withJoker

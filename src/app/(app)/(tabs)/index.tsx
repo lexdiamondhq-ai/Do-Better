@@ -363,7 +363,7 @@ function Table({ deck }: { deck: Deck }) {
   function keep(view: HabitView, level: Level, firstMove = false) {
     const id = view.habit.id;
     // The moments drawn over Today wait for a Comeback's turnover, and only a keep on the Comeback card offers a plan.
-    noteKeep({ habitId: id, level, was: view.today, comeback: !!view.neverTwice });
+    noteKeep({ habitId: id, suit: view.habit.suit, level, was: view.today, comeback: !!view.neverTwice, handWas: game.current.hand });
     playSound(keepSound(view.habit.suit, level, { comeback: !!view.neverTwice }));
     if (view.neverTwice) feel.turnover();
     else if (level === 'ceiling') feel.ceiling();
@@ -685,7 +685,7 @@ function Table({ deck }: { deck: Deck }) {
       base={base}
       sunday={weekday(deck.today) === 6}
       fresh={weekday(deck.today) === 0 && !game.current.slots.some((x) => !!x.card)}
-      held={!!moment}
+      held={bigMoment || !!flight}
       tip={density.mergeTip ? tip : null}
       tipVeiled={tipVeiled}
       tipCount={tips.length}
@@ -1175,7 +1175,7 @@ function Pills({
 }) {
   const t = useTheme();
   const scroll = useRef<ScrollView>(null);
-  const room = useRef({ x: 0, width: 0, content: 0, spots: new Map<string, { x: number; w: number }>() });
+  const room = useRef({ x: 0, width: 0, content: 0, spots: new Map<string, { x: number; w: number }>(), shown: undefined as string | null | undefined });
   const [edges, setEdges] = useState({ left: false, right: false });
   const [snaps, setSnaps] = useState<number[]>([]);
 
@@ -1191,22 +1191,25 @@ function Pills({
     setSnaps((was) => (was.length === at.length && was.every((v, i) => v === at[i]) ? was : at));
   };
 
-  /** Scrolls just enough to show a pill whole, clear of the soft edges. */
-  const reveal = (id: string | null) => {
+  /** Scrolls just enough to show a pill whole, clear of the soft edges. False while it can't be placed yet. */
+  const reveal = (id: string | null): boolean => {
     const r = room.current;
     const spot = id ? r.spots.get(id) : undefined;
-    if (!spot || !r.width) return;
+    if (!spot || !r.width) return false;
     const pad = PILL_FADE + 4;
     let x = r.x;
     if (spot.x - pad < r.x) x = Math.max(0, spot.x - space.lg);
     else if (spot.x + spot.w + pad > r.x + r.width) x = Math.min(Math.max(0, r.content - r.width), spot.x + spot.w + pad - r.width);
-    if (x === r.x) return;
+    if (x === r.x) return true;
     r.x = x;
     scroll.current?.scrollTo({ x, animated: true });
+    return true;
   };
 
+  // Once for each new front card: after that the row stays wherever the player scrolls it.
   useEffect(() => {
-    reveal(frontId);
+    if (room.current.shown === frontId) return;
+    if (reveal(frontId) || frontId === null) room.current.shown = frontId;
   });
 
   return (
@@ -1325,8 +1328,15 @@ function Pills({
   );
 }
 
-/** How the soft edge builds up: thin bands of the felt, each a little more solid towards the edge. */
-const FADE_BANDS = Array.from({ length: 10 }, (_, i) => ({ left: (i * PILL_FADE) / 10, opacity: Math.pow((i + 1) / 10, 1.6) }));
+/**
+ * How the soft edge builds up: 14 layers of the felt, each starting 2 px further out and running to the
+ * edge, so together they deepen smoothly to solid with no seams between them.
+ */
+const FADE_BANDS = (() => {
+  const n = PILL_FADE / 2;
+  const reach = (k: number) => Math.pow((k + 1) / n, 1.6);
+  return Array.from({ length: n }, (_, k) => ({ left: k * 2, opacity: k === 0 ? reach(0) : 1 - (1 - reach(k)) / (1 - reach(k - 1)) }));
+})();
 
 /** The pill row running on under the felt at one end: drawn in the table's own colour, taking no touches. */
 function EdgeFade({ side, felt }: { side: 'left' | 'right'; felt: React.ComponentProps<typeof Animated.View>['style'] }) {
@@ -1339,7 +1349,7 @@ function EdgeFade({ side, felt }: { side: 'left' | 'right'; felt: React.Componen
       style={{ position: 'absolute', top: 0, bottom: 0, width: PILL_FADE, [side]: 0, transform: side === 'left' ? [{ scaleX: -1 }] : undefined }}
     >
       {FADE_BANDS.map((band) => (
-        <Animated.View key={band.left} style={[{ position: 'absolute', top: 0, bottom: 0, left: band.left, width: PILL_FADE / 10 + 0.5, opacity: band.opacity }, felt]} />
+        <Animated.View key={band.left} style={[{ position: 'absolute', top: 0, bottom: 0, left: band.left, right: 0, opacity: band.opacity }, felt]} />
       ))}
     </Animated.View>
   );
