@@ -235,7 +235,7 @@ describe('recommend', () => {
     const habits = [facts({ id: 'r', name: 'Read', comebacks30: 1, hasPlan: false }), facts({ id: 'w', name: 'Walk', comebacks30: 2, hasPlan: false })];
     const rec = recommend({ ...calm, habits }).find((r) => r.principle.key === 'obstacle');
     expect(rec).toMatchObject({
-      reason: 'Walk’s next Comeback',
+      reason: 'Walk keeps coming back',
       text: 'Walk came back twice this month. A plan for next time makes the next Comeback easier.',
       cta: 'Make a plan for Walk',
       habitId: 'w',
