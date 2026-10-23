@@ -127,7 +127,7 @@ function Table({ deck }: { deck: Deck }) {
   const [stripArc, setStripArc] = useState<StripArc | null>(null);
   // Turns today's card over in the strip once each time it changes: after a face card's night, for its Joker.
   const [turnToday, setTurnToday] = useState(0);
-  const [faceUp, setFaceUp] = useState(false);
+  const [faceUp, setFaceUp] = useState<'joker' | 'plain' | null>(null);
   const swipe = useRef<SwipeHandle>(null);
   const prompted = useRef(new Set<string>());
   const keptSoFar = useRef(deck.totals.kept);
@@ -213,11 +213,12 @@ function Table({ deck }: { deck: Deck }) {
   // A tip can name the card a face-card moment is about to show, so until it closes the tip keeps its place but shows nothing.
   const tipVeiled = bigMoment;
 
-  // When a face card's night closes, the hand line rolls to the new hand and today's Joker turns over in the strip.
-  const faceNow = moment?.kind === 'face';
+  // When a face card's night closes, the hand line rolls to the new hand and, when the night brought it, today's
+  // Joker turns over in the strip.
+  const faceNow = moment?.main.kind === 'face' ? (moment.main.joker ? 'joker' : 'plain') : null;
   if (faceNow !== faceUp) {
     setFaceUp(faceNow);
-    if (!faceNow && deck.todayCard?.kind === 'joker') setTurnToday((n) => n + 1);
+    if (!faceNow && faceUp === 'joker' && deck.todayCard?.kind === 'joker') setTurnToday((n) => n + 1);
   }
 
   // Monday's backs: the week's days to come deal into the strip face down, once a week (remembered on this phone).
@@ -225,7 +226,7 @@ function Table({ deck }: { deck: Deck }) {
   const monday = week.start;
   const backsToDeal = week.slots.filter((x) => x.state === 'future').length;
   const dealPending = ready && hasCardsNow(deck) && weekDealDue({ seen: hasSeen(prefs, seed, weekDealtKey(monday)), reduced, inFront: true, list: density.mode === 'list', cards: backsToDeal });
-  const dealt = useSharedValue(1);
+  const dealt = useSharedValue(dealPending ? 0 : 1);
 
   // Effects ---------------------------------------------------------------------------------------------
   useEffect(() => {
@@ -293,8 +294,9 @@ function Table({ deck }: { deck: Deck }) {
   }, [frontKey, frontFelt, nextFelt, pull, feltNow, feltNext]);
 
   // The backs wait face down out of sight until Today is in front, then deal in: one deal sound, any touch finishes it.
+  // A deal that can't happen any more (the list, Reduce Motion) leaves the backs in place, never hidden.
   useEffect(() => {
-    if (dealPending && !dealing.current) dealt.set(0);
+    if (!dealing.current) dealt.set(dealPending ? 0 : 1);
   }, [dealPending, dealt]);
   useEffect(() => {
     if (!dealPending || !inFront) return;
@@ -309,8 +311,18 @@ function Table({ deck }: { deck: Deck }) {
     return () => clearTimeout(id);
   }, [dealPending, inFront, markSeen, seed, monday, backsToDeal, dealt]);
 
-  // The receipt drops in under the strip, so it is told where the strip ends; when Today goes, receipts go back to the top.
+  // The receipt drops in under the strip, so it is told where the strip ends; when Today goes, or turns into the
+  // list (which has no fixed strip), receipts go back to the top.
   useEffect(() => () => anchorReceipts(null), []);
+  const listMode = density.mode === 'list';
+  useEffect(() => {
+    if (listMode) anchorReceipts(null);
+  }, [listMode]);
+  // The list has no deal arc: a card still in flight when the cards turn into rows is let go, so nothing waits on it.
+  if (listMode && flight) {
+    setFlight(null);
+    setStripArc((a) => (a ? { ...a, phase: 'landed' } : a));
+  }
 
   // The chip's few seconds don't run out behind a face card or a milestone: they start again when it closes.
   useEffect(() => {
@@ -427,6 +439,8 @@ function Table({ deck }: { deck: Deck }) {
     const from = at ?? deckMiddle ?? { x: to.x + to.width / 2, y: to.y + 260 };
     setFlight({ id: n, from, to, delayMs, reduced });
     setStripArc({ phase: 'flying', savedDay: game.rescue, n });
+    // The arc turns today's card over in its place, so the strip doesn't turn it again once it lands.
+    setTurnToday(0);
   };
 
   function landed(id: number) {
@@ -685,7 +699,7 @@ function Table({ deck }: { deck: Deck }) {
       base={base}
       sunday={weekday(deck.today) === 6}
       fresh={weekday(deck.today) === 0 && !game.current.slots.some((x) => !!x.card)}
-      held={bigMoment || !!flight}
+      held={bigMoment || (!!flight && !listMode)}
       tip={density.mergeTip ? tip : null}
       tipVeiled={tipVeiled}
       tipCount={tips.length}
@@ -835,7 +849,7 @@ function Table({ deck }: { deck: Deck }) {
         </View>
         {!front && hasCards ? <BottomFade height={fadeHeight(bottomPad)} /> : null}
       </ThemeScope>
-      <DealArc flight={flight} face={deck.todayCard ? faceOfDay(deck.todayCard) : null} back={back} onLanded={landed} />
+      <DealArc flight={flight} face={deck.todayCard ? faceOfDay(deck.todayCard, game.current.hand?.cards.find((c) => c.day === deck.today)?.suit) : null} back={back} onLanded={landed} />
       {interruption === 'reminder' ? <ReminderPrompt /> : null}
     </View>
   );
@@ -971,10 +985,10 @@ function HandLine({
   }
   const rollN = roll?.n ?? 0;
   const climbed = !!roll && roll.from !== null && copy.pays !== null && copy.pays > roll.from;
+  // The chips tick is a sound: the haptic for this beat is the deal arc's tick as the card lands.
   useEffect(() => {
     if (!rollN || !climbed) return;
     playSound('chips', 120);
-    feel.tick();
   }, [rollN, climbed]);
   return (
     <View style={{ marginHorizontal: space.xl, marginTop: space.sm, gap: 4 }}>
