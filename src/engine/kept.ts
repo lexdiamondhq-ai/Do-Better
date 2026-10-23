@@ -127,6 +127,18 @@ export function keptDayCount(checkIns: Iterable<CheckIns>, upTo: Day): number {
 }
 
 /**
+ * Ceiling days across the whole deck up to and including `upTo`: calendar days with at least one Ceiling.
+ * Two Ceilings on the same day make one Ceiling day, so it is never more than `keptDayCount`.
+ */
+export function ceilingDayCount(checkIns: Iterable<CheckIns>, upTo: Day): number {
+  const days = new Set<Day>();
+  for (const habit of checkIns) {
+    for (const [day, level] of habit) if (level === 'ceiling' && day <= upTo) days.add(day);
+  }
+  return days.size;
+}
+
+/**
  * The missed day the Comeback card should be shown for, or null.
  * That is yesterday, when yesterday counted, had no check-in, and today isn't kept yet.
  */
@@ -154,6 +166,19 @@ export function bounceBacks(startedOn: Day, upTo: Day, checkIns: CheckIns): numb
   for (let day = startedOn; daysBetween(day, upTo) > 0; day = addDays(day, 1)) {
     const next = addDays(day, 1);
     if (dayStatus(day, startedOn, upTo, checkIns) === 'missed' && checkIns.has(next)) count++;
+  }
+  return count;
+}
+
+/**
+ * Comebacks made on a card in the last `days` days, today included: kept days that came straight after a
+ * day it missed. The same count as `bounceBacks`, over a window, for the coach's "came back twice this month".
+ */
+export function comebacksWithin(startedOn: Day, today: Day, checkIns: CheckIns, days = 30): number {
+  let count = 0;
+  for (let i = 0; i < days; i++) {
+    const kept = addDays(today, -i);
+    if (checkIns.has(kept) && dayStatus(addDays(kept, -1), startedOn, today, checkIns) === 'missed') count++;
   }
   return count;
 }

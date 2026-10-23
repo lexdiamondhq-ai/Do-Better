@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { best30, bounceBacks, calendarWeeks, comebackAnswer, daysAway, dayStatus, indexCheckIns, keptBetween, keptDayCount, masteryOf, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
+import { best30, bounceBacks, calendarWeeks, ceilingDayCount, comebackAnswer, comebacksWithin, daysAway, dayStatus, indexCheckIns, keptBetween, keptDayCount, masteryOf, neverTwiceDay, recentDays, summarizeWindow, totals, type Level } from './kept';
 import { addDays, weekday, weekStart } from './day';
 import { dealWeek } from './deal';
 
@@ -76,6 +76,46 @@ describe('keptDayCount', () => {
     const b = days({ '2026-10-09': 'floor', '2026-10-10': 'ceiling' });
     expect(keptDayCount([a, b], '2026-10-10')).toBe(3);
     expect(keptDayCount([], '2026-10-10')).toBe(0);
+  });
+});
+
+describe('ceilingDayCount', () => {
+  it('counts calendar days with any Ceiling, once each, up to the given day', () => {
+    const a = days({ '2026-10-08': 'ceiling', '2026-10-09': 'ceiling', '2026-10-11': 'ceiling' });
+    const b = days({ '2026-10-09': 'ceiling', '2026-10-10': 'floor' });
+    // Two habits' Ceilings on the 9th make one Ceiling day; the 11th is after the day asked about.
+    expect(ceilingDayCount([a, b], '2026-10-10')).toBe(2);
+    expect(ceilingDayCount([a, b], '2026-10-11')).toBe(3);
+    expect(ceilingDayCount([], '2026-10-10')).toBe(0);
+  });
+
+  it('is never more than the kept days, whatever the deck', () => {
+    const levels: Level[] = ['floor', 'ceiling'];
+    for (let seed = 1; seed <= 40; seed++) {
+      const deck = Array.from({ length: 1 + (seed % 4) }, (_, h) => {
+        const m = new Map<string, Level>();
+        for (let i = 0; i < 60; i++) if ((seed * 7 + h * 13 + i * 5) % 3 !== 0) m.set(addDays('2026-08-01', i), levels[(seed + h + i) % 2]);
+        return m;
+      });
+      const upTo = addDays('2026-08-01', 20 + seed);
+      expect(ceilingDayCount(deck, upTo)).toBeLessThanOrEqual(keptDayCount(deck, upTo));
+    }
+  });
+});
+
+describe('comebacksWithin', () => {
+  it('counts kept days straight after a miss, inside the window', () => {
+    // Started the 1st. Missed the 2nd (back the 3rd), missed the 4th and 5th (back the 6th), missed the 20th (back today, the 21st).
+    const checkIns = days({ '2026-10-01': 'floor', '2026-10-03': 'floor', '2026-10-06': 'ceiling', ...Object.fromEntries(Array.from({ length: 13 }, (_, i) => [addDays('2026-10-07', i), 'floor' as Level])), '2026-10-21': 'floor' });
+    expect(comebacksWithin('2026-10-01', '2026-10-21', checkIns)).toBe(3);
+    expect(comebacksWithin('2026-10-01', '2026-10-21', checkIns, 30)).toBe(bounceBacks('2026-10-01', '2026-10-21', checkIns));
+    // A 10-day window reaches back to the 12th: only today's comeback is in it.
+    expect(comebacksWithin('2026-10-01', '2026-10-21', checkIns, 10)).toBe(1);
+  });
+
+  it('never counts a first day that wasn’t kept, or today before it is kept', () => {
+    expect(comebacksWithin('2026-10-12', '2026-10-13', days({ '2026-10-13': 'floor' }))).toBe(0);
+    expect(comebacksWithin('2026-10-01', '2026-10-05', days({ '2026-10-01': 'floor', '2026-10-02': 'floor', '2026-10-03': 'floor' }))).toBe(0);
   });
 });
 
