@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useId, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Image, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type View as ViewType } from 'react-native';
 import Animated, { Easing, useAnimatedReaction, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -291,20 +291,24 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   };
 
   // The table turns the next card itself when nobody taps for a moment, and gathers the hand once all are up.
-  useEffect(() => {
-    if (phase !== 'turn') return;
+  // The choice reads this render's cards; the effect below runs it again on every turn.
+  const nextOnItsOwn = useEffectEvent((): ReturnType<typeof setTimeout> | null => {
     const next = items.findIndex((item, i) => !item.river && !turned[i]);
-    let timer: ReturnType<typeof setTimeout>;
-    if (next >= 0) timer = setTimeout(() => turn(next), turned.some(Boolean) ? IDLE_MS : IDLE_MS + 500);
-    else if (riverIndex >= 0 && !turned[riverIndex]) {
+    if (next >= 0) return setTimeout(() => turn(next), turned.some(Boolean) ? IDLE_MS : IDLE_MS + 500);
+    if (riverIndex >= 0 && !turned[riverIndex]) {
       // The river only waits to be held once the table has said "The river decides".
-      if (!decided) return;
-      timer = setTimeout(() => turn(riverIndex), RIVER_WAIT_MS);
+      if (!decided) return null;
+      return setTimeout(() => turn(riverIndex), RIVER_WAIT_MS);
     }
     // The last card gets a moment on the table, with the hand's name up big, before the hand gathers.
-    else timer = setTimeout(startGather, riverIndex >= 0 ? RIVER_FLIP_MS + 700 : FLIP_MS + 700);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs again on every turn, which is the point
+    return setTimeout(startGather, riverIndex >= 0 ? RIVER_FLIP_MS + 700 : FLIP_MS + 700);
+  });
+  useEffect(() => {
+    if (phase !== 'turn') return;
+    const timer = nextOnItsOwn();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [phase, turned, decided]);
 
   // The hold before the river: the last day finishes turning, then the table waits DECIDE_MS.
@@ -380,19 +384,21 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
     }, 600);
   };
 
+  // Once, when the Showdown opens: a screen reader goes straight to the result and hears it said.
+  const openedAtResult = useRef(startAtResult);
+  const jumpForReader = useEffectEvent(() => jump(true));
   useEffect(() => {
     // The web always says a screen reader is on, so it can't tell; there the Skip button is the way through.
-    if (startAtResult || Platform.OS === 'web') return;
+    if (openedAtResult.current || Platform.OS === 'web') return;
     let live = true;
     AccessibilityInfo.isScreenReaderEnabled()
       .then((on) => {
-        if (on && live) jump(true);
+        if (on && live) jumpForReader();
       })
       .catch(() => {});
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the Showdown opens
   }, []);
 
   const onHalf = (i: number) => {
