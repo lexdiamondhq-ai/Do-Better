@@ -173,6 +173,20 @@ describe('what the Floor days made', () => {
     expect(without.kind).toBe('three-of-a-kind');
   });
 
+  it('names the river when the Floor days only earned it, with no Floor day among the five', () => {
+    // Four Ceiling days and one Floor day earn the river, a Nine that makes Three of a kind. The Floor day's
+    // Two isn't in the hand, but without it only four days are kept and the river goes: a Pair of Nines.
+    const w = weekOf([up(9), up(9), up(13), floor(2), up(12)], 9);
+    expect(w.hand?.kind).toBe('three-of-a-kind');
+    expect(floorCredit(w)).toMatchObject({ inHand: 0, made: true, earnedRiver: true });
+    expect(floorCredit(w).without?.kind).toBe('pair');
+    expect(madeThisLine(w)).toBe('Your Floor days earned the river that made this Three of a kind.');
+    // A Floor day in the five still gets the plain line, even when the river goes too.
+    const both = weekOf([up(2, 'hearts'), floor(3), up(4, 'spades'), floor(5), up(9, 'diamonds')], 6);
+    expect(floorCredit(both).earnedRiver).toBeUndefined();
+    expect(madeThisLine(both)).toBe('Floor days made this Straight. Without them: Nine high.');
+  });
+
   it('counts the Floor days in the hand when they changed nothing, from three of them', () => {
     const w = weekOf([floor(13), floor(9), floor(7), up(5), up(5)]);
     expect(madeThisLine(w)).toBe('3 of these 5 cards are Floor days.');
@@ -189,6 +203,8 @@ describe('what the Floor days made', () => {
       if (credit.without) expect(credit.without.score).toBeLessThanOrEqual(w.hand!.score);
       // Credit only when the kind changed.
       expect(credit.made).toBe(!credit.without || handIndex(credit.without.kind) < handIndex(w.hand!.kind));
+      // The river line only when no Floor day is among the five and the river is.
+      if (credit.earnedRiver) expect(credit.inHand === 0 && w.hand!.cards.some((c) => c.river)).toBe(true);
       const back = comebackCredit(w);
       if (back) expect(w.hand!.cards.map((c) => c.day)).toContain(back.day);
       const line = madeThisLine(w);

@@ -46,8 +46,12 @@ function dropped(hand: Hand, without: Hand | null): boolean {
   return !without || handIndex(without.kind) < handIndex(hand.kind);
 }
 
-/** How many of the hand's cards are Floor days, and the hand without them when that changed its kind. */
-export type FloorCredit = { inHand: number; of: number; without: Hand | null; made: boolean };
+/**
+ * How many of the hand's cards are Floor days, and the hand without them when that changed its kind.
+ * `earnedRiver` when none of the five is a Floor day and the kind changed only because, without them, the
+ * week no longer earns the river that made the hand.
+ */
+export type FloorCredit = { inHand: number; of: number; without: Hand | null; made: boolean; earnedRiver?: boolean };
 
 /**
  * The hand with every Floor day taken out. The river card stays only if the days still kept without them
@@ -65,7 +69,9 @@ export function floorCredit(week: Week): FloorCredit {
   const keptLeft = rest.filter((c) => !saved(c)).length;
   const river = week.river.card && keptLeft >= RIVER_DAYS ? [week.river.card] : [];
   const without = bestHand([...rest, ...river]);
-  return { inHand, of: hand.cards.length, without, made: dropped(hand, without) };
+  const made = dropped(hand, without);
+  const earnedRiver = made && inHand === 0 && !river.length && hand.cards.some((c) => c.river);
+  return { inHand, of: hand.cards.length, without, made, ...(earnedRiver ? { earnedRiver } : {}) };
 }
 
 /**
@@ -108,6 +114,8 @@ export function madeThisLine(week: Week): string | null {
   const back = comebackCredit(week);
   if (back) return `↺ ${dayName(addDays(back.day, 1))}’s comeback made this ${kind}.`;
   const floor = floorCredit(week);
+  // With no Floor day among the five, what they did was earn the river that made the hand: say that.
+  if (floor.made && floor.earnedRiver) return `Your Floor days earned the river that made this ${kind}.`;
   if (floor.made) return `Floor days made this ${kind}. Without them: ${floor.without ? floor.without.title : 'no hand'}.`;
   if (riverCredit(week)) return `The river made this ${kind}.`;
   if (floor.inHand >= 3) return floor.inHand === floor.of ? 'Every card here is a Floor day.' : `${floor.inHand} of these ${floor.of} cards are Floor days.`;
