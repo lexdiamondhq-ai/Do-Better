@@ -452,6 +452,12 @@ describe('words', () => {
     const line = riverOutsLine(live([7, 7, 7, 13, null], DAYS[4]));
     expect(line).toBe('On the river: any Seven makes Four of a kind. A King makes a Full house. If you keep something today.');
     expect(riverOutsLine(live([7, 7, 7, 13, 9], DAYS[4]))).toBe('On the river: any Seven makes Four of a kind. A King or a Nine makes a Full house.');
+    // Sunday, four kept and nothing kept yet today: the last chance at the river, said with today's card.
+    const sunday = live([7, null, 7, 7, null, 13, null], SUN);
+    expect(riverOutsLine(sunday)).toBe('On the river: any Seven makes Four of a kind. A King makes a Full house. If you keep something today.');
+    expect(drawsLine(sunday, SUN)).toBe('Today’s card and the river are your last two draws.');
+    // Once today is kept the river is earned, and the suffix goes.
+    expect(riverOutsLine(live([7, null, 7, 7, null, 13, 9], SUN))).not.toContain('If you keep something today');
   });
 
   it('caps the ghost cards at six, best kind first', () => {
