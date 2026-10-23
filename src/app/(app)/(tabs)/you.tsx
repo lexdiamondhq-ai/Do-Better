@@ -1,10 +1,12 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { Linking, Pressable, ScrollView, TextInput, View, useColorScheme, useWindowDimensions } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import { ArrangeDeck } from '@/components/ArrangeDeck';
 import { ask, menu } from '@/components/Ask';
 import { CardBack } from '@/components/CardBack';
+import { CardPicture, PICTURE_CARD } from '@/components/CardOut';
 import { ChipIcon, Chips, formatChips } from '@/components/Chips';
 import { CardSlot, faceOfCourt, PlayingCard, type CardFace } from '@/components/PlayingCard';
 import { ReminderSettings } from '@/components/Reminders';
@@ -17,7 +19,7 @@ import { FACES, RUNGS, type CourtSuit } from '@/engine/court';
 import { BACKS, TABLES, type TableKey } from '@/engine/game';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
-import { useAdded, useDeck, useLook } from '@/lib/deck';
+import { useAdded, useDeck, useLook, type HabitView } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { sendInvite } from '@/lib/invite';
 import { usePrefs } from '@/lib/prefs';
@@ -80,9 +82,10 @@ export default function You() {
       <Section title="Your numbers">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
           {[
-            { n: deck.totals.kept, label: 'kept days' },
-            { n: deck.totals.ceilings, label: 'Ceilings reached' },
-            { n: deck.totals.rescues, label: 'empty days saved' },
+            // Both are calendar days across the deck, so Ceiling days can never pass Kept days.
+            { n: deck.totals.kept, label: 'Kept days' },
+            { n: deck.totals.ceilings, label: 'Ceiling days' },
+            { n: deck.totals.rescues, label: 'Empty days saved' },
             { n: deck.totals.jokers, label: 'Jokers dealt' },
           ].map((s) => (
             <View key={s.label} accessible accessibilityLabel={`${s.n} ${s.label}`} style={{ flexGrow: 1, flexBasis: '45%', backgroundColor: t.bgRaised, borderRadius: radius.md, padding: space.lg, ...edgeBorder(t) }}>
@@ -100,6 +103,20 @@ export default function You() {
       </Section>
 
       <Section title="Your deck" action={deck.cards.length ? <Label>{`${deck.cards.length} ${deck.cards.length === 1 ? 'card' : 'cards'}`}</Label> : undefined}>
+        {deck.cards.length ? (
+          <MiniDeck
+            cards={deck.cards}
+            onOpen={(id) => router.push({ pathname: '/habit/[id]', params: { id } })}
+            onArrange={
+              deck.cards.length > 1
+                ? () => {
+                    feel.floor();
+                    setArranging(true);
+                  }
+                : undefined
+            }
+          />
+        ) : null}
         {deck.cards.length > 1 ? (
           <Button
             label="Arrange your deck"
@@ -491,6 +508,76 @@ function Backs({ open }: { open: ReadonlySet<string> }) {
 
 /* ---------------------------------------------------------------- deck, settings and account */
 
+/** How much of each card in the mini deck shows past the one in front of it, when there is room. */
+const MINI_SHOWS = 0.9;
+
+/**
+ * Your deck, fanned out small, each card as Today deals it, wear and thumb mark included. Tap a card to
+ * open its page; hold one to arrange the deck. Cards lie left to right in deck order, each over the one
+ * before, the way a hand of cards is held.
+ */
+function MiniDeck({ cards, onOpen, onArrange }: { cards: HabitView[]; onOpen: (id: string) => void; onArrange?: () => void }) {
+  const [width, setWidth] = useState(0);
+  const n = cards.length;
+  const cardW = Math.max(78, Math.min(124, width / (1 + MINI_SHOWS * (n - 1))));
+  const cardH = (cardW * PICTURE_CARD.h) / PICTURE_CARD.w;
+  const step = n > 1 ? Math.min(cardW * MINI_SHOWS, (width - cardW) / (n - 1)) : 0;
+  const left = (width - (cardW + step * (n - 1))) / 2;
+  const mid = (n - 1) / 2;
+  return (
+    <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={{ height: cardH + 34, marginTop: space.xs }}>
+      {width
+        ? cards.map((view, i) => {
+            const off = i - mid;
+            return (
+              <MiniCard
+                key={view.habit.id}
+                view={view}
+                width={cardW}
+                x={left + i * step}
+                y={8 + off * off * 1.6}
+                turn={off * 3.5}
+                onOpen={() => onOpen(view.habit.id)}
+                onArrange={onArrange}
+              />
+            );
+          })
+        : null}
+    </View>
+  );
+}
+
+function MiniCard({ view, width, x, y, turn, onOpen, onArrange }: { view: HabitView; width: number; x: number; y: number; turn: number; onOpen: () => void; onArrange?: () => void }) {
+  const lift = useSharedValue(0);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateY: -12 * lift.get() }, { rotate: `${turn * (1 - lift.get() * 0.6)}deg` }, { scale: 1 + 0.05 * lift.get() }] }));
+  const { habit } = view;
+  return (
+    <Animated.View style={[{ position: 'absolute', left: x, top: y }, style]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={habit.name}
+        accessibilityHint={onArrange ? 'Opens its page. Hold to arrange your deck.' : 'Opens its page.'}
+        accessibilityActions={onArrange ? [{ name: 'activate' }, { name: 'longpress', label: 'Arrange your deck' }] : undefined}
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === 'longpress') onArrange?.();
+          else onOpen();
+        }}
+        onPressIn={() => lift.set(withSpring(1, { damping: 14, stiffness: 320 }))}
+        onPressOut={() => lift.set(withSpring(0, { damping: 16, stiffness: 260 }))}
+        onPress={() => {
+          feel.tick();
+          onOpen();
+        }}
+        onLongPress={onArrange}
+        delayLongPress={380}
+        hitSlop={4}
+      >
+        <CardPicture habit={habit} kept={view.allTime.kept} width={width} />
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 function Archived({ archived }: { archived: Habit[] }) {
   const t = useTheme();
   const { restoreHabit } = useData();
@@ -554,7 +641,7 @@ function Feel() {
         <Toggle label="Music" about="A slow tune for the card room while you play." on={prefs.music} onChange={(music) => setPrefs({ music })} />
         <Toggle
           label="Sounds"
-          about="A sound for each swipe, card and Showdown."
+          about="A sound for each swipe, card and Showdown. Each part of you plays its own note."
           on={prefs.sounds}
           onChange={(sounds) => {
             setPrefs({ sounds });
@@ -585,12 +672,15 @@ function Feel() {
 function Account() {
   const t = useTheme();
   const { demo, guest, endDemo, startOwnDeck } = useAuth();
-  const { deleteDeck } = useData();
+  const { deleteDeck, seed } = useData();
+  const { forgetDeckNotes } = usePrefs();
   const [saving, setSaving] = useState(false);
 
   const removeDeck = async (then?: () => Promise<unknown>) => {
     try {
       await deleteDeck();
+      // The thumb marks and plans this phone kept for the deck go with it.
+      forgetDeckNotes(seed);
       feel.floor();
       if (then) await then();
     } catch (e) {
