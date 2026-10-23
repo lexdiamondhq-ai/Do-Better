@@ -76,9 +76,10 @@ const DARK_SIDE: readonly EditField[] = ['twoMinuteLabel', 'why'];
 /**
  * The card as you write it, pinned above the form. It shows its everyday face, and turns over to the dark
  * Comeback side (the same turn as on Today) while you write the First move or the why, the words that side
- * leads with. With Reduce Motion it crossfades.
+ * leads with. While the why is written, it shows in the first move's box (`why`), since a card this small
+ * has no room for its own why line. With Reduce Motion it crossfades.
  */
-function PinnedPreview({ habit, kept, plan, dark, height, short }: { habit: Habit; kept: number; plan: string | null; dark: boolean; height: number; short: boolean }) {
+function PinnedPreview({ habit, kept, plan, dark, why, height, short }: { habit: Habit; kept: number; plan: string | null; dark: boolean; why: boolean; height: number; short: boolean }) {
   const reduced = useReducedMotion();
   const side = useSharedValue(dark ? 1 : 0);
   useEffect(() => {
@@ -100,7 +101,7 @@ function PinnedPreview({ habit, kept, plan, dark, height, short }: { habit: Habi
         <HabitCard habit={habit} kept={kept} compact />
       </Animated.View>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, back]}>
-        <ComebackCard habit={habit} kept={kept} gap="yesterday" plan={plan} compact tight tiny={short} />
+        <ComebackCard habit={habit} kept={kept} gap="yesterday" plan={plan} showWhy={why} compact tight tiny={short} />
       </Animated.View>
     </View>
   );
@@ -233,6 +234,9 @@ export default function EditHabit() {
   };
   const keptSoFar = (existing && deck?.cards.find((c) => c.habit.id === existing.id)?.allTime.kept) || 0;
   const savedPlan = existing ? plans[existing.id] : undefined;
+  // The dark side leads with the saved plan, except while the First move is written under a plan that
+  // keeps the Floor: that plan never says the first move, so the box shows the first move being typed.
+  const planShown = savedPlan && !(writing === 'twoMinuteLabel' && savedPlan.then !== 'first') ? planLine(savedPlan, preview) : null;
   const short = screenH < 760;
   /** Focus and blur for the fields that write the other side, so the preview turns over for them. */
   const writes = (field: EditField) => ({
@@ -345,8 +349,9 @@ export default function EditHabit() {
           <PinnedPreview
             habit={preview}
             kept={keptSoFar}
-            plan={savedPlan ? planLine(savedPlan, preview) : null}
+            plan={planShown}
             dark={!!writing && DARK_SIDE.includes(writing)}
+            why={writing === 'why'}
             height={short ? 204 : 224}
             short={short}
           />

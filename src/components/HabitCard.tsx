@@ -341,6 +341,7 @@ export function ComebackCard({
   onLogYesterday,
   onOpen,
   plan,
+  showWhy = false,
   style,
 }: {
   habit: Habit;
@@ -362,6 +363,12 @@ export function ComebackCard({
   roomy?: boolean;
   /** Your plan for this card, as one line ("Too tired? Put on your shoes."). It takes the First move's place, under "Your plan"; Done it stays. */
   plan?: string | null;
+  /**
+   * The editor's preview while the why is being written: the why takes the first move's place in its box,
+   * so it can be read on this side as it is typed, even on a card folded too tight for its own why line.
+   * Only a why of the player's own shows (`ownWhy`); without one the box stays as it is.
+   */
+  showWhy?: boolean;
   /** Done it. `at` is the button's centre in window coordinates, where the turnover's light starts. */
   onFirstMove?: (at?: Point) => void;
   onFloor?: () => void;
@@ -382,6 +389,7 @@ export function ComebackCard({
   const line = withAlpha(t.onRaised, 0.22);
   const why = ownWhy(habit);
   const ownPlan = plan?.trim() || null;
+  const whyInBox = showWhy ? why : null;
 
   // On the front of the deck the card turns back over when kept: it tells the turn its bright colours and
   // where Done it sits, so a key press starts the light there too.
@@ -490,14 +498,14 @@ export function ComebackCard({
     >
       {tiny ? null : (
         <Label color={accent} maxFontSizeMultiplier={fontScale.chrome}>
-          {ownPlan ? 'Your plan' : firstMove ? 'First move · counts today' : 'The way back in'}
+          {whyInBox ? 'Why it matters to you' : ownPlan ? 'Your plan' : firstMove ? 'First move · counts today' : 'The way back in'}
         </Label>
       )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-        <Fit size={big ? 24 : 19} color={ink} lines={big && !compact ? 3 : 2} style={{ flex: 1 }}>
-          {ownPlan ?? firstMove ?? habit.floorLabel}
+        <Fit size={whyInBox ? (big ? 19 : 16) : big ? 24 : 19} color={ink} lines={big && !compact ? 3 : 2} style={{ flex: 1 }}>
+          {whyInBox ? (tiny ? `Why: ${whyInBox}` : whyInBox) : (ownPlan ?? firstMove ?? habit.floorLabel)}
         </Fit>
-        {firstMove ? doneIt : null}
+        {firstMove && !whyInBox ? doneIt : null}
       </View>
     </View>
   );
