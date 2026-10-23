@@ -5,6 +5,7 @@ import { FACES, RUNGS, summarizeCourt } from '@/engine/court';
 import { addDays, weekday, weekStart, type Day } from '@/engine/day';
 import { lastShowdown, playGame } from '@/engine/game';
 import { HANDS } from '@/engine/poker';
+import { madeThisLine, stampsFor } from '@/engine/showdown';
 import { indexCheckIns, neverTwiceDay, type Level } from '@/engine/kept';
 import { partOfDay } from '@/engine/playbook';
 import { buildQueue, partOfDayAt } from '@/engine/today';
@@ -139,6 +140,13 @@ describe.each(WEEK)('the demo deck on %s', (today) => {
     const last = lastShowdown(game);
     expect(last?.madeCall).toBe(true);
     expect(last?.bonus).toBeGreaterThan(0);
+  });
+
+  it('opens on a Showdown where Floor days made the hand, with ↓ stamps under them', async () => {
+    const { game } = await open(today);
+    const last = lastShowdown(game)!;
+    expect(Object.values(stampsFor(last))).toContain('floor');
+    expect(madeThisLine(last)).toMatch(/^(Floor days made this|Your Floor days earned the river|↺ |\d of these \d cards are Floor days|Every card here is a Floor day)/);
   });
 
   it('looks like ten weeks of play, with rescues and calls made and missed', async () => {

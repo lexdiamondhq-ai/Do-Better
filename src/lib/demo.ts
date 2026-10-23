@@ -66,6 +66,12 @@ const SETTLED: Partial<Record<string, { days: number; after: number }>> = {
  */
 const BLANKS = [-13, -25, -40, -39];
 
+/**
+ * Last week, the Showdown the demo opens on, was a tired week: Ceilings were rare, so most of its cards are
+ * Floor days and the Showdown can show them making the hand.
+ */
+const LAST_WEEK_CEILING = 0.1;
+
 /** Fixes the luck of the demo history. Chosen so every face card lands in a week of its own. */
 const HISTORY = 'demo-history-22';
 
@@ -114,7 +120,8 @@ function buildHistory(today: Day): { habits: Habit[]; days: HabitDay[] } {
     const mine: HabitDay[] = [];
     for (let day = habits[i].startedOn; day < today; day = addDays(day, 1)) {
       const offset = daysBetween(monday, day);
-      const level: Level = roll(plan.recipe, offset, 'ceiling') < plan.ceiling ? 'ceiling' : 'floor';
+      const reach = offset >= -7 && offset < 0 ? Math.min(plan.ceiling, LAST_WEEK_CEILING) : plan.ceiling;
+      const level: Level = roll(plan.recipe, offset, 'ceiling') < reach ? 'ceiling' : 'floor';
       let kept = roll(plan.recipe, offset, 'keep') < plan.keep && !blanks.has(day);
       // Yesterday got away for the Comeback card only, the day after a kept one. Every other card was kept.
       if (day === yesterday) kept = !comeback;
