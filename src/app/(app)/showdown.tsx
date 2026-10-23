@@ -800,7 +800,9 @@ function StageCard({
   return (
     <Animated.View
       pointerEvents={tappable ? 'auto' : 'none'}
-      style={[{ position: 'absolute', left: 0, top: 0, width: w, height: h, zIndex: gathered ? (item.at === null ? 1 : 20 + item.at) : index }, place]}
+      // Gathered, each card lies over the one to its left, the way HandFan stacks the fan it lands in. By
+      // fan position, not hand order: a straight fans low to high, the reverse of its hand order.
+      style={[{ position: 'absolute', left: 0, top: 0, width: w, height: h, zIndex: gathered ? (item.pos === null ? 1 : 20 + item.pos) : index }, place]}
     >
       <Pressable
         accessibilityRole="button"
