@@ -911,7 +911,7 @@ function useCountUp(to: number, run: boolean, instant: boolean, duration = 900):
     let began: number | null = null;
     // Timed by the frames themselves, not the wall clock, so a clock change mid-count can't stall or skip it.
     const tick = (now: number) => {
-      began ??= now;
+      if (began === null) began = now;
       const p = Math.min(1, (now - began) / duration);
       setValue(Math.round(to * (1 - (1 - p) ** 3)));
       const d = Math.floor(p * 10);
@@ -1128,7 +1128,10 @@ function Payout({ week, call, step, instant, short }: { week: Week; call: Return
             {sum ? <Text style={callShown ? null : { color: waiting }}> =</Text> : null}
           </Text>
         ) : null}
-        <Chips value={value} size={chipsSize} />
+        {/* The total keeps its place but shows only once it starts to count, so the row never reads "… = 0". */}
+        <View style={{ opacity: step >= 1 || instant ? 1 : 0 }}>
+          <Chips value={value} size={chipsSize} />
+        </View>
       </View>
       {call && (step >= 2 || instant) ? <CallPanel call={call} instant={instant} /> : null}
     </View>
@@ -1147,7 +1150,7 @@ function useTally(to: number, run: boolean, instant: boolean, duration = 800): n
     let decile = 0;
     let began: number | null = null;
     const tick = (now: number) => {
-      began ??= now;
+      if (began === null) began = now;
       const p = Math.min(1, (now - began) / duration);
       const v = Math.round(from + (to - from) * (1 - (1 - p) ** 3));
       at.current = v;
