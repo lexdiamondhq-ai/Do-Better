@@ -328,7 +328,7 @@ function darkCard(t: Theme): ViewStyle {
  * The card's other side, the day after a miss: an easier way back in. It leads with who the player is
  * becoming and the kept days that prove it, then offers the first move, which keeps today on its own.
  * Nothing on it keeps a day by accident: only Done it, the Floor and Ceiling buttons, or a swipe.
- * `compact` keeps only the first move, Done it and the Floor (with a small Ceiling arrow); logging
+ * `compact` keeps only the first move, Done it and the Floor (with a small labelled Ceiling arrow); logging
  * yesterday stays on the card only when the screen passes `onLogYesterday`, and is always on the week strip.
  * The why is the player's own line only (`ownWhy`), the same rule as the habit's page and its editor.
  */
@@ -464,22 +464,33 @@ export function ComebackCard({
   );
 
   /**
-   * The Ceiling, beside the Floor: still a full way in, never the loudest. It says its name where there is
-   * room, and folds to its round arrow on a folded card.
+   * The Ceiling, beside the Floor: still a full way in, never the loudest. It always says its name: beside
+   * its arrow where there is room, and in small letters under a smaller arrow on a folded card, so the Floor
+   * beside it keeps the room for its own words.
    */
-  const ceilingButton = (
+  const ceilingButton = compact ? (
     <Press
       onPress={onCeiling}
       label={`Reach the Ceiling: ${habit.ceilingLabel}`}
       testID="comeback-ceiling"
-      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 48, minWidth: 48, borderRadius: radius.pill, borderWidth: 1.5, borderColor: line, padding: 5, paddingRight: compact ? 5 : space.md }}
+      style={{ alignItems: 'center', justifyContent: 'center', gap: 2, minHeight: 48, minWidth: 48, borderRadius: radius.pill, borderWidth: 1.5, borderColor: line, paddingVertical: 4, paddingHorizontal: space.sm }}
+    >
+      <Arrow arrow="↑" fg={INK} bg={withAlpha(accent, 0.85)} size={26} />
+      <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome} style={{ fontSize: 9, letterSpacing: 0.8, lineHeight: 11 }}>
+        Ceiling
+      </Label>
+    </Press>
+  ) : (
+    <Press
+      onPress={onCeiling}
+      label={`Reach the Ceiling: ${habit.ceilingLabel}`}
+      testID="comeback-ceiling"
+      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 48, minWidth: 48, borderRadius: radius.pill, borderWidth: 1.5, borderColor: line, padding: 5, paddingRight: space.md }}
     >
       <Arrow arrow="↑" fg={INK} bg={withAlpha(accent, 0.85)} size={36} />
-      {compact ? null : (
-        <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
-          Ceiling
-        </Label>
-      )}
+      <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+        Ceiling
+      </Label>
     </Press>
   );
 
