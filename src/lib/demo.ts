@@ -159,6 +159,11 @@ export function demoPlans(today: Day): Record<string, Plan> {
   return { [`demo-${COMEBACK}`]: { when: 'tired', then: 'first', made: addDays(today, -PLAN_MADE_DAYS_AGO) } };
 }
 
+/** The plans the demo player sees: the sample plan for any card without one, and every plan made on this phone over it. */
+export function withDemoPlans(saved: Readonly<Record<string, Plan>>, today: Day): Record<string, Plan> {
+  return { ...demoPlans(today), ...saved };
+}
+
 /** Finished weeks as a seed deals them, with no calls made. */
 function weeksFor(today: Day, habits: readonly Habit[], days: readonly HabitDay[], seed: string): Week[] {
   const deal: DealHabit[] = habits.map((h) => ({ id: h.id, suit: h.suit, startedOn: h.startedOn, archivedOn: null }));

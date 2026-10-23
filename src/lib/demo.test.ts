@@ -9,7 +9,7 @@ import { partOfDay } from '@/engine/playbook';
 import { buildQueue, partOfDayAt } from '@/engine/today';
 
 import type { Loaded } from './backend';
-import { createDemoBackend, demoPlans } from './demo';
+import { createDemoBackend, demoPlans, withDemoPlans } from './demo';
 import { courtHabits, gameInput, MILESTONES, momentsOf, newMemory } from './play';
 
 // Monday 12 to Sunday 18 October 2026: the demo is laid out by week, so every day of the week is checked.
@@ -38,6 +38,13 @@ describe.each(WEEK)('the demo deck on %s', (today) => {
     expect(data.days.some((d) => d.habitId === 'demo-reach-out' && d.day === addDays(today, -1))).toBe(true);
     expect(game.rescue).toBeNull();
     expect(game.rescueCard).toBeNull();
+  });
+
+  it('has Walk 48 kept days in, worn past Well played, and Reach out one kept day short of the Queen of Hearts', async () => {
+    const { data } = await open(today);
+    const checkIns = indexCheckIns(data.days);
+    expect(new Set(data.days.filter((d) => d.habitId === WALK).map((d) => d.day)).size).toBe(48);
+    expect(summarizeCourt(courtHabits(data.habits), checkIns, today).find((c) => c.suit === 'hearts')).toMatchObject({ votes: 29, habitIds: [REACH_OUT] });
   });
 
   it('keeps Walk’s Comeback as a plain deal: the first swipe turns it over and deals an everyday card', async () => {
@@ -155,6 +162,14 @@ describe('the demo deck', () => {
     expect(plans[WALK]).toEqual({ when: 'tired', then: 'first', made: '2026-10-03' });
     expect(planLine(plans[WALK], { floorLabel: 'Walk to the corner', twoMinuteLabel: 'Put on your shoes' })).toBe('Too tired? Put on your shoes.');
     expect(planOffered({ keptComebackToday: true, plan: plans[WALK], today })).toBe(true);
+  });
+
+  it('lets a plan made on this phone replace the sample plan, and keeps the sample for cards without one', () => {
+    const today = '2026-10-23';
+    expect(withDemoPlans({}, today)).toEqual(demoPlans(today));
+    const mine = { when: 'Rain all day', then: 'floor' as const, made: today };
+    expect(withDemoPlans({ [WALK]: mine }, today)).toEqual({ [WALK]: mine });
+    expect(withDemoPlans({ [REACH_OUT]: mine }, today)).toEqual({ ...demoPlans(today), [REACH_OUT]: mine });
   });
 
   it('has the same history every week', async () => {

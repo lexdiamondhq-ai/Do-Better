@@ -4,7 +4,7 @@ import type { Plan } from '@/engine/comeback';
 
 import { useAuth } from './auth';
 import { useData } from './data';
-import { demoPlans } from './demo';
+import { withDemoPlans } from './demo';
 import { usePrefs } from './prefs';
 
 const NONE: Readonly<Record<string, Plan>> = Object.freeze({});
@@ -19,5 +19,5 @@ export function usePlans(): Readonly<Record<string, Plan>> {
   const { prefs } = usePrefs();
   const saved = prefs.plans[seed] ?? NONE;
   const inDemo = !!demo && demo.seed === seed;
-  return useMemo(() => (inDemo ? { ...demoPlans(today), ...saved } : saved), [inDemo, today, saved]);
+  return useMemo(() => (inDemo ? withDemoPlans(saved, today) : saved), [inDemo, today, saved]);
 }
