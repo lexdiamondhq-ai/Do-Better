@@ -132,6 +132,8 @@ function Table({ deck }: { deck: Deck }) {
   const [turnToday, setTurnToday] = useState(0);
   const [faceUp, setFaceUp] = useState<'joker' | 'plain' | null>(null);
   const swipe = useRef<SwipeHandle>(null);
+  // A keep made from the keyboard on the focused front card hands focus on to the next front card.
+  const refocus = useRef(false);
   const prompted = useRef(new Set<string>());
   const keptSoFar = useRef(deck.totals.kept);
   const deckBox = useRef<View>(null);
@@ -588,12 +590,23 @@ function Table({ deck }: { deck: Deck }) {
       const move = keyMove({ key: e.key, repeat: !!e.repeat, onPage }, { kind: keyKind, allow: { up: !!keyUp, down: !!keyDown, left: !!keySide, right: !!keySide }, firstMove: !!keyFirst });
       if (!move) return;
       e.preventDefault();
+      // Pressed on the focused card: once it is played, the next card takes the focus, so Tab never starts over.
+      if (e.target?.getAttribute?.('data-testid') === 'front-card') refocus.current = true;
       if (move.first) card.fling('down', keyPlanFloor ? { note: FLOOR_PLAN_NOTE, tag: 'floor' } : { note: FIRST_MOVE_NOTE, tag: 'first' });
       else card.fling(move.dir, { tag: 'key' });
     };
     doc.addEventListener('keydown', onKey);
     return () => doc.removeEventListener('keydown', onKey);
   }, [keyKind, keyUp, keyDown, keySide, keyFirst, keyPlanFloor]);
+
+  // The card a keyboard keep left behind is gone: the new front card takes its focus.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !refocus.current) return;
+    const doc = (globalThis as { document?: { querySelector: (s: string) => { focus?: (o?: { preventScroll?: boolean }) => void } | null } }).document;
+    const next = doc?.querySelector('[data-testid="front-card"]');
+    if (next?.focus) next.focus({ preventScroll: true });
+    refocus.current = false;
+  }, [frontKey]);
 
   // Card faces ------------------------------------------------------------------------------------------
   function face(item: QueueItem, view: HabitView | null, live: boolean, depth = 0): ReactNode {
