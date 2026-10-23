@@ -69,7 +69,7 @@ export default function LeaveSheet() {
     if (outcome === 'image' || outcome === 'text') feel.tick();
     const words = SAID[outcome] ?? null;
     setSaid(words);
-    // Said out loud too, since the line appears under the button where VoiceOver isn't looking.
+    // Said out loud too, since VoiceOver is on the button, not the line above it.
     if (words) AccessibilityInfo.announceForAccessibility(words);
   }
 
@@ -120,15 +120,13 @@ export default function LeaveSheet() {
                 </Phone>
               )}
             </Animated.View>
-            <Body size={typeScale.text.md} weight="bold" color={t.textSecondary} style={{ alignSelf: 'stretch', textAlign: 'center' }}>
-              {chosen.how}
-            </Body>
-            <Button label={chosen.save} busy={busy} onPress={() => void save()} style={{ alignSelf: 'stretch' }} />
-            {said ? (
-              <Body weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>
-                {said}
+            {/* What happened takes the place of the how-to line just above the button, in view wherever the button is. */}
+            <View accessibilityLiveRegion="polite" aria-live="polite" style={{ alignSelf: 'stretch' }}>
+              <Body size={typeScale.text.md} weight={said ? 'heavy' : 'bold'} color={said ? t.text : t.textSecondary} style={{ textAlign: 'center' }}>
+                {said ?? chosen.how}
               </Body>
-            ) : null}
+            </View>
+            <Button label={chosen.save} busy={busy} onPress={() => void save()} style={{ alignSelf: 'stretch' }} />
           </>
         )}
       </ScrollView>
@@ -144,7 +142,8 @@ function Segmented({ value, onChange, width }: { value: LeaveFormat; onChange: (
   const x = useSharedValue(index);
   // Inside the 1-point border and the 4-point padding, each choice takes half.
   const half = (track - 10) / 2;
-  const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: x.get() * half }] }));
+  // Kept inside its track: the spring may overshoot, the thumb never does.
+  const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: Math.min(1, Math.max(0, x.get())) * half }] }));
   const choose = (i: number) => {
     x.set(withSpring(i, { damping: 22, stiffness: 340 }));
     onChange(FORMATS[i].key);
