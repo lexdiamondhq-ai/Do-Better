@@ -646,6 +646,8 @@ export function SwipeCard({
         importantForAccessibility={ghost ? 'no-hide-descendants' : 'auto'}
         style={[StyleSheet.absoluteFill, card]}
         accessibilityLabel={ghost ? undefined : label}
+        // A keyboard can reach the card itself (in a browser, a Tab stop): its arrows swipe it and Enter presses Done it.
+        focusable={!ghost}
         accessibilityActions={ghost ? undefined : offered.map((d) => ({ name: d, label: actions?.[d] ?? labels[d] }))}
         onAccessibilityAction={ghost ? undefined : onAction}
         onLayout={(e) => {

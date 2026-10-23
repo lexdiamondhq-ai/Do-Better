@@ -558,7 +558,8 @@ function Table({ deck }: { deck: Deck }) {
       if (e.target?.closest?.('[aria-modal="true"]')) return;
       const card = swipe.current;
       if (!card) return;
-      const onPage = !tag || tag === 'BODY' || tag === 'HTML';
+      // The front card itself is a focus stop: Enter there presses Done it, as it does with nothing focused.
+      const onPage = !tag || tag === 'BODY' || tag === 'HTML' || e.target?.getAttribute?.('data-testid') === 'front-card';
       const move = keyMove({ key: e.key, repeat: !!e.repeat, onPage }, { kind: keyKind, allow: { up: !!keyUp, down: !!keyDown, left: !!keySide, right: !!keySide }, firstMove: !!keyFirst });
       if (!move) return;
       e.preventDefault();
@@ -868,7 +869,7 @@ const hasCardsNow = (deck: Deck) => deck.cards.length > 0;
 type KeyEvent = {
   key: string;
   repeat?: boolean;
-  target?: { tagName?: string; closest?: (selector: string) => unknown } | null;
+  target?: { tagName?: string; closest?: (selector: string) => unknown; getAttribute?: (name: string) => string | null } | null;
   metaKey?: boolean;
   ctrlKey?: boolean;
   altKey?: boolean;
