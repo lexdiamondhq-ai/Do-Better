@@ -325,12 +325,15 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   // The result lands in beats: the hand stamps down, the chips count up, then the call and the rest.
   useEffect(() => {
     if (phase !== 'result' || instant) return;
-    playSound('ceiling');
-    // The hand taps out its own shape and rings as its chord (stream 6); with no hand, the plain success.
+    // The hand taps out its own shape and rings as its chord; with no hand, the plain success. The Ceiling
+    // flourish never sounds under the chord.
     if (resultHand) {
       feel.rhythm(handRhythm(resultHand.kind));
       playTones(handChord(resultHand));
-    } else feel.ceiling();
+    } else {
+      playSound('ceiling');
+      feel.ceiling();
+    }
     const timers = [
       setTimeout(() => {
         setStep(1);
