@@ -150,9 +150,9 @@ describe('the hand in words', () => {
 });
 
 describe('one hand name everywhere', () => {
-  // Straights are named "Straight, Six to Ten" (stream 5's handTitle). Every other title already reads
-  // as the stamp and its detail line say it.
-  const NEW_TITLES: Partial<Record<HandKind, string>> = { straight: 'Straight, Six to Ten', 'straight-flush': 'Straight flush, Six to Ten in Clubs' };
+  // Straights are named by their run ("Straight, Six to Ten", poker.ts's handTitle), so the stamp and its
+  // detail line read as the title itself. Every other title already says what the detail line says.
+  const RUNS: readonly HandKind[] = ['straight', 'straight-flush'];
 
   it('says the same hand on the stamp as in its title', () => {
     const run = (suit: (i: number) => DayCard['suits']) => [10, 9, 8, 7, 6].map((r, i) => card(`2026-10-0${5 + i}`, r, suit(i)));
@@ -166,7 +166,7 @@ describe('one hand name everywhere', () => {
     ];
     for (const hand of hands) {
       const { name, detail } = handLines(hand);
-      if (NEW_TITLES[hand.kind]) expect(`${name}, ${detail}`).toBe(NEW_TITLES[hand.kind]);
+      if (RUNS.includes(hand.kind)) expect(`${name}, ${detail}`).toBe(hand.title);
       else if (hand.kind === 'royal-flush') expect(hand.title.endsWith(detail!.replace(/^Ten to Ace /, ''))).toBe(true);
       else expect(hand.title).toContain(detail!);
     }
