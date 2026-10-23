@@ -139,10 +139,11 @@ function Segmented({ value, onChange, width }: { value: LeaveFormat; onChange: (
   const [track, setTrack] = useState(width);
   const index = FORMATS.findIndex((f) => f.key === value);
   const x = useSharedValue(index);
-  const half = (track - 8) / 2;
+  // Inside the 1-point border and the 4-point padding, each choice takes half.
+  const half = (track - 10) / 2;
   const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: x.get() * half }] }));
   const choose = (i: number) => {
-    x.set(withSpring(i, { damping: 18, stiffness: 260 }));
+    x.set(withSpring(i, { damping: 22, stiffness: 340 }));
     onChange(FORMATS[i].key);
   };
   return (

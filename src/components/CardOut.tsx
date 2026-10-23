@@ -10,6 +10,7 @@ import { mix, withAlpha } from '@/theme/color';
 import { cardColors, fonts, on } from '@/theme/tokens';
 
 import { CardBack } from './CardBack';
+import { HabitCard } from './HabitCard';
 import { SuitGlyph } from './Suit';
 
 /** Print paper, and the faint grey of the cut and fold lines on it. */
@@ -92,6 +93,27 @@ function LockScreen({ habit, lines, size, label, cardRef }: { habit: Habit; line
       </Svg>
       <View style={{ position: 'absolute', left: box.x, top: box.y, transform: [{ rotate: '-3deg' }], boxShadow: `0 ${Math.round(box.w * 0.08)}px ${Math.round(box.w * 0.16)}px rgba(0, 0, 0, 0.5)`, borderRadius: box.w * 0.06 }}>
         <CardFront habit={habit} lines={lines} w={box.w} h={box.h} />
+      </View>
+    </View>
+  );
+}
+
+/** The size a habit card is laid out at before `CardPicture` scales it: a playing card's shape, as Today deals it. */
+export const PICTURE_CARD = { w: 300, h: 420 } as const;
+
+/**
+ * A habit card as a still picture, `width` points across: the card exactly as the deck deals it (with its
+ * wear), laid out at full size and scaled down, so its words, wear and thumb mark keep their
+ * places. It is only a picture: no touches, and hidden from screen readers (whatever holds it says what it is).
+ */
+export function CardPicture({ habit, kept, width, depth = 0 }: { habit: Habit; kept: number; width: number; depth?: number }) {
+  const s = width / PICTURE_CARD.w;
+  const h = PICTURE_CARD.h * s;
+  return (
+    <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden style={{ width, height: h }}>
+      {/* Centred, then scaled about its centre, so it lands exactly in the box without a transform origin. */}
+      <View style={{ position: 'absolute', left: (width - PICTURE_CARD.w) / 2, top: (h - PICTURE_CARD.h) / 2, width: PICTURE_CARD.w, height: PICTURE_CARD.h, transform: [{ scale: s }] }}>
+        <HabitCard habit={habit} kept={kept} wearDepth={depth} />
       </View>
     </View>
   );
