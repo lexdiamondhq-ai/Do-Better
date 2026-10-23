@@ -56,6 +56,23 @@ describe('moments a check-in causes', () => {
     expect(moments[0]).toMatchObject({ kind: 'face', suit: 'hearts', joker: true, face: { face: 'queen' } });
   });
 
+  it('still gives a keep that leaves today’s card as it was its own receipt, and lets a step down stay quiet', () => {
+    // Today's card is the Queen's Joker, so keeping Read too can't change it: it counts a day of Mind in the Court.
+    const both = loaded([habit('reach', 'hearts', '2026-09-01'), habit('read', 'clubs', '2026-09-01')], [...kept('reach', '2026-09-10', 29), ...kept('read', '2026-09-20', 12)]);
+    const memory = newMemory();
+    const queen = plus(both, 'reach', TODAY);
+    momentsOf(both, queen, TODAY, SEED, { habitId: 'reach', level: 'floor', day: TODAY }, memory);
+    const read = plus(queen, 'read', TODAY);
+    const kept13 = momentsOf(queen, read, TODAY, SEED, { habitId: 'read', level: 'floor', day: TODAY }, memory);
+    expect(kept13).toEqual([expect.objectContaining({ kind: 'deal', habitId: 'read', same: true, court: { suit: 'clubs', days: 13 } })]);
+    expect(kept13[0]).toMatchObject({ deal: { card: { kind: 'joker' }, was: { kind: 'joker' }, handDropped: false } });
+    // Reaching the Ceiling on it adds no day to the Court, but is still news.
+    const up = { ...read, days: read.days.map((d) => (d.habitId === 'read' && d.day === TODAY ? { ...d, level: 'ceiling' as Level } : d)) };
+    expect(momentsOf(read, up, TODAY, SEED, { habitId: 'read', level: 'ceiling', day: TODAY }, memory)).toEqual([expect.objectContaining({ kind: 'deal', same: true, court: null })]);
+    // Back down to the Floor is a correction, not a keep.
+    expect(momentsOf(up, read, TODAY, SEED, { habitId: 'read', level: 'floor', day: TODAY }, memory)).toEqual([]);
+  });
+
   it('gives a face card that brought a Joker the hand from before, wherever the keep was made', () => {
     // Monday and Tuesday kept this week, so the week already had a hand before today's keep.
     const week = addDays(TODAY, -2);

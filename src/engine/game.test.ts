@@ -782,7 +782,7 @@ describe('tips', () => {
       if (rank < 5) {
         named++;
         expect(climb).toEqual({ tone: 'climb', text: 'Keep Walk too and today’s card is 5 or better.' });
-      } else if (rank < 6) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card is 6 or better.' });
+      } else if (rank < 6) expect(climb).toEqual({ tone: 'climb', text: 'Keep every habit, all at their Ceilings, and today’s card is 6 or better.', far: true });
       else expect(climb?.tone).toBe('done');
     }
     expect(named).toBeGreaterThan(3);

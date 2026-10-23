@@ -14,7 +14,7 @@ import type { BackKey } from '@/engine/game';
 import { improves } from '@/engine/game';
 import type { Level } from '@/engine/kept';
 import { HANDS, type Hand } from '@/engine/poker';
-import { eventStale, grouped, JOKER_LINE, jokerResult, keepWore, momentDelay, momentOf, receiptCopy, receiptOffersPlan, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
+import { eventStale, grouped, JOKER_LINE, jokerResult, keepWore, momentDelay, momentOf, receiptCopy, receiptNext, receiptOffersPlan, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
 import { useData, useEvents, type GameEvent } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
@@ -223,12 +223,14 @@ function Later({ ms, children }: { ms: number; children: ReactNode }) {
 // Receipts --------------------------------------------------------------------------------------------
 
 /** A card turning over from the one before (or the card back) to the new one. */
-function Flip({ from, to, back, size = 'sm', delay = 220 }: { from: CardFace | null; to: CardFace; back: BackKey; size?: CardSize; delay?: number }) {
-  const turn = useSharedValue(0);
+function Flip({ from, to, back, size = 'sm', delay = 220, still = false }: { from: CardFace | null; to: CardFace; back: BackKey; size?: CardSize; delay?: number; still?: boolean }) {
+  // `still`: the card didn't change, so it lies face up without turning.
+  const turn = useSharedValue(still ? 1 : 0);
   const reduced = useReducedMotion();
   useEffect(() => {
+    if (still) return;
     turn.set(withDelay(delay, withTiming(1, { duration: reduced ? 1 : 460, easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.Never })));
-  }, [turn, delay, reduced]);
+  }, [turn, delay, reduced, still]);
   const front = useAnimatedStyle(() => ({ transform: [{ perspective: 700 }, { rotateY: `${180 - turn.get() * 180}deg` }] }));
   const behind = useAnimatedStyle(() => ({ transform: [{ perspective: 700 }, { rotateY: `${-turn.get() * 180}deg` }] }));
   return (
@@ -273,7 +275,9 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
   let joker = false;
   let undo: (() => void) | null = null;
   let planFor: string | null = null;
-  // The mark before the last line: ↑ for what would lift today's card, ✓ when nothing more can, ✦ for wear.
+  let same = false;
+  // The mark before the last line: ↑ for what would lift today's card, ✓ when nothing more can, ♛ for a face card
+  // one day away, ✦ for wear.
   let nextMark = '↑';
   const nameOf = (id: string) => deck?.cards.find((c) => c.habit.id === id)?.habit.name ?? null;
   const rungEvent = main.kind === 'rung' ? null : moment.also.find((e): e is Rung => e.kind === 'rung');
@@ -284,7 +288,9 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
     const run = [main, ...moment.also].filter((e): e is Deal => e.kind === 'deal').sort((a, b) => a.id - b.id);
     const firstWas = run[0]?.deal.was ?? null;
     const was = improves(main.deal.card, firstWas) ? firstWas : main.deal.was;
-    const wentUp = !!was && was.kind === 'card' && main.deal.card.kind === 'card' && main.deal.card.rank > was.rank;
+    // Every keep in the run left today's card as it was: the card shows still, and the receipt says what the keep counted for.
+    same = run.every((e) => !!e.same);
+    const wentUp = !same && !!was && was.kind === 'card' && main.deal.card.kind === 'card' && main.deal.card.rank > was.rank;
     joker = main.deal.card.kind === 'joker';
     card = { from: was ? faceOfDay(was) : null, to: faceOfDay(main.deal.card) };
     const habitId = main.habitId;
@@ -296,10 +302,11 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
     const held = main.level === 'floor' && keptComeback;
     // A keep that took the card's own kept days exactly onto a wear stage: only a first keep today adds a kept day.
     const wore = view ? keepWore(view.allTime.kept, ownKeep ? keep.was : null) : null;
-    // What would lift today's card next: the climb tip the game already gives, as the receipt's last line.
-    const tip = deck?.game.tips.find((x) => x.tone === 'climb' || x.tone === 'done') ?? null;
+    // What would lift today's card next (the climb tip the game already gives), or a face card one day away
+    // when the climb needs everything: the receipt's last line.
+    const tip = deck ? receiptNext(deck.game.tips) : null;
     const next = tip?.text ?? null;
-    nextMark = wore ? '✦' : tip?.tone === 'done' ? '✓' : '↑';
+    nextMark = wore ? '✦' : (tip?.mark ?? '↑');
     if (deck && receiptOffersPlan({ level: main.level, keptComebackToday: keptComeback, onComebackCard: onComeback, plan: plans[habitId] ?? null, today: deck.today })) planFor = habitId;
     copy = receiptCopy({
       kind: 'deal',
@@ -318,8 +325,11 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
       explainJoker: joker ? explainJoker : undefined,
       plan: planFor,
       wore: wore ?? undefined,
+      same,
+      court: same && main.court ? { part: SUIT_INFO[main.court.suit].part, days: main.court.days } : null,
     });
-    sound = joker ? 'joker' : main.deal.handDropped ? 'flip' : wentUp ? 'cardUp' : 'flip';
+    // A Joker that was already today's card is no news: the keep's own sound carries it.
+    sound = same ? 'flip' : joker ? 'joker' : main.deal.handDropped ? 'flip' : wentUp ? 'cardUp' : 'flip';
   } else if (main.kind === 'backfill') {
     const was = main.deal.was;
     joker = main.deal.card.kind === 'joker';
@@ -447,7 +457,7 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
 
   return (
     <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: anchored ? anchor + space.sm : insets.top + space.sm + (pushed ? TAP + space.sm : 0), paddingHorizontal: space.md }}>
-      {joker ? (
+      {joker && !same ? (
         <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 440 }}>
           <Burst kind="joker" color="#FFFFFF" />
         </View>
@@ -471,7 +481,7 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
             panel,
           ]}
         >
-          {card ? <Flip from={card.from} to={card.to} back={back} /> : <View style={{ width: 52, height: 64, alignItems: 'center', justifyContent: 'center' }}>{glyph}</View>}
+          {card ? <Flip from={card.from} to={card.to} back={back} still={same} /> : <View style={{ width: 52, height: 64, alignItems: 'center', justifyContent: 'center' }}>{glyph}</View>}
           <View style={{ flex: 1, gap: 1 }}>
             {/* Two lines, so the habit's name at the end of the eyebrow is never cut on a small phone. */}
             <Label color={t.onRaisedSecondary} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome}>

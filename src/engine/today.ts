@@ -312,12 +312,29 @@ export function keptLine(kept: number): string {
  */
 const TODAY_TONES: ReadonlySet<TipTone> = new Set(['joker', 'face', 'rescue', 'draw', 'call', 'showdown']);
 
-export function todayTips(tips: readonly Tip[], { warmup = false, firstLook = false }: { warmup?: boolean; firstLook?: boolean } = {}): Tip[] {
+export function todayTips(tips: readonly Tip[], { warmup = false, firstLook = false, sunday = false }: { warmup?: boolean; firstLook?: boolean; sunday?: boolean } = {}): Tip[] {
   const shown = tips.filter((tip) => TODAY_TONES.has(tip.tone));
   const week = shown.filter((tip) => tip.tone === 'showdown');
-  const ordered = warmup ? [...week, ...shown.filter((tip) => tip.tone !== 'showdown')] : shown;
+  // In the warm-up week, and on Sunday (the Showdown is tonight), the week's own line leads.
+  const ordered = warmup || sunday ? [...week, ...shown.filter((tip) => tip.tone !== 'showdown')] : shown;
   if (firstLook) return warmup ? week.slice(0, 1) : [];
   return ordered;
+}
+
+/** A tip that names a face card one kept day away: "Keep a People habit today to earn the Queen of Hearts and a Joker." */
+const isReach = (tip: Tip) => tip.tone === 'face' && /^Keep an? /.test(tip.text);
+
+/**
+ * The line a receipt ends on, from the game's tips: what would lift today's card (the climb tip), or that
+ * nothing more can. When the climb needs more than one step today (every habit at its Ceiling), a face card
+ * one kept day away is the nearer next step, so it is named instead: right after an easy way back, the
+ * receipt never asks for everything.
+ */
+export function receiptNext(tips: readonly Tip[]): { text: string; mark: string } | null {
+  const climb = tips.find((x) => x.tone === 'climb' || x.tone === 'done') ?? null;
+  const reach = tips.find(isReach) ?? null;
+  if (climb?.far && reach) return { text: reach.text, mark: '♛' };
+  return climb ? { text: climb.text, mark: climb.tone === 'done' ? '✓' : '↑' } : null;
 }
 
 /**
@@ -480,6 +497,10 @@ export type Receipt =
       plan?: string | null;
       /** This keep took the card's own kept days exactly onto a wear stage: its line replaces `next`. */
       wore?: WearStage;
+      /** The keep left today's card as it was (another card kept today, or a Ceiling reached): say what it did count for. */
+      same?: boolean;
+      /** The keep's suit in the Court, when it added a kept day there: "That makes 41 days of Craft in the Court." */
+      court?: RungNote | null;
     }
   | {
       kind: 'backfill';
@@ -601,8 +622,14 @@ export function receiptCopy(r: Receipt): ReceiptCopy {
     }
     return { eyebrow, title: r.blank ? 'Yesterday counts' : 'Yesterday logged', lead, line, notes, next: null };
   }
-  const title = r.joker ? 'A Joker!' : r.dropped ? 'Today’s card changed' : r.wentUp && !r.first ? 'Today’s card went up' : 'Today’s card';
   const next = (r.wore ? wearNote(r.wore) : null) ?? r.next?.trim() ?? null;
+  if (r.same) {
+    // Today's card didn't move, so the receipt says what the keep did count for: a day in the Court for its suit
+    // (unless a rung already says so), or else the hand it stays in.
+    const counted = r.court && !r.rung ? `That makes ${grouped(r.court.days)} days of ${r.court.part} in the Court.` : hand;
+    return { eyebrow, title: 'Today’s card holds', lead: null, line: `Still ${aCard(r.card)}. ${counted}`.trim(), notes, next: next || null };
+  }
+  const title = r.joker ? 'A Joker!' : r.dropped ? 'Today’s card changed' : r.wentUp && !r.first ? 'Today’s card went up' : 'Today’s card';
   return { eyebrow, title, lead: r.saved ? 'Yesterday’s card was saved too.' : null, line, notes, next: next || null };
 }
 

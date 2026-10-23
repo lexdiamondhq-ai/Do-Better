@@ -118,8 +118,12 @@ export const MILESTONES: readonly number[] = [10, 25, 50, 100, 250, 500, 1000];
 
 /** Something a check-in caused that's worth a moment on screen. */
 export type GameEvent =
-  /** Today's card got better. `saved` is yesterday's card when the same check-in saved it too. */
-  | { id: number; kind: 'deal'; habitId: string; level: Level; deal: DealEvent; saved: DayCard | null }
+  /**
+   * Today's card got better. `saved` is yesterday's card when the same check-in saved it too. `same` marks a
+   * keep that left today's card as it was (another card kept today, or a Ceiling reached): it still lands
+   * with a receipt, and `court` is the suit's kept days in the Court when the keep added one there.
+   */
+  | { id: number; kind: 'deal'; habitId: string; level: Level; deal: DealEvent; saved: DayCard | null; same?: true; court?: { suit: Suit; days: number } | null }
   /**
    * A suit earned a face card in the Court. `joker` when the same check-in also dealt a Joker, always
    * on today's card. Otherwise `jokerLands` says where it will: `today` when keeping anything today deals
@@ -207,6 +211,17 @@ export function momentsOf(before: Loaded, after: Loaded, today: Day, seed: strin
     else if (deal && !jokerShown) {
       const saved = now.slots.find((slot, i) => slot.card?.kind === 'card' && slot.card.rescued && !was.slots[i].card)?.card ?? null;
       out.push({ kind: 'deal', habitId, level, deal, saved });
+    } else if (!deal && !jokerShown && !first) {
+      // A keep that left today's card as it was still lands with its own receipt: another card kept today (a day
+      // for its suit in the Court) or a Ceiling reached. Turning a Ceiling back into a Floor stays quiet.
+      const had = levelIn(before.days, habitId, today);
+      const card = cardOn(now, today);
+      const suit = after.habits.find((h) => h.id === habitId)?.suit;
+      if (card && (had === null || (had === 'floor' && level === 'ceiling'))) {
+        const days = suit ? daysIn(courtNow, suit) : 0;
+        const court = suit && days > daysIn(courtWas, suit) ? { suit, days } : null;
+        out.push({ kind: 'deal', habitId, level, deal: { card, was: cardOn(was, today), hand: now.hand, handWas: was.hand, handDropped: false }, saved: null, same: true, court });
+      }
     }
   } else {
     const card = cardOn(now, made.day);

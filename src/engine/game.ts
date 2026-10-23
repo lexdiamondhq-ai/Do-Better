@@ -142,7 +142,8 @@ export const TABLES: readonly { key: TableKey; name: string; chips: number; abou
 
 export type TipTone = 'joker' | 'face' | 'rescue' | 'deal' | 'climb' | 'draw' | 'call' | 'showdown' | 'done';
 
-export type Tip = { tone: TipTone; text: string };
+/** A line above the deck. `far` marks a climb that needs more than one step today (every habit at its Ceiling, or several Ceilings). */
+export type Tip = { tone: TipTone; text: string; far?: true };
 
 export type FaceEarned = { day: Day; suit: Suit; face: FaceInfo };
 
@@ -598,16 +599,16 @@ function climbTip(input: GameInput, rank: Rank): Tip {
     const all = keep.length + open.fresh;
     const up = all + open.floors.running + open.floors.fresh;
     const top = loOf({ counted: t.counted + open.fresh, kept: t.kept + all, ceilings: t.ceilings + up, freshFloors: t.freshFloors - open.floors.fresh });
-    if (lifts(top)) return { tone: 'climb', text: `${open.archived ? 'Keep every habit you still can' : 'Keep every habit'}, all at their Ceilings, and ${result(top!)}.` };
+    if (lifts(top)) return { tone: 'climb', text: `${open.archived ? 'Keep every habit you still can' : 'Keep every habit'}, all at their Ceilings, and ${result(top!)}.`, far: true };
     return locked;
   }
   if (lo >= TOP_LO) return t.ceilings === t.kept ? { tone: 'done', text: 'Perfect day. Every habit at its Ceiling.' } : locked;
   const lift = ceilingsToLift(t, open, lifts);
   if (!lift) return locked;
   const makes = `today’s card ${lift.lo} or better`;
-  if (lift.all) return { tone: 'climb', text: `${t.counted === 1 ? 'Reaching the Ceiling' : 'Every habit at its Ceiling'} makes ${makes}.` };
-  if (lift.more === 1) return { tone: 'climb', text: `One more Ceiling makes ${makes}.` };
-  return { tone: 'climb', text: `${lift.more} more Ceilings make ${makes}.` };
+  if (lift.more === 1) return { tone: 'climb', text: lift.all ? `${t.counted === 1 ? 'Reaching the Ceiling' : 'Every habit at its Ceiling'} makes ${makes}.` : `One more Ceiling makes ${makes}.` };
+  if (lift.all) return { tone: 'climb', text: `${t.counted === 1 ? 'Reaching the Ceiling' : 'Every habit at its Ceiling'} makes ${makes}.`, far: true };
+  return { tone: 'climb', text: `${lift.more} more Ceilings make ${makes}.`, far: true };
 }
 
 /** Yesterday's saved card in words, and whether it lifts the hand: "Yesterday’s Jack can still be saved, and it makes your Two pair." */

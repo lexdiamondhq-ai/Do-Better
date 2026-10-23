@@ -209,7 +209,7 @@ function Table({ deck }: { deck: Deck }) {
   });
 
   // While the swipe hint shows on a first look, the line above the deck stays quiet (bar the warm-up's own line).
-  const tips = todayTips(game.tips, { warmup: game.current.warmup, firstLook: coachDue });
+  const tips = todayTips(game.tips, { warmup: game.current.warmup, firstLook: coachDue, sunday: weekday(deck.today) === 6 });
   const tip = tips.length ? tips[tipTurn % tips.length] : null;
   // A tip can name the card a face-card moment is about to show, so until it closes the tip keeps its place but shows nothing.
   const tipVeiled = bigMoment;

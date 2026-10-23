@@ -34,6 +34,7 @@ import {
   partOfDayAt,
   pillMenu,
   receiptCopy,
+  receiptNext,
   receiptOffersPlan,
   wearNote,
   weekDealDue,
@@ -290,6 +291,29 @@ describe('the chrome', () => {
     expect(todayTips(tips, { warmup: true }).map((t) => t.tone)).toEqual(['showdown', 'face']);
   });
 
+  it('leads Sunday with the Showdown tonight, ahead of a face card in reach', () => {
+    const tips = [
+      { tone: 'face' as const, text: 'Keep a People habit today to earn the Queen of Hearts and a Joker.' },
+      { tone: 'showdown' as const, text: 'Showdown at midnight. Today’s card and the river are your last two draws.' },
+    ];
+    expect(todayTips(tips, { sunday: true }).map((t) => t.tone)).toEqual(['showdown', 'face']);
+    expect(todayTips(tips).map((t) => t.tone)).toEqual(['face', 'showdown']);
+  });
+
+  it('ends a receipt on the climb, or on a face card one day away when the climb needs everything', () => {
+    const reach = { tone: 'face' as const, text: 'Keep a People habit today to earn the Queen of Hearts and a Joker.' };
+    const near = { tone: 'climb' as const, text: 'One more Ceiling makes today’s card 6 or better.' };
+    const far = { tone: 'climb' as const, text: 'Keep every habit, all at their Ceilings, and today’s card is 6 or better.', far: true as const };
+    expect(receiptNext([reach, near])).toEqual({ text: near.text, mark: '↑' });
+    expect(receiptNext([reach, far])).toEqual({ text: reach.text, mark: '♛' });
+    // With no face card in reach, the climb is still the honest next step.
+    expect(receiptNext([far])).toEqual({ text: far.text, mark: '↑' });
+    expect(receiptNext([{ tone: 'done', text: 'Perfect day. Every habit at its Ceiling.' }])?.mark).toBe('✓');
+    // A face card already earned (its Joker waits) is no next step.
+    expect(receiptNext([{ tone: 'face', text: 'You earned the Queen of Hearts today. Its Joker waits for next week’s first kept day.' }, far])?.text).toBe(far.text);
+    expect(receiptNext([])).toBeNull();
+  });
+
   it('shows at most one line on a very first look: the warm-up explanation, never the call', () => {
     const call = { tone: 'call' as const, text: 'Call the hand you’ll make this week.' };
     const warm = { tone: 'showdown' as const, text: 'Warm-up week. Your first full hand deals Monday.' };
@@ -517,6 +541,27 @@ describe('receipts', () => {
     expect(receiptCopy({ ...deal, next, saved: true, rung: { part: 'Mind', days: 150 } }).next).toBe(next);
     expect(receiptCopy({ ...deal, next: null }).next).toBeNull();
     expect(receiptCopy({ ...deal, next: '  ' }).next).toBeNull();
+  });
+
+  it('still lands a keep that left today’s card as it was, saying what it counted for', () => {
+    const same = { ...deal, card: 'Five of Spades', wentUp: false, hand: pair, handWas: pair, same: true };
+    const counted = receiptCopy({ ...same, court: { part: 'Craft', days: 41 }, next: 'Keep Read too and today’s card is 6 or better.' });
+    expect(counted).toEqual({
+      eyebrow: 'Floor kept',
+      title: 'Today’s card holds',
+      lead: null,
+      line: 'Still a Five of Spades. That makes 41 days of Craft in the Court.',
+      notes: [],
+      next: 'Keep Read too and today’s card is 6 or better.',
+    });
+    // A Ceiling reached on a card already kept adds no day to the Court: the hand it stays in is named instead.
+    expect(receiptCopy({ ...same, level: 'ceiling' }).line).toBe('Still a Five of Spades. Your hand: a Pair of Eights.');
+    expect(receiptCopy({ ...same, level: 'ceiling' }).eyebrow).toBe('Ceiling reached');
+    // A rung says the Court part itself, so it is never said twice.
+    const rung = receiptCopy({ ...same, court: { part: 'Mind', days: 150 }, rung: { part: 'Mind', days: 150 } });
+    expect(rung.line).toBe('Still a Five of Spades. Your hand: a Pair of Eights.');
+    expect(rung.notes).toEqual(['And 150 days of Mind in the Court.']);
+    expect(receiptCopy({ ...same, card: 'Joker', joker: true }).line).toMatch(/^Still a Joker\./);
   });
 
   it('says “Floor held” only for a Floor kept on a Comeback card', () => {
