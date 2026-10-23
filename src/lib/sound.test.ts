@@ -194,6 +194,16 @@ describe('the day’s chord, in sound', () => {
     expect(played.map(file)).toEqual(['ring-f4.mp3', 'ring-d5.mp3', 'ring-a5.mp3']);
   });
 
+  it('gives back the moment a strum counts from, sounds on or off, so the pills can ring with it', async () => {
+    os = 'ios';
+    const sound = await load({ activation: null });
+    vi.setSystemTime(new Date('2026-10-23T19:00:00-04:00'));
+    sound.setSoundSettings({ sounds: true, music: false });
+    expect(sound.playTones(strum(['ring-f4']), 380)).toBe(Date.parse('2026-10-23T19:00:00-04:00'));
+    sound.setSoundSettings({ sounds: false, music: false });
+    expect(sound.playTones(strum(['ring-f4']), 380)).toBe(Date.parse('2026-10-23T19:00:00-04:00'));
+  });
+
   it('rings a hand’s chord from the moment it’s asked, a low F for a card with no suit', async () => {
     os = 'ios';
     const sound = await load({ activation: null });

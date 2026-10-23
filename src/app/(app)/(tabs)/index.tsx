@@ -123,7 +123,7 @@ function Table({ deck }: { deck: Deck }) {
   const [visitKept, setVisitKept] = useState(() => deck.totals.kept > 0);
   const [coachClosed, setCoachClosed] = useState(false);
   // The day's chord as it strums, for the pills to ring in time. Set from the keep that finishes the day.
-  const [ringing, setRinging] = useState<readonly ToneStep[]>([]);
+  const [ringing, setRinging] = useState<Ring | null>(null);
   // Today's card on its way into the week, and what the strip shows meanwhile.
   const [flight, setFlight] = useState<Flight | null>(null);
   const [stripArc, setStripArc] = useState<StripArc | null>(null);
@@ -318,6 +318,15 @@ function Table({ deck }: { deck: Deck }) {
   // The receipt drops in under the strip, so it is told where the strip ends; when Today goes, or turns into the
   // list (which has no fixed strip), receipts go back to the top.
   useEffect(() => () => anchorReceipts(null), []);
+
+  // Once the strum has rung out the pills are let go, so a pill drawn again later (the list, a new habit,
+  // coming back to the tab) never rings without a keep.
+  useEffect(() => {
+    if (!ringing) return;
+    const last = ringing.steps.reduce((ms, s) => Math.max(ms, s.delayMs), 0);
+    const id = setTimeout(() => setRinging((r) => (r === ringing ? null : r)), Math.max(0, ringing.at + STRUM_AT_MS + last + RING_MS - Date.now()));
+    return () => clearTimeout(id);
+  }, [ringing]);
   const listMode = density.mode === 'list';
   useEffect(() => {
     if (listMode) anchorReceipts(null);
@@ -377,7 +386,7 @@ function Table({ deck }: { deck: Deck }) {
    * `firstMove` is Done it on the Comeback card. `table` is a keep of the front card, which leaves the table
    * (turning over first when it is a Comeback) and deals today's card into the week on an arc.
    */
-  function keep(view: HabitView, level: Level, firstMove = false, table = false) {
+  function keep(view: HabitView, level: Level, firstMove = false, table = false): boolean {
     const id = view.habit.id;
     // The moments drawn over Today wait for a Comeback's turnover and the arc when they play, and only a keep
     // on the Comeback card offers a plan.
@@ -387,12 +396,13 @@ function Table({ deck }: { deck: Deck }) {
     if (view.neverTwice && table) feel.turnover();
     else if (level === 'ceiling') feel.ceiling();
     else feel.floor();
-    // The keep that finishes the day strums today's notes as one chord, and the pills ring in time.
-    if (!view.today && pending.every((c) => c.habit.id === id)) {
+    // The keep that finishes the day strums today's notes as one chord, and the pills ring in time: both count
+    // from this moment, so a pill lifts on its note however long the render after the keep takes.
+    const strums = !view.today && pending.every((c) => c.habit.id === id);
+    if (strums) {
       const cardsAfter = deck.cards.map((c) => ({ suit: c.habit.suit, level: c.habit.id === id ? level : c.today }));
       const steps = strum(dayChord(cardsAfter).notes);
-      playTones(steps, STRUM_AT_MS);
-      setRinging(steps);
+      setRinging({ steps, at: playTones(steps, STRUM_AT_MS) });
     }
     // A Comeback card bursts once, as it turns back over (its own burst): never a second one here.
     if (!view.neverTwice) setBurst((b) => ({ n: (b?.n ?? 0) + 1, kind: level, color: cardColors[view.habit.color].bg }));
@@ -402,6 +412,7 @@ function Table({ deck }: { deck: Deck }) {
     // The shared keep also answers a waiting Comeback, the same way the card's own page does. A Ceiling
     // on the Comeback card still answers it as the Floor; only Done it is the first move.
     keepCard(view, level, { firstMove }).catch(fail);
+    return strums;
   }
 
   /** The front card has gone one way: it plays out as a ghost while the deck moves on under it. */
@@ -428,8 +439,8 @@ function Table({ deck }: { deck: Deck }) {
       setFocused((f) => (f === item.id ? null : f));
       return;
     }
-    keep(view, dir === 'up' ? 'ceiling' : 'floor', item.kind === 'comeback' && tag === 'first', true);
-    deal(item.kind === 'comeback', tag === 'first', info?.at);
+    const strummed = keep(view, dir === 'up' ? 'ceiling' : 'floor', item.kind === 'comeback' && tag === 'first', true);
+    deal(item.kind === 'comeback', tag === 'first', info?.at, strummed);
   }
 
   /**
@@ -437,14 +448,15 @@ function Table({ deck }: { deck: Deck }) {
    * middle of the deck), after a Comeback card's turnover when it was one. Yesterday, when this keep saves it,
    * stays faint in the strip until the card lands.
    */
-  const deal = (comeback: boolean, firstMove: boolean, at?: Point) => {
+  const deal = (comeback: boolean, firstMove: boolean, at?: Point, quiet = false) => {
     const to = todaySlot;
     if (!to) return;
     // `deals` counts every card played here, so each flight has its own number.
     const n = deals + 1;
     const delayMs = comeback ? comebackExit({ firstMove, reduced }).totalMs : 0;
     const from = at ?? deckMiddle ?? { x: to.x + to.width / 2, y: to.y + 260 };
-    setFlight({ id: n, from, to, delayMs, reduced });
+    // A keep that strums the day's chord lands its card with the tick alone, so the deal sound doesn't ring over the notes.
+    setFlight({ id: n, from, to, delayMs, reduced, quiet });
     setStripArc({ phase: 'flying', savedDay: game.rescue, n });
     // The arc turns today's card over in its place, so the strip doesn't turn it again once it lands.
     setTurnToday(0);
@@ -1187,6 +1199,12 @@ function TipBanner({ tip, veiled, count, turn, onNext }: { tip: { tone: TipTone;
 const PILL_FADE = 28;
 /** The keep that finishes the day starts its strum this long after the keep. */
 const STRUM_AT_MS = 380;
+/** How long a ring note sounds, so the pills are let go once the strum has rung out. */
+const RING_MS = 500;
+/** A pill that comes to ring more than this long after its note (drawn again later) stays still instead. */
+const RING_LATE_MS = 100;
+/** The day's chord as it strums: its notes, and when the keep that started it happened (Date.now()). */
+type Ring = { steps: readonly ToneStep[]; at: number };
 
 /**
  * Every card in the deck as a pill: kept ones in their colour, waiting ones as outlines. The row scrolls
@@ -1198,7 +1216,7 @@ function Pills({
   cards,
   frontId,
   felt,
-  ringing = [],
+  ringing = null,
   onPill,
   onOpen,
   onNew,
@@ -1208,7 +1226,7 @@ function Pills({
   /** The table's colour as it is drawn right now, so the soft edges match it even mid-swipe. */
   felt: React.ComponentProps<typeof Animated.View>['style'];
   /** The day's chord as it strums: each pill rings on its suit's note (stream 1 draws it). */
-  ringing?: readonly ToneStep[];
+  ringing?: Ring | null;
   onPill: (view: HabitView) => void;
   onOpen: (id: string) => void;
   onNew: () => void;
@@ -1288,7 +1306,7 @@ function Pills({
             const kept = view.today;
             const isFront = view.habit.id === frontId;
             const state = kept === 'ceiling' ? 'Ceiling reached' : kept === 'floor' ? 'Floor kept' : view.neverTwice ? 'Comeback waiting' : 'not kept yet';
-            const step = ringing.find((s) => s.suit === view.habit.suit);
+            const step = ringing?.steps.find((s) => s.suit === view.habit.suit);
             return (
               <Pressable
                 key={view.habit.id}
@@ -1324,7 +1342,7 @@ function Pills({
                   transform: [{ scale: pressed ? 0.96 : 1 }],
                 })}
               >
-                <RingChip ring={ringing} at={step ? STRUM_AT_MS + step.delayMs : null} color={kept ? withAlpha(c.ink, 0.14) : c.bg} edge={kept ? withAlpha(c.ink, 0.22) : withAlpha('#000000', 0.14)}>
+                <RingChip start={step && ringing ? ringing.at : null} at={step ? STRUM_AT_MS + step.delayMs : null} color={kept ? withAlpha(c.ink, 0.14) : c.bg} edge={kept ? withAlpha(c.ink, 0.22) : withAlpha('#000000', 0.14)}>
                   {kept ? (
                     <Body weight="heavy" size={12} color={c.ink} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 14 }}>
                       {kept === 'ceiling' ? '↑' : '✓'}
@@ -1397,14 +1415,18 @@ function EdgeFade({ side, felt }: { side: 'left' | 'right'; felt: React.Componen
 
 /**
  * A pill's little card of colour. When the day's chord strums it rings: up to 1.15 and back on its suit's
- * note (`at`, in ms from the keep). Reduce Motion leaves it still.
+ * note, `at` ms after the keep at `start`. The time since the keep is taken off, so the lift meets its note
+ * however late this renders, and a pill drawn again after its note has passed stays still. Reduce Motion
+ * leaves it still.
  */
-function RingChip({ ring, at, color, edge, children }: { ring: readonly ToneStep[]; at: number | null; color: string; edge: string; children?: ReactNode }) {
+function RingChip({ start, at, color, edge, children }: { start: number | null; at: number | null; color: string; edge: string; children?: ReactNode }) {
   const scale = useSharedValue(1);
   useEffect(() => {
-    if (at === null || ring.length === 0) return;
-    scale.set(withDelay(at, withSequence(withTiming(1.15, { duration: 90, easing: Easing.out(Easing.quad) }), withTiming(1, { duration: 300, easing: Easing.out(Easing.cubic) }))));
-  }, [ring, at, scale]);
+    if (start === null || at === null) return;
+    const wait = start + at - Date.now();
+    if (wait < -RING_LATE_MS) return;
+    scale.set(withDelay(Math.max(0, wait), withSequence(withTiming(1.15, { duration: 90, easing: Easing.out(Easing.quad) }), withTiming(1, { duration: 300, easing: Easing.out(Easing.cubic) }))));
+  }, [start, at, scale]);
   const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
   return (
     <Animated.View style={[{ width: 16, height: 22, borderRadius: 4, backgroundColor: color, borderWidth: 1, borderColor: edge, alignItems: 'center', justifyContent: 'center' }, ringStyle]}>{children}</Animated.View>

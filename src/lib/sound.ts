@@ -232,11 +232,16 @@ export function playSound(name: SoundName, delayMs = 0) {
  * Plays a strum or a hand's chord, each note `delayMs` after `startMs`. Every note's player is made
  * before the first rings, so a strum that starts 380 ms after the last keep is ready on time. The sounds
  * switch applies to each note as it comes, so turning sounds off mid-strum stops the rest.
+ *
+ * Returns the moment the notes count from (Date.now()), sounds on or off, so whatever moves in time with
+ * them counts from the same moment.
  */
-export function playTones(steps: readonly ToneStep[], startMs = 0) {
-  if (!soundsOn || !steps.length) return;
+export function playTones(steps: readonly ToneStep[], startMs = 0): number {
+  const from = Date.now();
+  if (!soundsOn || !steps.length) return from;
   warm(steps.map((s) => s.tone));
   for (const step of steps) playSound(step.tone, Math.max(0, startMs + step.delayMs));
+  return from;
 }
 
 /** Moves the music's volume to `to` over `ms`, then runs `done`. */

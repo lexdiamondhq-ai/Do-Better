@@ -16,8 +16,10 @@ import type { Rect } from './WeekStrip';
 /**
  * One deal into the week: from where the kept card was (`from`, window coordinates) to today's place in
  * the strip (`to`, its window rectangle). `delayMs` holds it back while a Comeback card turns over first.
+ * `quiet` lands it with the tick but no deal sound: the keep that finished the day is strumming its chord
+ * then, and one sound at a time reads better than two on top of each other.
  */
-export type Flight = { id: number; from: Point; to: Rect; delayMs: number; reduced: boolean };
+export type Flight = { id: number; from: Point; to: Rect; delayMs: number; reduced: boolean; quiet?: boolean };
 
 const SIZE: CardSize = 'xs';
 
@@ -46,6 +48,7 @@ export function DealArc({ flight, face, down = false, back, onLanded }: { flight
   const id = flight?.id ?? null;
   const reduced = !!flight?.reduced;
   const delayMs = flight?.delayMs ?? 0;
+  const quiet = !!flight?.quiet;
   const land = useEffectEvent((flightId: number) => onLanded(flightId));
 
   useEffect(() => {
@@ -53,7 +56,7 @@ export function DealArc({ flight, face, down = false, back, onLanded }: { flight
     const timing = dealArc({ reduced });
     const turned = () => {
       feel.tick();
-      playSound('deal');
+      if (!quiet) playSound('deal');
     };
     const landed = () => land(id);
     const seated = () => feel.tick();
@@ -117,7 +120,7 @@ export function DealArc({ flight, face, down = false, back, onLanded }: { flight
         }),
       ),
     );
-  }, [id, reduced, delayMs, t, turn, seat, shown, stayDown]);
+  }, [id, reduced, delayMs, quiet, t, turn, seat, shown, stayDown]);
 
   const s = CARD_SIZES[SIZE];
   const from = flight ? { x: flight.from.x - origin.x, y: flight.from.y - origin.y } : { x: 0, y: 0 };
