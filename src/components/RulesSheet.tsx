@@ -12,7 +12,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SUIT_INFO, SUITS, type Suit } from '@/engine/cards';
@@ -261,15 +261,25 @@ export type MiniMode = 'deal' | 'hand' | 'river' | 'stamps' | 'call' | 'saved' |
 const MINI: Partial<Record<RulesTopic, MiniMode>> = { deal: 'deal', week: 'hand', river: 'river', showdown: 'stamps', call: 'call', comeback: 'saved', court: 'court', suits: 'notes' };
 
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+/** The day names VoiceOver says: a lone "T" could be Tuesday or Thursday. */
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+/** "Clubs and Spades". */
+const suitList = (suits: readonly Suit[]) => {
+  const names = suits.map((s) => SUIT_INFO[s].name);
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+};
 
 /**
  * One place in a mini row: a card face up, a back (a day to come, or the river while face down), today's
  * open place, or an empty day. `focus` is what the section is about; the rest dims. `under` is the small
- * mark below the card, `tone` the note it rings when tapped.
+ * mark below the card, `tone` the note it rings when tapped. `day` and `said` are what VoiceOver says for
+ * the letter and the mark, since it would read ↓ or ↺ as the arrow's name.
  */
 export type MiniSlot = {
   key: string;
   letter: string;
+  day: string;
   face: CardFace | null;
   back: boolean;
   open: boolean;
@@ -277,7 +287,8 @@ export type MiniSlot = {
   focus: boolean;
   held: boolean;
   under: string | null;
-  /** The suits drawn under the card in Court, in their own colours. `under` spells them for VoiceOver. */
+  said: string | null;
+  /** The suits drawn under the card in Court, in their own colours. `said` names them for VoiceOver. */
   underSuits?: readonly Suit[];
   tone: Tone | null;
   center: string | null;
@@ -291,14 +302,16 @@ export function cardTone(card: DayCard): Tone {
 }
 
 const STAMP_MARK: Record<Stamp, string> = { floor: '↓', ceiling: '↑' };
+const STAMP_SAID: Record<Stamp, string> = { floor: 'Floor day', ceiling: 'Ceiling day' };
 
 /**
  * The row of this week's cards a section shows, with what that section is about picked out:
  * - `deal`: every card, with the lowest its day could deal under it.
  * - `hand`: the cards in your hand lifted, the rest dimmed.
- * - `river`: the week, then the river: face down once earned, or how many kept days it still needs.
+ * - `river`: the week, then the river: face down once earned, or how many kept days it still needs. A
+ *   warm-up week has no Showdown, so it has no river either.
  * - `stamps`: the hand's cards with ↓ or ↑ under each.
- * - `call`: the hand's cards, checked once they make the call.
+ * - `call`: the hand's cards; the caption says whether they make the call.
  * - `saved`: saved days marked ↺, and yesterday's card, dashed, while it can still be saved.
  * - `court`: every card with the suits it counts in.
  * - `notes`: every card with the note it rings.
@@ -309,25 +322,44 @@ export function miniSlots(week: Week, mode: MiniMode, rescue: { day: Day; card: 
   const anySaved = !!rescue || week.slots.some((s) => s.card?.kind === 'card' && s.card.rescued);
   if ((mode === 'stamps' || mode === 'call') && week.hand) {
     const stamps = stampsFor(week);
-    return week.hand.cards.map((c, i) => ({
-      key: `${c.day}-${i}`,
-      letter: c.river ? 'River' : LETTERS[weekday(c.day)],
-      face: faceOfPlayed(c),
+    return week.hand.cards.map((c, i) => {
+      const stamp = mode === 'stamps' ? stamps[c.day] : undefined;
+      return {
+        key: `${c.day}-${i}`,
+        letter: c.river ? 'River' : LETTERS[weekday(c.day)],
+        day: c.river ? 'River' : DAY_NAMES[weekday(c.day)],
+        face: faceOfPlayed(c),
+        back: false,
+        open: false,
+        dashed: false,
+        focus: true,
+        held: false,
+        under: stamp ? STAMP_MARK[stamp] : null,
+        said: stamp ? STAMP_SAID[stamp] : null,
+        tone: null,
+        center: null,
+      };
+    });
+  }
+  const slots: MiniSlot[] = week.slots.map((slot) => {
+    const base: MiniSlot = {
+      key: slot.day,
+      letter: LETTERS[weekday(slot.day)],
+      day: DAY_NAMES[weekday(slot.day)],
+      face: null,
       back: false,
       open: false,
       dashed: false,
       focus: true,
       held: false,
-      under: mode === 'stamps' ? (stamps[c.day] ? STAMP_MARK[stamps[c.day]] : null) : null,
+      under: null,
+      said: null,
       tone: null,
       center: null,
-    }));
-  }
-  const slots: MiniSlot[] = week.slots.map((slot) => {
-    const base: MiniSlot = { key: slot.day, letter: LETTERS[weekday(slot.day)], face: null, back: false, open: false, dashed: false, focus: true, held: false, under: null, tone: null, center: null };
+    };
     const card = slot.card;
     if (!card) {
-      if (mode === 'saved' && rescue && rescue.day === slot.day) return { ...base, face: faceOfDay(rescue.card), dashed: true, under: '↺' };
+      if (mode === 'saved' && rescue && rescue.day === slot.day) return { ...base, face: faceOfDay(rescue.card), dashed: true, under: '↺', said: 'yours if you keep anything today' };
       if (slot.state === 'future') return { ...base, back: true, focus: false };
       if (slot.state === 'open') return { ...base, open: true };
       return { ...base, focus: false, center: slot.state === 'blank' ? '·' : null };
@@ -337,7 +369,8 @@ export function miniSlots(week: Week, mode: MiniMode, rescue: { day: Day; card: 
     const saved = card.kind === 'card' && card.rescued;
     switch (mode) {
       case 'deal':
-        return { ...base, face, under: saved ? '↺' : card.kind === 'joker' ? '★' : `${card.lo}+` };
+        // The card's own label already says "saved" or "Joker".
+        return { ...base, face, under: saved ? '↺' : card.kind === 'joker' ? '★' : `${card.lo}+`, said: saved || card.kind === 'joker' ? null : `${card.lo} or better` };
       case 'hand':
       case 'stamps':
       case 'call':
@@ -345,36 +378,63 @@ export function miniSlots(week: Week, mode: MiniMode, rescue: { day: Day; card: 
       case 'saved':
         return { ...base, face, focus: saved || !anySaved, under: saved ? '↺' : null };
       case 'court':
-        return { ...base, face, focus: card.suits.length > 0, under: card.suits.map((s) => SUIT_INFO[s].glyph).join('') || null, underSuits: card.suits };
+        return {
+          ...base,
+          face,
+          focus: card.suits.length > 0,
+          under: card.suits.map((s) => SUIT_INFO[s].glyph).join('') || null,
+          said: card.suits.length ? `counts for ${suitList(card.suits)}` : null,
+          underSuits: card.suits,
+        };
       case 'notes': {
         const tone = card.kind === 'joker' ? 'ring-low' : cardTone(card);
         const suit = card.kind === 'card' ? card.suits[0] : undefined;
-        return { ...base, face, tone, under: suit ? SUIT_NOTE[suit] : 'low F' };
+        const note = suit ? SUIT_NOTE[suit] : 'low F';
+        return { ...base, face, tone, under: note, said: `its note ${note}` };
       }
       default:
         return { ...base, face };
     }
   });
-  if (mode === 'river') {
+  if (mode === 'river' && !week.warmup) {
     const { earned, need } = week.river;
-    slots.push({ key: 'river', letter: 'River', face: null, back: earned, open: false, dashed: !earned, focus: earned, held: false, under: null, tone: null, center: earned ? null : `+${need}` });
+    slots.push({
+      key: 'river',
+      letter: 'River',
+      day: 'River',
+      face: null,
+      back: earned,
+      open: false,
+      dashed: !earned,
+      focus: earned,
+      held: false,
+      under: null,
+      said: null,
+      tone: null,
+      center: earned ? null : `+${need}`,
+    });
   }
   return slots;
 }
+
+/** Whether any day of the week has dealt a card yet. */
+const anyCards = (week: Week) => week.slots.some((s) => s.card);
 
 /** The line beside "Your week": what the row shows, in a few words. */
 export function miniCaption(week: Week, mode: MiniMode, o: { rescue?: boolean; callOpen?: boolean } = {}): string | null {
   switch (mode) {
     case 'deal':
-      return 'Under each card, the lowest its day could deal.';
+      return anyCards(week) ? 'Under each card, the lowest its day could deal.' : 'No cards yet this week.';
     case 'hand':
       return week.hand ? week.hand.title : 'No cards yet this week.';
     case 'river': {
+      if (week.warmup) return 'A warm-up week has no river.';
       const { earned, need } = week.river;
       if (earned) return 'Earned. It turns at the Showdown.';
       return need === 1 ? '1 more kept day earns it.' : `${need} more kept days earn it.`;
     }
     case 'stamps':
+      if (week.warmup) return 'A warm-up week has no Showdown.';
       if (!week.hand) return 'No cards yet this week.';
       // The legend only once a card wears a mark; until then the row is the hand itself.
       return Object.keys(stampsFor(week)).length ? '↓ Floor day  ·  ↑ Ceiling day' : week.hand.title;
@@ -385,14 +445,27 @@ export function miniCaption(week: Week, mode: MiniMode, o: { rescue?: boolean; c
     case 'saved':
       return o.rescue ? 'Yesterday’s card can still be saved.' : 'A saved day shows ↺.';
     case 'court': {
+      if (!anyCards(week)) return 'No cards yet this week.';
       const counts = SUITS.map((s) => `${SUIT_INFO[s].glyph} ${week.slots.filter((slot) => slot.card?.suits.includes(s)).length}`);
       return `${counts.join('  ')} days this week`;
     }
     case 'notes':
-      return 'Tap a card to hear its note.';
+      return anyCards(week) ? 'Tap a card to hear its note.' : 'No cards yet this week.';
     default:
       return null;
   }
+}
+
+/**
+ * The caption as VoiceOver says it: the same words, except where the screen uses a mark. Each card says
+ * its own ↓, ↑ or ↺, so the legend isn't read out, and the Court's suit glyphs become their names.
+ */
+export function miniCaptionSaid(week: Week, mode: MiniMode, o: { rescue?: boolean; callOpen?: boolean } = {}): string | null {
+  const caption = miniCaption(week, mode, o);
+  if (mode === 'stamps' && caption?.startsWith('↓')) return week.hand?.title ?? null;
+  if (mode === 'saved' && !o.rescue) return null;
+  if (mode === 'court' && anyCards(week)) return `Days this week: ${SUITS.map((s) => `${SUIT_INFO[s].name} ${week.slots.filter((slot) => slot.card?.suits.includes(s)).length}`).join(', ')}`;
+  return caption;
 }
 
 /** A small "Rules" pill that opens the rules sheet, at `topic` when given. */
@@ -593,6 +666,31 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
 /** Gap between the cards of a mini row, and the most points a mini card may take across. */
 const MINI_GAP = 5;
 const MINI_MAX_W = 40;
+/** A ringing card rises over 90 ms and settles over 320 ms. */
+const RING_RISE_MS = 90;
+const RING_FALL_MS = 320;
+/** The strum clock while nothing rings: far past every card's note, so nothing is lifted. */
+const RING_IDLE = 1e9;
+
+/** When each card of a played week rings: its note's place in the strum, low to high. Cards with no note never ring. */
+export function ringTimes(slots: readonly MiniSlot[]): Readonly<Record<string, number>> {
+  const steps = strum(slots.flatMap((s) => (s.tone ? [s.tone] : [])));
+  const at: Record<string, number> = {};
+  for (const s of slots) {
+    const step = steps.find((x) => x.tone === s.tone);
+    if (step) at[s.key] = step.delayMs;
+  }
+  return at;
+}
+
+/** How far a card is lifted, 0 to 1, `ms` after its note rang: a quick rise, then an easy settle. */
+export function ringLift(ms: number): number {
+  'worklet';
+  if (ms < 0) return 0;
+  if (ms < RING_RISE_MS) return ms / RING_RISE_MS;
+  const left = 1 - (ms - RING_RISE_MS) / RING_FALL_MS;
+  return left > 0 ? left * left : 0;
+}
 
 /**
  * This week's cards, small, in a panel on the felt, with the part the section is about picked out. In
@@ -604,29 +702,29 @@ function YourWeek({ mode }: { mode: MiniMode }) {
   const deck = useDeck();
   const { back } = useLook();
   const { width } = useWindowDimensions();
-  const [strummed, setStrummed] = useState<{ n: number; at: Readonly<Record<string, number>> }>({ n: 0, at: {} });
+  // Milliseconds since Play your week was pressed. Each card lifts as the clock passes its note; Reduce
+  // Motion finishes the clock at once, so nothing lifts.
+  const clock = useSharedValue(RING_IDLE);
   if (!deck) return null;
   const { game } = deck;
   const week = game.current;
   const rescue = game.rescue && game.rescueCard ? { day: game.rescue, card: game.rescueCard } : null;
   const slots = miniSlots(week, mode, rescue);
   const caption = miniCaption(week, mode, { rescue: !!rescue, callOpen: game.callOpen });
+  const said = miniCaptionSaid(week, mode, { rescue: !!rescue, callOpen: game.callOpen });
   const pad = space.md;
   const inner = Math.min(width, 520) - space.xl * 2 - pad * 2;
   const cardW = Math.floor(Math.min(MINI_MAX_W, (inner - MINI_GAP * (Math.max(slots.length, 5) - 1)) / Math.max(slots.length, 5)));
   const cardH = Math.round((cardW * CARD_SIZES.xs.h) / CARD_SIZES.xs.w);
   const playable = mode === 'notes' && slots.some((s) => s.tone);
+  const rings = playable ? ringTimes(slots) : {};
 
   const playWeek = () => {
     tick();
     const steps = strum(slots.flatMap((s) => (s.tone ? [s.tone] : [])));
     playTones(steps);
-    const at: Record<string, number> = {};
-    for (const s of slots) {
-      const step = steps.find((x) => x.tone === s.tone);
-      if (step) at[s.key] = step.delayMs;
-    }
-    setStrummed((p) => ({ n: p.n + 1, at }));
+    const end = (steps.at(-1)?.delayMs ?? 0) + RING_RISE_MS + RING_FALL_MS;
+    clock.set(withSequence(withTiming(0, { duration: 0 }), withTiming(end, { duration: end, easing: Easing.linear, reduceMotion: ReduceMotion.System })));
   };
 
   return (
@@ -659,11 +757,11 @@ function YourWeek({ mode }: { mode: MiniMode }) {
       <View
         accessible={mode !== 'notes'}
         accessibilityRole={mode !== 'notes' ? 'image' : undefined}
-        accessibilityLabel={mode !== 'notes' ? miniLabel(slots, caption) : undefined}
+        accessibilityLabel={mode !== 'notes' ? miniLabel(slots, said) : undefined}
         style={{ flexDirection: 'row', gap: MINI_GAP, justifyContent: slots.length < 7 ? 'flex-start' : 'space-between' }}
       >
         {slots.map((slot) => (
-          <MiniCard key={slot.key} slot={slot} w={cardW} h={cardH} back={back} ring={strummed.at[slot.key]} ringNonce={strummed.n} />
+          <MiniCard key={slot.key} slot={slot} w={cardW} h={cardH} back={back} clock={clock} ring={rings[slot.key]} alone={mode === 'notes'} />
         ))}
       </View>
       {/* With a button in the header, the hint sits under the cards it's about. */}
@@ -677,31 +775,54 @@ function YourWeek({ mode }: { mode: MiniMode }) {
 }
 
 /** What one place in a mini row holds, for VoiceOver: "Seven of Clubs", "face down", "no card". */
-function slotWhat(s: MiniSlot): string {
+export function slotWhat(s: MiniSlot): string {
   if (s.face) return faceLabel(s.face);
   if (s.back) return 'face down';
   if (s.open) return 'not dealt yet';
-  return s.center?.startsWith('+') ? `${s.center.slice(1)} more kept days to go` : 'no card';
+  if (!s.center?.startsWith('+')) return 'no card';
+  const need = s.center.slice(1);
+  return need === '1' ? '1 more kept day to go' : `${need} more kept days to go`;
 }
 
-/** The row read as one sentence: "Your week. Pair of Kings. M, King of Hearts, in your hand. …". */
-function miniLabel(slots: readonly MiniSlot[], caption: string | null): string {
-  const parts = slots.map((s) => `${s.letter}, ${slotWhat(s)}${s.held ? ', in your hand' : ''}${s.under ? `, ${s.under}` : ''}`);
-  return `Your week${caption ? `. ${caption}` : ''}. ${parts.join('. ')}.`;
+/** One place read out: "Monday, King of Hearts, in your hand, Ceiling day". */
+export function slotSaid(s: MiniSlot): string {
+  return `${s.day}, ${slotWhat(s)}${s.held ? ', in your hand' : ''}${s.said ? `, ${s.said}` : ''}`;
 }
 
-/** One small card of a mini row. A card that rings lifts on its note when the week is played or it's tapped. */
-function MiniCard({ slot, w, h, back, ring, ringNonce }: { slot: MiniSlot; w: number; h: number; back: Parameters<typeof CardBack>[0]['back']; ring: number | undefined; ringNonce: number }) {
+/** The row read as one sentence: "Your week. Pair of Kings. Monday, King of Hearts, in your hand. …". */
+export function miniLabel(slots: readonly MiniSlot[], caption: string | null): string {
+  return `Your week${caption ? `. ${caption}` : ''}. ${slots.map(slotSaid).join('. ')}.`;
+}
+
+/**
+ * One small card of a mini row. A card that rings lifts on its note when the week is played (as `clock`
+ * passes `ring`) or when it's tapped. `alone` gives a card that can't be tapped its own label, for rows
+ * VoiceOver reads card by card.
+ */
+function MiniCard({
+  slot,
+  w,
+  h,
+  back,
+  clock,
+  ring,
+  alone,
+}: {
+  slot: MiniSlot;
+  w: number;
+  h: number;
+  back: Parameters<typeof CardBack>[0]['back'];
+  clock: SharedValue<number>;
+  ring: number | undefined;
+  alone: boolean;
+}) {
   const t = useTheme();
-  const lift = useSharedValue(0);
-  // A played week lifts each card on its note. Setting a shared value is not React state, so this
-  // effect only starts an animation.
-  useEffect(() => {
-    if (ring === undefined || !ringNonce) return;
-    lift.set(withDelay(ring, withSequence(withTiming(1, { duration: 90, reduceMotion: ReduceMotion.System }), withSpring(0, { damping: 9, stiffness: 180, reduceMotion: ReduceMotion.System }))));
-  }, [ring, ringNonce, lift]);
+  const tapped = useSharedValue(0);
   // A small rise and a bigger swell, so a ringing card stays clear of its day letter.
-  const lifted = useAnimatedStyle(() => ({ transform: [{ translateY: -4 * lift.get() }, { scale: 1 + 0.07 * lift.get() }] }));
+  const lifted = useAnimatedStyle(() => {
+    const v = Math.max(tapped.get(), ring === undefined ? 0 : ringLift(clock.get() - ring));
+    return { transform: [{ translateY: -4 * v }, { scale: 1 + 0.07 * v }] };
+  });
 
   const r = Math.round((w * CARD_SIZES.xs.radius) / CARD_SIZES.xs.w);
   let card;
@@ -749,17 +870,25 @@ function MiniCard({ slot, w, h, back, ring, ringNonce }: { slot: MiniSlot; w: nu
       ) : null}
     </View>
   );
-  if (!slot.tone) return body;
+  if (!slot.tone) {
+    return alone ? (
+      <View accessible accessibilityLabel={slotSaid(slot)}>
+        {body}
+      </View>
+    ) : (
+      body
+    );
+  }
   const tone = slot.tone;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${slot.letter}, ${slotWhat(slot)}. Its note: ${slot.under ?? ''}.`}
+      accessibilityLabel={`${slot.day}, ${slotWhat(slot)}. Its note: ${slot.under ?? ''}.`}
       accessibilityHint="Plays its note."
       onPress={() => {
         tick();
         playSound(tone);
-        lift.set(withSequence(withTiming(1, { duration: 90, reduceMotion: ReduceMotion.System }), withSpring(0, { damping: 9, stiffness: 180, reduceMotion: ReduceMotion.System })));
+        tapped.set(withSequence(withTiming(1, { duration: RING_RISE_MS, reduceMotion: ReduceMotion.System }), withSpring(0, { damping: 9, stiffness: 180, reduceMotion: ReduceMotion.System })));
       }}
     >
       {body}

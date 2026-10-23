@@ -7,7 +7,7 @@ import { HANDS, SUITED_BONUS } from '@/engine/poker';
 
 // The sheet's words are plain data; nothing on screen is drawn here.
 vi.mock('react-native', () => ({ Modal: () => null, Platform: { OS: 'ios' }, Pressable: () => null, ScrollView: () => null, Text: () => null, View: () => null, useWindowDimensions: () => ({ width: 375, height: 667 }) }));
-vi.mock('react-native-reanimated', () => ({ default: { View: () => null }, ReduceMotion: { System: 'system' }, useAnimatedStyle: () => ({}), useSharedValue: () => ({ get: () => 0, set: () => {} }), withDelay: () => 0, withSequence: () => 0, withSpring: () => 0, withTiming: () => 0 }));
+vi.mock('react-native-reanimated', () => ({ default: { View: () => null }, Easing: { linear: (x: number) => x }, ReduceMotion: { System: 'system' }, useAnimatedStyle: () => ({}), useSharedValue: () => ({ get: () => 0, set: () => {} }), withSequence: () => 0, withSpring: () => 0, withTiming: () => 0 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@/theme/ThemeProvider', () => ({ useTheme: () => ({}) }));
 vi.mock('@/lib/feel', () => ({ tick: () => {} }));
@@ -29,7 +29,8 @@ vi.mock('@/lib/deck', () => ({ useDeck: () => null, useLook: () => ({ back: 'cla
 const stamps = vi.hoisted(() => ({ now: {} as Record<string, 'floor' | 'ceiling'> }));
 vi.mock('@/engine/showdown', () => ({ stampsFor: () => stamps.now }));
 
-const { RULES, HAND_PRICES, handPrices, ladder, miniCaption, miniSlots, cardTone, openingScroll, sectionAt } = await import('./RulesSheet');
+const { RULES, HAND_PRICES, handPrices, ladder, miniCaption, miniCaptionSaid, miniLabel, miniSlots, cardTone, openingScroll, ringLift, ringTimes, sectionAt, slotWhat } = await import('./RulesSheet');
+const { STRUM_MS } = await import('@/engine/chord');
 const { space } = await import('@/theme/tokens');
 const { WEAR_AT } = await import('@/engine/wear');
 
@@ -320,6 +321,65 @@ describe('the rules sheet', () => {
     expect(cardTone(dealt(days[0], 7, ['spades', 'clubs'], { ceilingSuits: ['clubs'] }))).toBe('ring-f4');
     expect(cardTone(dealt(days[0], 7, ['diamonds'], { ceilingSuits: ['diamonds'] }))).toBe('ring-c6');
     expect(miniCaption(friday(), 'notes')).toBe('Tap a card to hear its note.');
+  });
+
+  it('says there are no cards yet on a Monday morning, rather than pointing at cards that aren’t there', () => {
+    const monday = friday({ hand: null, call: null, callMultiplier: 0, madeCall: false, river: { earned: false, need: 5, card: null } });
+    monday.slots = monday.slots.map((s, i) => ({ ...s, card: null, isToday: i === 0, state: i === 0 ? 'open' : 'future' }));
+    for (const mode of ['deal', 'hand', 'stamps', 'court', 'notes'] as const) expect(miniCaption(monday, mode)).toBe('No cards yet this week.');
+    expect(miniSlots(monday, 'notes').some((s) => s.tone)).toBe(false);
+    // A count of zeros is never shown: nothing here starts again from nothing.
+    expect(miniCaption(monday, 'court')).not.toMatch(/0/);
+  });
+
+  it('gives a warm-up week no river and no Showdown, as the rules say', () => {
+    const warm = friday({ warmup: true, call: null, callMultiplier: 0, madeCall: false, river: { earned: false, need: 1, card: null } });
+    const river = miniSlots(warm, 'river');
+    expect(river).toHaveLength(7);
+    expect(river.some((s) => s.key === 'river')).toBe(false);
+    expect(miniCaption(warm, 'river')).toBe('A warm-up week has no river.');
+    expect(miniCaption(warm, 'stamps')).toBe('A warm-up week has no Showdown.');
+    expect(miniCaption(warm, 'call')).toBe('A warm-up week has no call.');
+    expect(ladder(game(warm)).find((r) => r.mine)?.kind).toBe('three-of-a-kind');
+  });
+
+  it('reads each row to VoiceOver with whole day names and words, never a mark’s symbol', () => {
+    const week = friday();
+    stamps.now = { [days[0]]: 'ceiling', [days[2]]: 'floor' };
+    const stampsLabel = miniLabel(miniSlots(week, 'stamps'), miniCaptionSaid(week, 'stamps'));
+    expect(stampsLabel).toMatch(/^Your week\. Three Kings\. Monday, card, Ceiling day\. Wednesday, card, Floor day\. Thursday, card\. Tuesday, card\.$/);
+    stamps.now = {};
+    const labels = (['deal', 'hand', 'river', 'saved', 'court', 'call'] as const).map((mode) => miniLabel(miniSlots(week, mode), miniCaptionSaid(week, mode)));
+    for (const label of [stampsLabel, ...labels]) {
+      expect(label).not.toMatch(/[↓↑↺★♠♥♦♣]/);
+      expect(label).not.toMatch(/(^|\. )[MTWFS],/);
+    }
+    expect(labels[0]).toMatch(/Monday, card, 6 or better\. Tuesday, card\. Wednesday, card, 5 or better\. Thursday, card\. Friday, not dealt yet\. Saturday, face down/);
+    expect(labels[4]).toMatch(/Days this week: Spades 1, Hearts 1, Diamonds 1, Clubs 1\. Monday, card, counts for Hearts\. Tuesday, card\. Wednesday, card, counts for Clubs and Spades/);
+    expect(miniLabel(miniSlots(friday({ river: { earned: false, need: 1, card: null } }), 'river'), null)).toMatch(/River, 1 more kept day to go\.$/);
+    expect(labels[2]).toMatch(/River, 2 more kept days to go\.$/);
+    const rescue = { day: days[3], card: dealt(days[3], 9, [], { rescued: true, lo: 2 }) };
+    const blank = friday();
+    blank.slots[3] = { ...blank.slots[3], card: null, state: 'blank' };
+    expect(miniLabel(miniSlots(blank, 'saved', rescue), miniCaptionSaid(blank, 'saved', { rescue: true }))).toMatch(
+      /^Your week\. Yesterday’s card can still be saved\..*Thursday, card, yours if you keep anything today\./,
+    );
+    expect(slotWhat({ ...miniSlots(week, 'river')[7], center: '+3' })).toBe('3 more kept days to go');
+  });
+
+  it('lifts each card of a played week on its own note, low to high, and lets it settle', () => {
+    const slots = miniSlots(friday(), 'notes');
+    const at = ringTimes(slots);
+    // Monday rings A5, Wednesday D5, and the saved Tuesday and the Joker share the low F.
+    expect(at).toEqual({ [days[1]]: 0, [days[3]]: 0, [days[2]]: STRUM_MS, [days[0]]: 2 * STRUM_MS });
+    expect(Object.keys(at)).not.toContain(days[4]);
+    expect(ringLift(-1)).toBe(0);
+    expect(ringLift(0)).toBe(0);
+    expect(ringLift(90)).toBe(1);
+    expect(ringLift(200)).toBeGreaterThan(0);
+    expect(ringLift(200)).toBeLessThan(1);
+    expect(ringLift(90 + 320)).toBe(0);
+    expect(ringLift(1e9)).toBe(0);
   });
 
   it('speaks in Do Better’s own words', () => {
