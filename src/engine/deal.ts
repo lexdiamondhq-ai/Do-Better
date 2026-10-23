@@ -336,16 +336,25 @@ export function keptCards(slots: readonly Slot[]): DayCard[] {
 export const RIVER_DAYS = 5;
 
 /**
+ * The lowest card the river can be, from the week's kept days as they stand: the band of the middle kept
+ * day (the lower median of their `lo`). Null with fewer than five kept days. It says nothing about which
+ * card the river will be: that is only dealt once the week is over (`riverCard`).
+ */
+export function riverBand(slots: readonly Slot[]): Rank | null {
+  const los = keptCards(slots)
+    .map((c) => c.lo)
+    .sort((a, b) => a - b);
+  return los.length < RIVER_DAYS ? null : los[Math.floor((los.length - 1) / 2)];
+}
+
+/**
  * The river card of a finished week: earned by five or more kept days (saved days don't count), ranked in
  * the band of the week's middle day (the lower median of their `lo`), with no suit. It carries the date
  * of the Monday after, the moment it turns, so it never matches a day of its own week.
  */
 export function riverCard(start: Day, slots: readonly Slot[], seed: string): DayCard | null {
-  const los = keptCards(slots)
-    .map((c) => c.lo)
-    .sort((a, b) => a - b);
-  if (los.length < RIVER_DAYS) return null;
-  const lo = los[Math.floor((los.length - 1) / 2)];
+  const lo = riverBand(slots);
+  if (lo === null) return null;
   const tier: Tier = lo >= TOP_LO ? 'perfect' : lo >= KEPT_LO ? 'kept-all' : 'showed-up';
   return { kind: 'card', day: addDays(start, 7), rank: rankFor(lo, unit(`${seed}:${start}:river`), unit(`${seed}:${start}:river:again`)), suits: [], ceilingSuits: [], tier, lo, rescued: false, river: true };
 }

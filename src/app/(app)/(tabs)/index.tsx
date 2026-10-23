@@ -894,11 +894,15 @@ function CallChip({ game, onPress }: { game: Game; onPress: () => void }) {
   const { call, hand, warmup } = game.current;
   if (warmup || (!call && !game.callOpen)) return null;
   const made = !!call && makesCall(hand, call);
+  // One pip for each card the hand still needs to make the call, up to two; none once it's made or further off.
+  const gap = game.callGap?.cards;
+  const away = !call || made ? 0 : gap === 1 || gap === 2 ? gap : 0;
+  const status = made ? 'Made.' : away === 1 ? 'One card away.' : away === 2 ? 'Two cards away.' : 'Not made yet.';
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={!call ? 'Call your hand' : `You called ${HANDS[call].name}${made ? ', and your hand makes it' : ''}`}
+      accessibilityLabel={!call ? 'Call your hand' : `${HANDS[call].name} called. ${status}`}
       hitSlop={6}
       style={({ pressed }) => ({
         minHeight: TAP,
@@ -915,9 +919,18 @@ function CallChip({ game, onPress }: { game: Game; onPress: () => void }) {
     >
       {call ? (
         <>
-          <Body size={10} weight="heavy" color={made ? t.bg : t.textSecondary} maxFontSizeMultiplier={fontScale.chrome} style={{ letterSpacing: 0.8 }}>
-            {made ? 'CALL MADE ✓' : 'YOUR CALL'}
-          </Body>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <Body size={10} weight="heavy" color={made ? t.bg : t.textSecondary} maxFontSizeMultiplier={fontScale.chrome} style={{ letterSpacing: 0.8 }}>
+              {made ? 'CALL MADE ✓' : 'YOUR CALL'}
+            </Body>
+            {away ? (
+              <Animated.View key={away} entering={FadeIn.duration(240)} aria-hidden style={{ flexDirection: 'row', gap: 3 }}>
+                {Array.from({ length: away }, (_, i) => (
+                  <View key={i} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.text }} />
+                ))}
+              </Animated.View>
+            ) : null}
+          </View>
           <Body size={14} weight="heavy" color={made ? t.bg : t.text} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
             {HANDS[call].name}
           </Body>

@@ -17,12 +17,13 @@
  * a big enough stack opens a new table. All of it is worked out from check-ins and calls; none of it is stored.
  */
 
-import { SUIT_INFO, SUITS, type Rank, type Suit } from './cards';
+import { rankName, SUIT_INFO, SUITS, type Rank, type Suit } from './cards';
 import { faceDays, knownOn, nextFace, suitDays, type FaceInfo, type LoggedLate } from './court';
 import { addDays, weekday, weekStart, type Day } from './day';
 import { canKeep, dayRank, dealWeek, inDeck, keptCards, loOf, rescueWaiting, RIVER_DAYS, riverCard, savedCard, tallyDay, TOP_LO, type DayCard, type DealHabit, type Slot } from './deal';
 import type { CheckIns } from './kept';
-import { atLeast, bestHand, HAND_LADDER, handsIn, HANDS, JOKER_LINE, makesCall, SUITED_BONUS, SUITED_DAYS, type Hand, type HandKind } from './poker';
+import { callGap, callGroups, drawsLeft, outs, outsLine, outsWorthSaying, yours, type CallGap } from './outs';
+import { atLeast, bestHand, HAND_LADDER, handIndex, handsIn, HANDS, makesCall, SUITED_BONUS, SUITED_DAYS, type Hand, type HandKind } from './poker';
 
 export type GameInput = {
   /** Seeds the deal, so one person always gets the same cards. Their user id. */
@@ -168,6 +169,8 @@ export type Game = {
   rescue: Day | null;
   /** The card yesterday would be saved as: fixed by the day and the seed, whatever today keeps. */
   rescueCard: DayCard | null;
+  /** How far this week's hand is from its call, or null with no call (and in a warm-up week). */
+  callGap?: CallGap | null;
   /** Face cards earned, oldest first. Each one deals a Joker. */
   faces: FaceEarned[];
   /** The suit of the oldest face card whose Joker hasn't been dealt yet: it waits for a week without one. */
@@ -178,6 +181,24 @@ export type Game = {
 /** Everything a week pays: its hand, the Suited line and the call. */
 export function weekTotal(week: Pick<Week, 'chips' | 'suitedBonus' | 'bonus'>): number {
   return week.chips + week.suitedBonus + week.bonus;
+}
+
+/**
+ * The strongest finished week: the highest hand, then the most chips, then the latest. The week still being
+ * played, a warm-up week and a week with no hand never count. Null when there is none.
+ */
+export function bestWeek(weeks: readonly Week[]): Week | null {
+  let best: Week | null = null;
+  for (const w of weeks) {
+    if (w.live || w.warmup || !w.hand) continue;
+    if (!best?.hand) {
+      best = w;
+      continue;
+    }
+    const by = w.hand.score - best.hand.score || weekTotal(w) - weekTotal(best) || (w.start > best.start ? 1 : -1);
+    if (by > 0) best = w;
+  }
+  return best;
 }
 
 function firstStart(habits: readonly DealHabit[]): Day | null {
@@ -410,8 +431,12 @@ export function playGame(input: GameInput, pastWeeks?: readonly Week[]): Game {
   const tables = new Set(TABLES.filter((t) => stack >= t.chips).map((t) => t.key));
 
   const rescue = rescueWaiting(current.slots, today);
+  const rescueCard = rescue ? savedCard(rescue, input.seed) : null;
   const firstKept = keptCards(current.slots)[0]?.day ?? null;
   const callOpen = !current.warmup && habits.some((h) => canKeep(h, today)) && (firstKept === null || firstKept === today);
+  const gap = current.call && !current.warmup ? callGap(current, current.call, today) : null;
+  // The secret hand keeps its name hidden in the tips until a week has held it.
+  const secretKnown = hall.some((e) => e.kind === 'five-of-a-kind' && e.count > 0);
   return {
     weeks,
     current,
@@ -425,10 +450,11 @@ export function playGame(input: GameInput, pastWeeks?: readonly Week[]): Game {
     callOpen,
     callOdds: prices,
     rescue,
-    rescueCard: rescue ? savedCard(rescue, input.seed) : null,
+    rescueCard,
+    callGap: gap,
     faces,
     pendingJoker: waiting[0]?.suit ?? null,
-    tips: tipsFor(current, input, { rescue, callOpen, faces, waiting }),
+    tips: tipsFor(current, input, { rescue, rescueCard, callOpen, faces, waiting, gap, secretKnown }),
   };
 }
 
@@ -584,7 +610,39 @@ function climbTip(input: GameInput, rank: Rank): Tip {
   return { tone: 'climb', text: `${lift.more} more Ceilings make ${makes}.` };
 }
 
-function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; callOpen: boolean; faces: readonly FaceEarned[]; waiting: readonly FaceEarned[] }): Tip[] {
+/** Yesterday's saved card in words, and whether it lifts the hand: "Yesterday’s Jack can still be saved, and it makes your Two pair." */
+function rescueTip(current: Week, saved: DayCard | null, secretKnown: boolean): Tip {
+  if (saved?.kind !== 'card') return { tone: 'rescue', text: 'Yesterday’s card can still be saved. Keep any habit today and it gets a card too.' };
+  const name = rankName(saved.rank);
+  const now = current.hand;
+  const lifted = now && !current.warmup ? bestHand([...current.slots.flatMap((s) => (s.card ? [s.card] : [])), saved]) : null;
+  if (now && lifted && handIndex(lifted.kind) > handIndex(now.kind)) {
+    return { tone: 'rescue', text: `Yesterday’s ${name} can still be saved, and it makes ${yours(lifted.kind, { secretKnown })}. Keep any habit today.` };
+  }
+  return { tone: 'rescue', text: `Yesterday’s ${name} can still be saved. Keep any habit today and it’s yours.` };
+}
+
+/**
+ * The outs worth a tip on Today: the ranks one card away from the call, or, with three cards or more, the
+ * ranks that make a Straight or better. Only while a day is still to play, and never in a warm-up week.
+ */
+function drawTip(current: Week, today: Day, gap: CallGap | null, secretKnown: boolean): Tip | null {
+  if (current.warmup || drawsLeft(current, today).days === 0) return null;
+  if (current.call && gap?.cards === 1) {
+    const line = outsLine(callGroups(current, current.call, gap), { call: current.call, secretKnown });
+    if (line) return { tone: 'draw', text: line };
+  }
+  if (!outsWorthSaying(current)) return null;
+  const big = outs(current.slots.flatMap((s) => (s.card ? [s.card] : []))).filter((g) => atLeast(g.makes, 'straight'));
+  const line = outsLine(big, { call: current.call, secretKnown });
+  return line ? { tone: 'draw', text: line } : null;
+}
+
+function tipsFor(
+  current: Week,
+  input: GameInput,
+  ctx: { rescue: Day | null; rescueCard: DayCard | null; callOpen: boolean; faces: readonly FaceEarned[]; waiting: readonly FaceEarned[]; gap: CallGap | null; secretKnown: boolean },
+): Tip[] {
   const { today, habits } = input;
   if (!habits.some((h) => canKeep(h, today))) return [];
   const tips: Tip[] = [];
@@ -601,7 +659,7 @@ function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; cal
     const next = !card && !jokerThisWeek && !current.warmup;
     tips.push(
       card?.kind === 'joker'
-        ? { tone: 'joker', text: `${earned}, so today’s card is a Joker. ${JOKER_LINE}` }
+        ? { tone: 'joker', text: `${earned}, so today’s card is a Joker.` }
         : next
           ? { tone: 'joker', text: `${earned}. Keep any habit today and it’s dealt as a Joker.` }
           : { tone: 'face', text: `${earned}. Its Joker waits for next week’s first kept day.` },
@@ -619,17 +677,16 @@ function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; cal
   }
 
   if (!card) {
-    tips.push(
-      ctx.rescue
-        ? { tone: 'rescue', text: 'Yesterday’s card can still be saved. Keep any habit today and it gets a card too.' }
-        : { tone: 'deal', text: 'Keep any habit to deal today’s card.' },
-    );
+    tips.push(ctx.rescue ? rescueTip(current, ctx.rescueCard, ctx.secretKnown) : { tone: 'deal', text: 'Keep any habit to deal today’s card.' });
   } else if (card.kind === 'card') {
     tips.push(climbTip(input, card.rank));
   }
 
+  const outsTip = drawTip(current, today, ctx.gap, ctx.secretKnown);
+  if (outsTip) tips.push(outsTip);
+
   // Suited pays nothing while SUITED_BONUS is 0, so the draw only becomes a tip when it pays.
-  const draw = SUITED_BONUS > 0 && !current.hand?.suited ? suitedDraw(current, input) : null;
+  const draw = SUITED_BONUS > 0 && !current.hand?.suited && !outsTip ? suitedDraw(current, input) : null;
   if (draw && draw.have >= 3) {
     const { glyph, part } = SUIT_INFO[draw.suit];
     const need = SUITED_DAYS - draw.have;
@@ -656,7 +713,12 @@ function tipsFor(current: Week, input: GameInput, ctx: { rescue: Day | null; cal
     if (!current.river.earned && need <= daysLeft && need <= 2) {
       tips.push({ tone: 'showdown', text: `${need === 1 ? 'One more day' : `${need} more days`} you keep something ${need === 1 ? 'earns' : 'earn'} a river card at the Showdown.` });
     }
-    if (sunday) tips.push({ tone: 'showdown', text: 'Last day of the week. Showdown at midnight: your hand pays out.' });
+    if (sunday) {
+      // The last draws, when any are left: today's card (until it is dealt) and the river.
+      const left = drawsLeft(current, today);
+      const last = left.river ? (left.days > 0 ? 'Today’s card and the river are your last two draws.' : 'The river is your last draw.') : null;
+      tips.push({ tone: 'showdown', text: last ? `Showdown at midnight. ${last}` : 'Last day of the week. Showdown at midnight: your hand pays out.' });
+    }
   }
   return tips;
 }
