@@ -100,12 +100,13 @@ export function cardLabel(face: CardFace, mark?: CardHighlight | null, stamp?: S
 
 /**
  * Where a card's stamp sits, in the card's own points: low on the left, clear of the pips, the court
- * frame and the corner index, and inside the part of the card a fan leaves showing. Null on the smallest
- * card, which has no room for one.
+ * frame and the corner index, and inside the part of the card a fan leaves showing. The smallest card
+ * takes a small seal in its bottom corner, under its centred rank and pip, so a week's stamps show on
+ * every row that has them, not only the bigger ones.
  */
 export function stampSpot(size: CardSize, width = CARD_SIZES[size].w): { x: number; y: number; r: number } | null {
-  if (TIER[size] === 'tiny') return null;
   const g = geometry(size, width);
+  if (TIER[size] === 'tiny') return { x: g.w * 0.16, y: g.h - g.w * 0.15, r: Math.max(4.5, g.w * 0.12) };
   const r = Math.max(6, g.w * (TIER[size] === 'small' ? 0.12 : 0.092));
   return { x: g.w * 0.14, y: g.h - g.w * 0.17, r };
 }
@@ -184,7 +185,7 @@ type Props = {
   width?: number;
   highlight?: boolean | CardHighlight;
   dim?: boolean;
-  /** ↓ for a Floor day or ↑ for a Ceiling day, stamped low on the card. Too small to draw on an `xs` card, but always said. */
+  /** ↓ for a Floor day or ↑ for a Ceiling day, stamped low on the card (a small seal on an `xs` card), and always said. */
   stamp?: Stamp;
   /**
    * How much of the card shows from its left edge, 0 to 1, when the next card in a fan lies over the rest.

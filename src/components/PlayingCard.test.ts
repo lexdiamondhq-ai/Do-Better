@@ -50,16 +50,22 @@ describe('a stamped card', () => {
     expect(cardLabel(nine)).toBe('Nine of Clubs');
   });
 
-  it('keeps its stamp low on the left, inside what a fan leaves showing, and none on the smallest card', () => {
-    expect(stampSpot('xs')).toBeNull();
-    for (const size of ['sm', 'md', 'lg', 'xl'] as const) {
+  it('keeps its stamp low on the left, inside what a fan leaves showing, on every size of card', () => {
+    for (const size of ['xs', 'sm', 'md', 'lg', 'xl'] as const) {
       for (const width of [undefined, 86, 110, 150]) {
         const spot = stampSpot(size, width)!;
-        const w = width ?? { sm: 52, md: 74, lg: 128, xl: 190 }[size];
+        const w = width ?? { xs: 40, sm: 52, md: 74, lg: 128, xl: 190 }[size];
         // A fan of five shows 55% of every card but the last.
         expect(spot.x + spot.r).toBeLessThanOrEqual(w * 0.55);
         expect(spot.x - spot.r).toBeGreaterThan(0);
       }
     }
+  });
+
+  it('fits the smallest card’s seal in its bottom corner, below its rank and pip', () => {
+    const spot = stampSpot('xs')!;
+    // An xs card is 40 by 56 with its rank and pip centred above y = 44.
+    expect(spot.y + spot.r).toBeLessThan(56);
+    expect(spot.y - spot.r).toBeGreaterThanOrEqual(44);
   });
 });
