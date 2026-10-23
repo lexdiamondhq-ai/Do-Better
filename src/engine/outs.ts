@@ -78,6 +78,19 @@ function riverFloor(week: Week, today: Day): Rank {
   return riverBand(best) ?? KEPT_LO;
 }
 
+/**
+ * The lowest band the river could still end in: every day still to play kept at the very least (a band of
+ * 2), which can only pull the middle kept day down. The river can deal any rank from here to the Ace.
+ */
+function riverLowest(week: Week, today: Day): Rank {
+  const worst = week.slots.map<Slot>((s) => {
+    const open = s.day > today || (s.day === today && !s.card && s.state === 'open');
+    if (!open) return s;
+    return { ...s, state: 'dealt', card: { kind: 'card', day: s.day, rank: 2, suits: [], ceilingSuits: [], tier: 'showed-up', lo: 2, rescued: false } };
+  });
+  return riverBand(worst) ?? 2;
+}
+
 /** How far the week is from its call: 0 cards when made, 1 or 2 when that many outs would make it, else null. */
 export type CallGap = { made: boolean; cards: 0 | 1 | 2 | null; ranks: Rank[]; days: number };
 
@@ -116,8 +129,15 @@ export function riverOuts(week: Week): { band: Rank; groups: OutGroup[]; stands:
   const ifToday = !week.river.earned && week.river.need === 1 && !slot.card && slot.state === 'open';
   if (!week.river.earned && !ifToday) return null;
   const band = riverFloor(week, slot.day);
-  const groups = outs(dealtOf(week), { minRank: band });
-  return { band, groups, stands: groups.length === 0, ifToday };
+  const cards = dealtOf(week);
+  const groups = outs(cards, { minRank: band });
+  // "The hand stands" is a promise: no card the river could still deal lifts it, from the lowest band the
+  // rest of the week could leave it in, ranks under 5 included. Outs that sit only under the named band
+  // are never named and never promised away.
+  const now = bestHand(cards);
+  const low = riverLowest(week, slot.day);
+  const stands = !!now && !RANKS.some((r) => r >= low && handIndex(bestHand([...cards, probe(r)])!.kind) > handIndex(now.kind));
+  return { band, groups, stands, ifToday };
 }
 
 /** Whether the week has enough cards for its outs to be worth saying: three or more, a day still to play, and not a warm-up. */
@@ -136,7 +156,7 @@ export function outName(kind: HandKind, o?: { secretKnown?: boolean }): string {
 }
 
 /** A kind as it reads in a sentence: "a Straight", "Two pair", "the secret hand". */
-function phrase(kind: HandKind, o?: { secretKnown?: boolean }): string {
+export function phrase(kind: HandKind, o?: { secretKnown?: boolean }): string {
   if (kind === 'five-of-a-kind' && !o?.secretKnown) return 'the secret hand';
   const name = HANDS[kind].name;
   return kind === 'pair' || kind === 'straight' || kind === 'full-house' || kind === 'straight-flush' || kind === 'royal-flush' ? `a ${name}` : name;
@@ -249,6 +269,8 @@ export function riverOutsLine(week: Week, o?: { secretKnown?: boolean }): string
   const suffix = r.ifToday ? ' If you keep something today.' : '';
   // A river not earned yet that couldn't lift the hand anyway isn't worth a line.
   if (r.stands) return r.ifToday ? null : 'Nothing on the river can lift it. The hand stands.';
+  // Its only outs sit under the band it can be named from: nothing true to name, and nothing to promise away.
+  if (!r.groups.length) return null;
   // The river is one card, so the line names what it makes: "On the river: any Nine makes a Straight."
   const [g, h] = r.groups;
   const first = g.ranks.length > MAX_NAMED ? `${g.ranks.length} ranks make ${phrase(g.makes, o)}` : `any ${either(g.ranks.map(rankName))} makes ${phrase(g.makes, o)}`;

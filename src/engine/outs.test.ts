@@ -5,7 +5,7 @@ import { weekDays, type Day } from './day';
 import * as deal from './deal';
 import { keptCards, riverBand, type DayCard, type Slot } from './deal';
 import type { Week } from './game';
-import { callGap, callGroups, callLine, drawsLeft, drawsLine, outCards, outName, outs, outsLine, outsWorthSaying, riverOuts, riverOutsLine, type OutGroup } from './outs';
+import { callGap, callGroups, callLine, drawsLeft, drawsLine, outCards, outName, outs, outsLine, outsWorthSaying, phrase, riverOuts, riverOutsLine, type OutGroup } from './outs';
 import { bestHand, handIndex, HANDS, handsIn, type HandKind } from './poker';
 
 // The live river card must never be worked out early: every call to it from here is recorded.
@@ -255,7 +255,8 @@ describe('riverOuts', () => {
         return handIndex(bestHand([...cardsOf(w), river])!.kind) > handIndex(now.kind);
       });
       expect(ranksOf(r.groups).sort((a, b) => a - b)).toEqual(expected);
-      expect(r.stands).toBe(expected.length === 0);
+      // Standing is a stronger promise than having nothing to name: it never comes with a named out.
+      if (r.stands) expect(expected).toEqual([]);
       expect(r.band).toBeGreaterThanOrEqual(riverBand(w.slots) ?? 2);
     }
     expect(checked).toBeGreaterThan(20);
@@ -300,6 +301,57 @@ describe('riverOuts', () => {
     expect(Math.min(...ranksOf(low.groups))).toBeGreaterThanOrEqual(5);
   });
 
+  it('names only ranks the river can deal and promises a hand stands only when it does, however the rest of the week goes', () => {
+    const next = rng(23);
+    let checked = 0;
+    let stood = 0;
+    for (let i = 0; i < 300; i++) {
+      const w = randomWeek(next);
+      const r = riverOuts(w);
+      if (!r) continue;
+      const today = w.slots.find((s) => s.isToday)!.day;
+      const now = w.hand!;
+      const lifts = (rank: Rank) => {
+        const river: DayCard = { kind: 'card', day: '2026-10-12', rank, suits: [], ceilingSuits: [], tier: 'kept-all', lo: 5, rescued: false, river: true };
+        return handIndex(bestHand([...cardsOf(w), river])!.kind) > handIndex(now.kind);
+      };
+      if (r.stands) stood++;
+      // Twenty ways the rest of the week could go: each day still to play skipped, or kept at any band.
+      for (let k = 0; k < 20; k++) {
+        const slots: Slot[] = w.slots.map((s, j) => {
+          const open = s.day > today || (s.day === today && !s.card && s.state === 'open');
+          if (!open || next() < 0.3) return s;
+          const lo = (2 + Math.floor(next() * 5)) as Rank;
+          return { ...s, state: 'dealt', card: cardFor([(lo + Math.floor(next() * (15 - lo))) as Rank], s.day, j, lo) };
+        });
+        const band = riverBand(slots);
+        if (band === null) continue;
+        checked++;
+        // Every rank it names is one this river could really deal.
+        for (const rank of ranksOf(r.groups)) expect(rank).toBeGreaterThanOrEqual(band);
+        // "The hand stands" holds for every card this river could deal, ranks under 5 included.
+        if (r.stands) for (const rank of RANKS.filter((x) => x >= band)) expect(lifts(rank)).toBe(false);
+      }
+    }
+    expect(checked).toBeGreaterThan(200);
+    expect(stood).toBeGreaterThan(0);
+  });
+
+  it('never says the hand stands while a card the river could still deal would lift it', () => {
+    // Friday, the river earned: Fives from kept-everything days, Nines from perfect days. Two perfect days to
+    // come would lift the river's band to 6, so no Five is named; but with the weekend skipped the band stays
+    // at 5, and a Five on the river makes Four of a kind. So it names nothing, and promises nothing either.
+    const w = live([5, 5, 5, 9, 9], DAYS[4], { lo: [5, 5, 5, 6, 6] });
+    expect(w.hand?.kind).toBe('full-house');
+    const r = riverOuts(w)!;
+    expect(r).toMatchObject({ band: 6, groups: [], stands: false });
+    expect(riverOutsLine(w)).toBeNull();
+    // Sunday, kept: nothing is left to pull the band under 6, so the same Full house truly stands.
+    const locked = live([5, 5, 5, 9, 9, 11, 12], SUN, { lo: [5, 5, 5, 6, 6, 6, 6] });
+    expect(riverOuts(locked)).toMatchObject({ band: 6, groups: [], stands: true });
+    expect(riverOutsLine(locked)).toBe('Nothing on the river can lift it. The hand stands.');
+  });
+
   it('says the hand stands when nothing on the river lifts it', () => {
     const royal = live([[10, 'clubs'], [11, 'clubs'], [12, 'clubs'], [13, 'clubs'], [14, 'clubs']], DAYS[4]);
     expect(riverOuts(royal)).toMatchObject({ stands: true, groups: [] });
@@ -339,6 +391,15 @@ describe('words', () => {
     expect(outsLine([{ makes: 'five-of-a-kind', ranks: [9] }], { secretKnown: true })).toBe('Drawing to Five of a kind: any Nine makes it.');
     expect(outName('five-of-a-kind')).toBe('Secret hand');
     expect(outName('straight')).toBe('Straight');
+  });
+
+  it('reads a kind the way a sentence needs it, for each ghost card’s spoken label', () => {
+    expect(phrase('pair')).toBe('a Pair');
+    expect(phrase('two-pair')).toBe('Two pair');
+    expect(phrase('full-house')).toBe('a Full house');
+    expect(phrase('four-of-a-kind')).toBe('Four of a kind');
+    expect(phrase('five-of-a-kind')).toBe('the secret hand');
+    expect(phrase('five-of-a-kind', { secretKnown: true })).toBe('Five of a kind');
   });
 
   it('has nothing to say with no outs', () => {
