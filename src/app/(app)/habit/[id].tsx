@@ -12,6 +12,7 @@ import { CARD_SIZES, faceOfCourt, faceOfDay, PlayingCard } from '@/components/Pl
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Centered, Display, Label, raisedStyle, Section } from '@/components/ui';
 import { cardName, SUIT_INFO } from '@/engine/cards';
+import { keepSound } from '@/engine/chord';
 import { planLine } from '@/engine/comeback';
 import { cleanIdentity, type CourtSuit } from '@/engine/court';
 import { addDays, canBackfill, daysBetween, weekStart, type Day } from '@/engine/day';
@@ -64,11 +65,16 @@ export default function HabitDetail() {
   const edit = (focus?: EditField) => router.push({ pathname: '/habit/edit', params: focus ? { id: habit.id, focus } : { id: habit.id } });
   const fail = (e: unknown) => ask('That didn’t save', e instanceof Error ? e.message : 'Try again.');
 
-  /** The same keep as Today's, so a Comeback waiting on this card is answered here too. */
+  /**
+   * The same keep as Today's, so a Comeback waiting on this card is answered here too, with the same touch and
+   * the suit's own note. A day logged late is a plain keep, never the Comeback's.
+   */
   const keep = (level: Level, day?: Day) => {
-    if (level === 'ceiling') feel.ceiling();
+    const comeback = !!view.neverTwice && !day;
+    if (comeback) feel.turnover();
+    else if (level === 'ceiling') feel.ceiling();
     else feel.floor();
-    playSound(level);
+    playSound(keepSound(habit.suit, level, { comeback }));
     keepCard(view, level, { day }).catch(fail);
   };
 
