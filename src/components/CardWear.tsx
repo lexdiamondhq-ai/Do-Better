@@ -131,7 +131,8 @@ export function CardWear({
               </LinearGradient>
             ) : null}
             {shown.foil && known ? (
-              <LinearGradient id={`${uid}f`} x1="0" y1="0" x2="1" y2="1">
+              // In the suit's own 100-point box, so one sheen runs across every lobe of a club instead of one per lobe.
+              <LinearGradient id={`${uid}f`} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="100">
                 {inks.foil.map((c, i) => (
                   <Stop key={i} offset={i / (inks.foil.length - 1)} stopColor={c} />
                 ))}
