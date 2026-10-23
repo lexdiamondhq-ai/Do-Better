@@ -7,7 +7,7 @@ import type { Level } from '@/engine/kept';
 import { ownWhy } from '@/engine/playbook';
 import { comebackCopy, grouped, identityLine, whenLine, type ComebackGap } from '@/engine/today';
 import type { Habit } from '@/lib/types';
-import { withAlpha } from '@/theme/color';
+import { over, withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, chip, fontScale, fonts, INK, on, radius, space, TAP, type Theme } from '@/theme/tokens';
 
@@ -25,7 +25,8 @@ export function cardShadow(edge: string): ViewStyle {
 function inksOf(habit: Habit) {
   const c = cardColors[habit.color];
   const o = on(c.bg);
-  return { c, ink: c.ink, quiet: o.secondary, tile: withAlpha(INK, 0.1), edge: withAlpha(INK, 0.14) };
+  // The quiet FLOOR and CEILING labels sit on the tile, a touch darker than the card, so they're measured there.
+  return { c, ink: c.ink, quiet: o.secondary, tileQuiet: on(over(withAlpha(INK, 0.1), c.bg)).secondary, tile: withAlpha(INK, 0.1), edge: withAlpha(INK, 0.14) };
 }
 
 /** A big name or headline that shrinks to fit its lines instead of being cut off. Never grows past chrome size. */
@@ -166,7 +167,7 @@ export function HabitCard({
 }) {
   const back = useBackDensity();
   const compact = folded ?? back?.compact ?? false;
-  const { c, ink, quiet, tile, edge } = inksOf(habit);
+  const { c, ink, quiet, tileQuiet, tile, edge } = inksOf(habit);
   const when = whenLine(habit.anchor, habit.whenWhere, tag ?? null);
   const floorKept = level === 'floor';
   const ceilingKept = level === 'ceiling';
@@ -231,7 +232,7 @@ export function HabitCard({
       >
         <Arrow arrow={arrow} fg={c.bg} bg={ink} size={40} />
         <View style={{ flex: 1 }}>
-          <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+          <Label color={tileQuiet} maxFontSizeMultiplier={fontScale.chrome}>
             {word}
           </Label>
           <Body weight="heavy" size={14} color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 18 }}>
@@ -271,7 +272,7 @@ export function HabitCard({
     >
       <Arrow arrow={arrow} fg={c.bg} bg={ink} />
       <View style={{ flex: 1 }}>
-        <Label color={quiet} maxFontSizeMultiplier={fontScale.chrome}>
+        <Label color={tileQuiet} maxFontSizeMultiplier={fontScale.chrome}>
           {word}
         </Label>
         <Body weight="heavy" size={17} color={ink} numberOfLines={2} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 22 }}>

@@ -40,6 +40,12 @@ describe('habit card colours', () => {
     expect(contrast(cardColors[c].ink, cardColors[c].bg)).toBeGreaterThanOrEqual(4.5);
   });
 
+  it.each(CARD_COLORS)('%s: the quiet Floor and Ceiling labels reach 4.5:1 on their tile', (c) => {
+    // HabitCard's tile is ink at 10% over the card, and its labels take the quieter ink measured on the tile.
+    const tile = over(withAlpha(INK, 0.1), cardColors[c].bg);
+    expect(contrast(over(on(tile).secondary, tile), tile)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it.each(CARD_COLORS)('%s: its Floor-day soft colour takes ink at 4.5:1', (c) => {
     expect(contrast(INK, cardColors[c].soft)).toBeGreaterThanOrEqual(4.5);
   });
