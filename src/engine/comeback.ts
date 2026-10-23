@@ -21,6 +21,37 @@ export function comebackExit(o: { firstMove: boolean; reduced: boolean }): { lig
   return { lightMs, flipMs, holdMs, crossfadeMs: 0, totalMs: lightMs + flipMs + holdMs };
 }
 
+/** How much of the light's radius is full colour; the rest is its soft edge. */
+export const LIGHT_SOLID = 0.72;
+
+/**
+ * Where a turnover's warm light starts on a card `w` wide and `h` tall, in the card's own coordinates: the
+ * point given (a button's centre or the finger), kept on the card, or else the edge the card was swiped
+ * toward (the bottom for a Floor, the top for a Ceiling), at `x` across (the thumb) or the middle.
+ */
+export function lightOrigin(o: { w: number; h: number; dir: 'up' | 'down'; at?: Point | null; x?: number | null }): Point {
+  'worklet';
+  const clamp = (v: number, hi: number) => Math.min(hi, Math.max(0, v));
+  if (o.at && Number.isFinite(o.at.x) && Number.isFinite(o.at.y)) return { x: clamp(o.at.x, o.w), y: clamp(o.at.y, o.h) };
+  const x = o.x !== null && o.x !== undefined && Number.isFinite(o.x) ? clamp(o.x, o.w) : o.w / 2;
+  return { x, y: o.dir === 'down' ? o.h : 0 };
+}
+
+/** The light's radius once grown: its full colour reaches the card's farthest corner from `from`. */
+export function lightReach(from: Point, w: number, h: number): number {
+  'worklet';
+  const far = Math.max(Math.hypot(from.x, from.y), Math.hypot(w - from.x, from.y), Math.hypot(from.x, h - from.y), Math.hypot(w - from.x, h - from.y));
+  return far / LIGHT_SOLID;
+}
+
+/** What the bright side says while it holds after a Floor or the first move. A Ceiling keeps its stamp. */
+export const FLOOR_KEPT_NOTE = 'Floor kept. Today is kept.';
+
+/** The bright side's note: the one the keep brought ("First move done. Today is kept."), or the Floor's own. */
+export function turnNote(dir: 'up' | 'down', note?: string | null): string | null {
+  return note?.trim() || (dir === 'down' ? FLOOR_KEPT_NOTE : null);
+}
+
 export type PlanWhen = 'late' | 'time' | 'tired' | 'away' | 'forgot';
 
 /** `when` is a PlanWhen key or the player's own words. */

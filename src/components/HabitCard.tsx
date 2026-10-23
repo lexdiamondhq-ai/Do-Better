@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type Ref } from 'react';
 import { Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 
 import { SUIT_INFO } from '@/engine/cards';
@@ -13,7 +13,7 @@ import { cardColors, chip, fontScale, fonts, INK, on, radius, space, TAP, type T
 
 import { CardWear } from './CardWear';
 import { SuitGlyph } from './Suit';
-import { CardButton } from './SwipeCard';
+import { CardButton, TurnLight, useBackDensity, useTurnover } from './SwipeCard';
 import { Body, Label } from './ui';
 
 /** The shadow and edge every card on the table wears, so even a pale card stands clear of its own felt. */
@@ -45,10 +45,26 @@ function Fit({ children, size, color, lines = 2, style }: { children: ReactNode;
 }
 
 /** A tappable row on a card, or the same row as a picture when there is nothing to tap. */
-function Press({ onPress, label, hint, style, children, testID }: { onPress?: () => void; label: string; hint?: string; style?: StyleProp<ViewStyle>; children: ReactNode; testID?: string }) {
+function Press({
+  ref,
+  onPress,
+  label,
+  hint,
+  style,
+  children,
+  testID,
+}: {
+  ref?: Ref<View>;
+  onPress?: () => void;
+  label: string;
+  hint?: string;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+  testID?: string;
+}) {
   if (!onPress) return <View style={style}>{children}</View>;
   return (
-    <CardButton onPress={onPress} label={label} hint={hint} style={style} testID={testID}>
+    <CardButton ref={ref} onPress={onPress} label={label} hint={hint} style={style} testID={testID}>
       {children}
     </CardButton>
   );
@@ -116,7 +132,9 @@ function nameSize(name: string, compact: boolean): number {
  * the card swipes. Both ways are buttons too, so a tap does what a swipe does. `compact` folds both into
  * one row at the bottom, for short screens. With no handlers it is a picture, as in the edit preview and
  * the cards waiting behind the front one. `onOpen` adds the ⋯ that opens the card's page (`null` draws
- * it as a picture, for the cards behind the front one).
+ * it as a picture, for the cards behind the front one). With `level` it shows what today already kept:
+ * the Floor, or the Ceiling (as on the bright side a Comeback card turns to). Inside a turnover the card
+ * takes the deck's density unless `compact` says otherwise.
  */
 export function HabitCard({
   habit,
@@ -125,7 +143,7 @@ export function HabitCard({
   wearDepth = 0,
   subtitle,
   tag,
-  compact = false,
+  compact: folded,
   onFloor,
   onCeiling,
   onOpen,
@@ -146,9 +164,12 @@ export function HabitCard({
   onOpen?: (() => void) | null;
   style?: StyleProp<ViewStyle>;
 }) {
+  const back = useBackDensity();
+  const compact = folded ?? back?.compact ?? false;
   const { c, ink, quiet, tile, edge } = inksOf(habit);
   const when = whenLine(habit.anchor, habit.whenWhere, tag ?? null);
   const floorKept = level === 'floor';
+  const ceilingKept = level === 'ceiling';
   const ceilingLabel = `Reach the Ceiling: ${habit.ceilingLabel}`;
   const floorLabel = `Keep the Floor: ${habit.floorLabel}`;
 
@@ -190,13 +211,15 @@ export function HabitCard({
     </View>
   );
 
-  const floorDone = (
+  const done = (words: string) => (
     <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: ink, borderRadius: radius.pill, paddingVertical: 9, paddingHorizontal: 14, maxWidth: '100%' }}>
       <Body weight="heavy" size={14} color={c.bg} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ flexShrink: 1 }}>
-        {`✓ Floor kept · ${habit.floorLabel}`}
+        {words}
       </Body>
     </View>
   );
+  const floorDone = done(`✓ Floor kept · ${habit.floorLabel}`);
+  const ceilingDone = done(`✓ Ceiling reached · ${habit.ceilingLabel}`);
 
   if (compact) {
     const half = (arrow: string, word: string, value: string, label: string, onPress?: () => void, testID?: string) => (
@@ -222,7 +245,9 @@ export function HabitCard({
         {watermark}
         {wear}
         {middle}
-        {floorKept ? (
+        {ceilingKept ? (
+          ceilingDone
+        ) : floorKept ? (
           <View style={{ gap: space.sm }}>
             {floorDone}
             <View style={{ flexDirection: 'row' }}>{half('↑', 'Ceiling', habit.ceilingLabel, ceilingLabel, onCeiling, 'card-ceiling')}</View>
@@ -260,9 +285,20 @@ export function HabitCard({
     <View style={[{ flex: 1, backgroundColor: c.bg, borderRadius: radius.card, padding: space.lg, justifyContent: 'space-between', gap: space.md, overflow: 'hidden', ...cardShadow(edge) }, style]}>
       {watermark}
       {wear}
-      {row('↑', floorKept ? 'Still in reach · Ceiling' : 'Ceiling', habit.ceilingLabel, ceilingLabel, onCeiling, 'card-ceiling')}
+      {ceilingKept ? (
+        <View style={{ paddingHorizontal: space.sm }}>{ceilingDone}</View>
+      ) : (
+        row('↑', floorKept ? 'Still in reach · Ceiling' : 'Ceiling', habit.ceilingLabel, ceilingLabel, onCeiling, 'card-ceiling')
+      )}
       <View style={{ paddingHorizontal: space.sm }}>{middle}</View>
-      {floorKept ? <View style={{ paddingHorizontal: space.sm }}>{floorDone}</View> : row('↓', 'Floor', habit.floorLabel, floorLabel, onFloor, 'card-floor')}
+      {ceilingKept ? (
+        // The Ceiling holds the Floor too: nothing is left to do on this card today.
+        <View style={{ height: 1 }} />
+      ) : floorKept ? (
+        <View style={{ paddingHorizontal: space.sm }}>{floorDone}</View>
+      ) : (
+        row('↓', 'Floor', habit.floorLabel, floorLabel, onFloor, 'card-floor')
+      )}
     </View>
   );
 }
@@ -304,6 +340,7 @@ export function ComebackCard({
   onCeiling,
   onLogYesterday,
   onOpen,
+  plan,
   style,
 }: {
   habit: Habit;
@@ -323,7 +360,7 @@ export function ComebackCard({
   tiny?: boolean;
   /** Folded, but with room to spare: the words get it (a bigger headline, "Yesterday got away", more of the why). */
   roomy?: boolean;
-  /** Your plan for this card, as one line ("Too tired? Put on your shoes."). Stream 2 shows it in place of the First move. */
+  /** Your plan for this card, as one line ("Too tired? Put on your shoes."). It takes the First move's place, under "Your plan"; Done it stays. */
   plan?: string | null;
   /** Done it. `at` is the button's centre in window coordinates, where the turnover's light starts. */
   onFirstMove?: (at?: Point) => void;
@@ -344,10 +381,40 @@ export function ComebackCard({
   const accent = c.onDark;
   const line = withAlpha(t.onRaised, 0.22);
   const why = ownWhy(habit);
+  const ownPlan = plan?.trim() || null;
+
+  // On the front of the deck the card turns back over when kept: it tells the turn its bright colours and
+  // where Done it sits, so a key press starts the light there too.
+  const turnover = useTurnover();
+  const done = useRef<View>(null);
+  useEffect(() => {
+    if (!turnover) return;
+    turnover.setFace({ bg: c.bg, ink: c.ink, soft: c.soft });
+    turnover.setDone(done);
+    return () => turnover.setDone(null);
+  }, [turnover, c.bg, c.ink, c.soft]);
+
+  /** Done it: where its centre is in the window, for the light, then the keep. */
+  const doneItPressed = () => {
+    if (!onFirstMove) return;
+    const keep = onFirstMove;
+    let sent = false;
+    const send = (at?: Point) => {
+      if (sent) return;
+      sent = true;
+      keep(at);
+    };
+    const button = done.current;
+    if (!button) return send();
+    button.measureInWindow((x, y, w, h) => send(w && h ? { x: x + w / 2, y: y + h / 2 } : undefined));
+    // Never wait long on a measure: the day is kept at once either way.
+    setTimeout(() => send(), 60);
+  };
 
   const doneIt = (
     <Press
-      onPress={firstMove ? onFirstMove : onFloor}
+      ref={firstMove ? done : undefined}
+      onPress={firstMove ? (onFirstMove ? doneItPressed : undefined) : onFloor}
       label={firstMove ? `Done it: ${firstMove}. Keeps today.` : `Keep the Floor: ${habit.floorLabel}`}
       testID="comeback-done"
       style={{ flex: firstMove ? undefined : 1, minHeight: 48, borderRadius: radius.pill, backgroundColor: accent, paddingVertical: space.md, paddingHorizontal: space.lg, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
@@ -423,12 +490,12 @@ export function ComebackCard({
     >
       {tiny ? null : (
         <Label color={accent} maxFontSizeMultiplier={fontScale.chrome}>
-          {firstMove ? 'First move · counts today' : 'The way back in'}
+          {ownPlan ? 'Your plan' : firstMove ? 'First move · counts today' : 'The way back in'}
         </Label>
       )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
         <Fit size={big ? 24 : 19} color={ink} lines={big && !compact ? 3 : 2} style={{ flex: 1 }}>
-          {firstMove ?? habit.floorLabel}
+          {ownPlan ?? firstMove ?? habit.floorLabel}
         </Fit>
         {firstMove ? doneIt : null}
       </View>
@@ -441,6 +508,8 @@ export function ComebackCard({
     </View>
   );
   const wear = <CardWear habitId={habit.id} kept={kept} depth={wearDepth} dark />;
+  // The turnover's warm light, in the card's own colour, under everything on this side.
+  const light = <TurnLight color={c.bg} />;
 
   if (compact) {
     // Folded: who you are, the first move and Done it, then the Floor. Yesterday is logged from the week strip.
@@ -453,6 +522,7 @@ export function ComebackCard({
     const bigHead = roomy && !lean && !tight;
     return (
       <View style={[darkCard(t), { padding: 14, paddingHorizontal: space.lg, gap: space.sm }, style]}>
+        {light}
         {tight ? null : watermark}
         {wear}
         {/* If a long name ever needs more room than the card has, these lines give way, never the way in below them. */}
@@ -501,6 +571,7 @@ export function ComebackCard({
 
   return (
     <View style={[darkCard(t), { padding: space.xl, paddingTop: space.lg, paddingBottom: space.lg, justifyContent: 'space-between', gap: space.md }, style]}>
+      {light}
       {watermark}
       {wear}
       <View style={{ gap: space.sm, flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>
