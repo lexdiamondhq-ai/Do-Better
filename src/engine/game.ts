@@ -518,15 +518,15 @@ export function suitedDraw(current: Week, input: GameInput): { suit: Suit; have:
   return best;
 }
 
-/** The next face card a suit could earn today: one more day kept in that suit gets there, and a habit in it is still open. */
-function faceWithinReach(input: GameInput): { suit: Suit; face: FaceInfo } | null {
+/** The next face card a suit could earn today: one more day kept in that suit gets there, and a habit in it (`open`) is still open. */
+function faceWithinReach(input: GameInput): { suit: Suit; face: FaceInfo; open: DealHabit[] } | null {
   const { today, habits, checkIns } = input;
   for (const suit of SUITS) {
     const days = suitDays(habits, checkIns, suit, today);
     if (days.at(-1) === today) continue;
-    const open = habits.some((h) => h.suit === suit && canKeep(h, today) && !checkIns.get(h.id)?.has(today));
+    const open = habits.filter((h) => h.suit === suit && canKeep(h, today) && !checkIns.get(h.id)?.has(today));
     const next = nextFace(days.length);
-    if (open && next?.needed === 1) return { suit, face: next.face };
+    if (open.length && next?.needed === 1) return { suit, face: next.face, open };
   }
   return null;
 }
@@ -577,11 +577,17 @@ function ceilingsToLift(t: ReturnType<typeof tallyDay>, open: TodayOpen, lifts: 
 /**
  * What would lift today's card, worked out from the deal itself: "Keep Walk too and today's card is 5 or
  * better". A card that already fits a better band keeps its rank there (see `rankFor`), so only a band
- * above today's card can lift it. The card is called locked in only when nothing left to do today could
- * change it.
+ * above today's card can lift it. A face card one keep away whose Joker would land today (`joker`) beats any
+ * band, so that keep is the step: "Keep Reach out today and the Queen of Hearts makes today's card a Joker."
+ * The card is called locked in only when nothing left to do today could change it.
  */
-function climbTip(input: GameInput, rank: Rank): Tip {
+function climbTip(input: GameInput, rank: Rank, joker: { suit: Suit; face: FaceInfo; open: readonly DealHabit[] } | null): Tip {
   const { today, habits, checkIns, seed } = input;
+  if (joker) {
+    const { name, part } = SUIT_INFO[joker.suit];
+    const one = joker.open.length === 1 ? joker.open[0].name?.trim() : null;
+    return { tone: 'climb', text: `Keep ${one || `a ${part} habit`} today and the ${joker.face.name} of ${name} makes today’s card a Joker.` };
+  }
   const t = tallyDay(today, habits, checkIns);
   const lo = loOf(t) ?? 2;
   const open = todayOpen(input);
@@ -680,7 +686,8 @@ function tipsFor(
   if (!card) {
     tips.push(ctx.rescue ? rescueTip(current, ctx.rescueCard, ctx.secretKnown) : { tone: 'deal', text: 'Keep any habit to deal today’s card.' });
   } else if (card.kind === 'card') {
-    tips.push(climbTip(input, card.rank));
+    // A face card earned today deals its Joker as today's card when the week has none yet (never the warm-up).
+    tips.push(climbTip(input, card.rank, reach && !jokerThisWeek && !current.warmup ? reach : null));
   }
 
   const outsTip = drawTip(current, today, ctx.gap, ctx.secretKnown);

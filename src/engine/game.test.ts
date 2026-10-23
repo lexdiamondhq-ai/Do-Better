@@ -33,6 +33,7 @@ import {
 import type { CheckIns, Level } from './kept';
 import { callGap, outs } from './outs';
 import { atLeast, bestHand, HAND_LADDER, HANDS, JOKER_LINE, type Hand, type HandKind } from './poker';
+import { receiptNext } from './today';
 
 // Mondays.
 const W1 = '2026-09-21';
@@ -766,6 +767,32 @@ describe('tips', () => {
     expect(after.current.slots[2].card?.kind).toBe('joker');
     expect(after.tips[0]).toMatchObject({ tone: 'joker' });
     expect(after.faces.map((f) => f.face.face)).toEqual(['jack']);
+  });
+
+  it('never calls today’s card locked in while a keep could still deal its Joker, and names that keep', () => {
+    const nine = Object.fromEntries(weekDays(W2).concat(weekDays(W3).slice(0, 2)).map((d) => [d, 'floor' as Level]));
+    const today = '2026-10-07';
+    for (let i = 0; i < 40; i++) {
+      const seed = `jk-${i}`;
+      // Walk kept today, Read one day short of the Jack of Clubs: keeping Read turns today's card into a Joker.
+      const game = playGame(input({ seed, habits: [read, walk], days: { read: nine, walk: { [today]: 'ceiling' } } }));
+      expect(game.current.slots[2].card?.kind).toBe('card');
+      const step = game.tips.find((t) => t.tone === 'climb' || t.tone === 'done');
+      expect(step).toEqual({ tone: 'climb', text: 'Keep Read today and the Jack of Clubs makes today’s card a Joker.' });
+      expect(receiptNext(game.tips)?.text).toBe(step?.text);
+      const after = playGame(input({ seed, habits: [read, walk], days: { read: { ...nine, [today]: 'floor' }, walk: { [today]: 'ceiling' } } }));
+      expect(after.current.slots[2].card?.kind).toBe('joker');
+    }
+    // Two Mind habits open: the step names the part, not one card.
+    const learn: DealHabit = { id: 'learn', suit: 'clubs', startedOn: W1, archivedOn: null, name: 'Learn' };
+    const two = playGame(input({ habits: [read, learn, walk], days: { read: nine, walk: { [today]: 'floor' } } }));
+    expect(two.tips.find((t) => t.tone === 'climb' || t.tone === 'done')?.text).toBe('Keep a Mind habit today and the Jack of Clubs makes today’s card a Joker.');
+    // A Joker already dealt this week: the Queen's Joker would wait, so the step goes back to the band.
+    const walked = { ...run('2026-09-26', 2), ...keep(W2), '2026-10-05': 'floor' as Level, [today]: 'ceiling' as Level };
+    const jokered = playGame(input({ habits: [read, walk], days: { read: nine, walk: walked } }));
+    expect(jokered.current.slots[0].card?.kind).toBe('joker');
+    expect(jokered.tips).toContainEqual({ tone: 'face', text: 'Keep a Mind habit today to earn the Jack of Clubs and a Joker for next week.' });
+    expect(jokered.tips.some((t) => /makes today’s card a Joker/.test(t.text))).toBe(false);
   });
 
   it('counts a face card by days, so a second habit in the suit on the same day doesn’t bring it closer', () => {
