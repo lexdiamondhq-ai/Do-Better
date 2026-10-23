@@ -1093,6 +1093,8 @@ function Payout({ week, call, step, instant, short }: { week: Week; call: Return
   const value = useTally(callShown ? total : first, step >= 1, instant);
   const { width } = useWindowDimensions();
   const hidden = (p: { label: string }) => p.label === 'Call' && !callShown;
+  // The call piece before it lands: there, but faint.
+  const waiting = withAlpha(t.textSecondary, 0.3);
   // One piece is said by its label and the counting total alone ("Straight ●100"), never its number twice.
   const sum = pieces.length > 1;
   const chipsSize = short ? 30 : 36;
@@ -1108,14 +1110,14 @@ function Payout({ week, call, step, instant, short }: { week: Week; call: Return
             style={{ flexShrink: 1, textAlign: 'right', fontFamily: fonts.displaySemi, fontSize: size, lineHeight: Math.round(size * 1.25), color: t.textSecondary }}
           >
             {pieces.map((p, i) => (
-              <Text key={p.label} style={hidden(p) ? { color: 'transparent' } : null}>
+              <Text key={p.label} style={hidden(p) ? { color: waiting } : null}>
                 {i ? ' + ' : ''}
                 {sum ? `${p.label} ` : p.label}
-                {sum ? <Text style={{ color: hidden(p) ? 'transparent' : t.text }}>{formatChips(p.chips)}</Text> : null}
+                {sum ? <Text style={{ color: hidden(p) ? waiting : t.text }}>{formatChips(p.chips)}</Text> : null}
               </Text>
             ))}
-            {/* The sign waits with the call it adds, so the row never reads "Straight 100 =" with nothing after the plus. */}
-            {sum ? <Text style={callShown ? null : { color: 'transparent' }}> =</Text> : null}
+            {/* The call and its sign wait faintly in place, so the row reads as a sum from the start and lights up as the call lands. */}
+            {sum ? <Text style={callShown ? null : { color: waiting }}> =</Text> : null}
           </Text>
         ) : null}
         <Chips value={value} size={chipsSize} />
