@@ -115,12 +115,18 @@ describe('thumb marks and plans', () => {
     expect(p.plans.alex).toEqual({});
   });
 
-  it('forget one player’s thumb marks and plans, and nobody else’s', () => {
-    const notes = { ...saved, grips: { alex: { read: { x: 0.3, y: 0.7, n: 4 } }, sam: { walk: { x: 0.6, y: 0.6, n: 1 } } }, plans: { alex: { walk: plan }, sam: { walk: plan } } };
+  it('forget one player’s thumb marks, plans and moments seen (as the Rules sheet says), and nobody else’s', () => {
+    const notes = {
+      ...saved,
+      grips: { alex: { read: { x: 0.3, y: 0.7, n: 4 } }, sam: { walk: { x: 0.6, y: 0.6, n: 1 } } },
+      plans: { alex: { walk: plan }, sam: { walk: plan } },
+      seen: { alex: { coach: true as const, 'hold-hint': true as const }, sam: { coach: true as const } },
+    };
     const after = applyPatch(notes, deckNotesForgotten(notes, 'alex'));
     expect(after.grips).toEqual({ sam: notes.grips.sam });
     expect(after.plans).toEqual({ sam: notes.plans.sam });
-    expect(after.seen).toEqual(notes.seen);
+    // The deck starts again from the first deal, so its one-time hints show again.
+    expect(after.seen).toEqual({ sam: { coach: true } });
     expect(after.looks).toEqual(notes.looks);
     expect(after.showdownSeen).toEqual(notes.showdownSeen);
     expect(after.reminders).toEqual(notes.reminders);
@@ -130,19 +136,23 @@ describe('thumb marks and plans', () => {
     expect(none.plans).toEqual(notes.plans);
   });
 
-  it('forget the demo deck’s thumb marks and plans once the demo ends, and keep every player’s own', () => {
+  it('forget everything the demo deck noted once the demo ends, so the next demo starts clean, and keep every player’s own', () => {
     const notes = {
       ...saved,
       grips: { 'demo-0': { 'demo-read': { x: 0.3, y: 0.7, n: 4 } }, 'demo-7': { 'demo-walk': { x: 0.5, y: 0.5, n: 1 } }, alex: { read: { x: 0.6, y: 0.6, n: 2 } } },
       plans: { 'demo-0': { 'demo-walk': plan }, alex: { walk: plan }, 'demolition-crew': { walk: plan } },
-      seen: { 'demo-0': { 'joker-rule': true as const } },
+      seen: { 'demo-0': { 'joker-rule': true as const }, alex: { coach: true as const } },
+      showdownSeen: { alex: '2026-10-12', 'demo-3': '2026-10-19' },
     };
     const after = applyPatch(notes, demoNotesForgotten(notes));
     expect(after.grips).toEqual({ alex: notes.grips.alex });
     expect(after.plans).toEqual({ alex: notes.plans.alex, 'demolition-crew': notes.plans['demolition-crew'] });
-    // Only thumb marks and plans go: everything else stays as it was.
-    expect(after.seen).toEqual(notes.seen);
+    // Its moments seen and its Showdown watched go too, so a demo played again shows the Showdown and every hint.
+    expect(after.seen).toEqual({ alex: { coach: true } });
+    expect(after.showdownSeen).toEqual({ alex: '2026-10-12' });
     expect(after.reminders).toEqual(notes.reminders);
+    // A plain change still never moves a watched Showdown back or forgets one.
+    expect(applyPatch(after, { showdownSeen: {} }).showdownSeen).toEqual({ alex: '2026-10-12' });
     expect(parse(JSON.stringify(after)).plans).toEqual(after.plans);
     // With no demo notes there is nothing to change.
     expect(demoNotesForgotten(after)).toEqual({});

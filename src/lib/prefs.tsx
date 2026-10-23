@@ -162,7 +162,12 @@ export function hasSeen(prefs: Prefs, seed: string, key: string): boolean {
   return prefs.seen[seed]?.[key] === true;
 }
 
-export type Patch = Partial<Prefs> | ((prefs: Prefs) => Partial<Prefs>);
+/**
+ * A change to the prefs. `forgetShowdowns` names players whose watched Showdown is forgotten outright (the
+ * demo deck's, when it ends): the only way a watched week can go, since a change never moves one back.
+ */
+export type Change = Partial<Prefs> & { forgetShowdowns?: readonly string[] };
+export type Patch = Change | ((prefs: Prefs) => Change);
 
 /** One more swipe folded into a card's thumb position. A point that isn't a number changes nothing. */
 export function gripNoted(prefs: Prefs, seed: string, habitId: string, point: Grip): Partial<Prefs> {
@@ -188,29 +193,42 @@ export function planCleared(prefs: Prefs, seed: string, habitId: string): Partia
   return { plans: { ...prefs.plans, [seed]: rest } };
 }
 
-/** Everything this phone noted about one player's cards (thumb marks and plans), gone. Other players' stay. */
-export function deckNotesForgotten(prefs: Prefs, seed: string): Partial<Prefs> {
+/**
+ * Everything this phone noted about one player's cards (thumb marks, plans and the one-time moments seen),
+ * gone, for Delete my deck: the deck starts again from the first deal, hints and all. Other players' stay.
+ */
+export function deckNotesForgotten(prefs: Prefs, seed: string): Change {
   const { [seed]: _grips, ...grips } = prefs.grips;
   const { [seed]: _plans, ...plans } = prefs.plans;
-  return { grips, plans };
+  const { [seed]: _seen, ...seen } = prefs.seen;
+  return { grips, plans, seen };
 }
 
 /** The demo deck deals from seeds named `demo-0`, `demo-1` and so on (`demo.ts`); no player's own seed does. */
 const DEMO_SEED = /^demo-/;
 
-/** The thumb marks and plans made while trying the demo deck, gone once it ends. Players' own notes stay. */
-export function demoNotesForgotten(prefs: Prefs): Partial<Prefs> {
+/**
+ * Everything noted while trying the demo deck (thumb marks, plans, moments seen, the Showdown watched), gone,
+ * so every demo starts clean. The demo lives only in memory, so this runs when it ends and again whenever the
+ * prefs load (an app closed mid-demo never said it ended). Players' own notes stay.
+ */
+export function demoNotesForgotten(prefs: Prefs): Change {
   const own = <T,>(bySeed: Record<string, T>) => Object.fromEntries(Object.entries(bySeed).filter(([seed]) => !DEMO_SEED.test(seed)));
   const grips = own(prefs.grips);
   const plans = own(prefs.plans);
-  const same = Object.keys(grips).length === Object.keys(prefs.grips).length && Object.keys(plans).length === Object.keys(prefs.plans).length;
-  return same ? {} : { grips, plans };
+  const seen = own(prefs.seen);
+  const watched = Object.keys(prefs.showdownSeen).filter((seed) => DEMO_SEED.test(seed));
+  const fewer = (a: object, b: object) => Object.keys(a).length !== Object.keys(b).length;
+  if (!fewer(grips, prefs.grips) && !fewer(plans, prefs.plans) && !fewer(seen, prefs.seen) && !watched.length) return {};
+  return { grips, plans, seen, ...(watched.length ? { forgetShowdowns: watched } : {}) };
 }
 
-/** `prefs` with `patch` applied. The Showdown watched only ever moves forward. */
+/** `prefs` with `patch` applied. The Showdown watched only ever moves forward, unless a player's is forgotten outright. */
 export function applyPatch(prefs: Prefs, patch: Patch): Prefs {
-  const change = typeof patch === 'function' ? patch(prefs) : patch;
-  return { ...prefs, ...change, showdownSeen: forwardOnly(prefs.showdownSeen, change.showdownSeen ?? prefs.showdownSeen) };
+  const { forgetShowdowns, ...change } = typeof patch === 'function' ? patch(prefs) : patch;
+  const watched = forwardOnly(prefs.showdownSeen, change.showdownSeen ?? prefs.showdownSeen);
+  const showdownSeen = forgetShowdowns?.length ? Object.fromEntries(Object.entries(watched).filter(([seed]) => !forgetShowdowns.includes(seed))) : watched;
+  return { ...prefs, ...change, showdownSeen };
 }
 
 type PrefsApi = {
@@ -226,9 +244,9 @@ type PrefsApi = {
   /** Saves a card's plan, replacing any before it. */
   setPlan: (seed: string, habitId: string, plan: Plan) => void;
   clearPlan: (seed: string, habitId: string) => void;
-  /** Drops this player's thumb marks and plans, for Delete my deck. */
+  /** Drops this player's thumb marks, plans and moments seen, for Delete my deck. */
   forgetDeckNotes: (seed: string) => void;
-  /** Drops the thumb marks and plans made in the demo deck, when it ends. */
+  /** Drops everything noted in the demo deck, when it ends. */
   forgetDemoNotes: () => void;
 };
 
@@ -254,12 +272,15 @@ export function PrefsProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let cancelled = false;
-    const arrive = (saved: Prefs) => {
+    const arrive = (stored: Prefs) => {
       if (cancelled) return;
       const patches = early.current ?? [];
       early.current = null;
+      // No demo can be live yet (it lives only in memory), so anything left from one is dropped as the prefs load.
+      const leftover = demoNotesForgotten(stored);
+      const saved = applyPatch(stored, leftover);
       const next = patches.reduce(applyPatch, saved);
-      if (patches.length) AsyncStorage.setItem(KEY, JSON.stringify(next)).catch(() => {});
+      if (patches.length || Object.keys(leftover).length) AsyncStorage.setItem(KEY, JSON.stringify(next)).catch(() => {});
       setState(next);
       setReady(true);
     };
