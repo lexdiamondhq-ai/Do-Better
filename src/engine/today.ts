@@ -639,6 +639,13 @@ export function dealArc(o: { reduced: boolean }): { flyMs: number; flipMs: numbe
   return { flyMs, flipMs, settleMs, totalMs: flyMs + flipMs + settleMs };
 }
 
+/** How long the hand line's chips count up when it rolls to a new hand. */
+export const HAND_ROLL_COUNT_MS = 520;
+/**
+ * How long the hand line takes to roll to a new hand and settle: the name springs up into place while the
+ * chips count up. A receipt that would drop over the line waits this long after the card lands.
+ */
+export const HAND_ROLL_MS = 600;
 /** The beat to read the card in its slot before a moment rises. */
 const READ_BEAT_MS = 120;
 
@@ -649,13 +656,14 @@ const READ_BEAT_MS = 120;
  *
  * `table` (on by default) says the keep came from the front card on the table, so the card left (a Comeback
  * turning over first) and the deal arc flew. A keep from the list or the pill sheet has neither, so nothing
- * waits for them.
+ * waits for them. `roll` is for a receipt that would drop over the hand line while it rolls to a new hand:
+ * it waits for the roll to settle (HAND_ROLL_MS) instead of the short beat, so the roll is seen.
  */
-export function momentDelay(o: { comeback: boolean; reduced: boolean; table?: boolean }): number {
+export function momentDelay(o: { comeback: boolean; reduced: boolean; table?: boolean; roll?: boolean }): number {
   const table = o.table ?? true;
   const exit = table && o.comeback ? comebackExit({ firstMove: false, reduced: o.reduced }).totalMs : 0;
   const arc = table ? dealArc({ reduced: o.reduced }).totalMs : 0;
-  return exit + arc + READ_BEAT_MS;
+  return exit + arc + (o.roll ? HAND_ROLL_MS : READ_BEAT_MS);
 }
 
 /**

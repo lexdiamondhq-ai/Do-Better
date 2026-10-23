@@ -27,6 +27,8 @@ import {
   keptLine,
   keyMove,
   laterTag,
+  HAND_ROLL_COUNT_MS,
+  HAND_ROLL_MS,
   momentDelay,
   momentOf,
   partOfDayAt,
@@ -677,6 +679,18 @@ describe('the deal arc and the moment after it', () => {
     expect(momentDelay({ comeback: true, reduced: true, table: false })).toBe(120);
     // The table is the default: a swipe or a button on the front card.
     expect(momentDelay({ comeback: true, reduced: false, table: true })).toBe(momentDelay({ comeback: true, reduced: false }));
+  });
+
+  it('holds a receipt until the hand line has rolled to the new hand, so the roll is seen', () => {
+    const arc = dealArc({ reduced: false }).totalMs;
+    // The hand line rolls as the card lands; the receipt drops over it only once the roll has settled.
+    expect(HAND_ROLL_MS).toBeGreaterThanOrEqual(HAND_ROLL_COUNT_MS);
+    expect(momentDelay({ comeback: false, reduced: false, roll: true })).toBe(arc + HAND_ROLL_MS);
+    expect(momentDelay({ comeback: true, reduced: false, roll: true })).toBe(comebackExit({ firstMove: false, reduced: false }).totalMs + arc + HAND_ROLL_MS);
+    // A keep with no arc rolls the line at once, and the receipt still lets it settle.
+    expect(momentDelay({ comeback: false, reduced: false, table: false, roll: true })).toBe(HAND_ROLL_MS);
+    // A hand that didn't change has no roll to wait for.
+    expect(momentDelay({ comeback: false, reduced: false, roll: false })).toBe(800);
   });
 
   it('arcs from the card to the slot, growing from 0.6 to full size and landing square', () => {

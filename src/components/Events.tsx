@@ -125,6 +125,7 @@ export function GameEvents({ back }: { back: BackKey }) {
   const deck = useDeck();
   const keep = useLastKeep();
   const reduced = useReducedMotion();
+  const path = usePathname();
   // A receipt whose check-in was undone or changed since (from the Undo chip, a pill or a habit's page)
   // goes at once, so nothing celebrates a card that is no longer there.
   const stale = deck
@@ -177,6 +178,9 @@ export function GameEvents({ back }: { back: BackKey }) {
   // A keep Today didn't note (another screen's) waits as a keep on the table does.
   const table = ownKeep ? ownKeep.table : true;
   const wait = momentDelay({ comeback: fromComeback, reduced, table });
+  // On Today the hand line rolls to the new hand as the card lands: a receipt waits for the roll to settle
+  // before it drops over the line, so the roll is seen. One moment still: the receipt, a little later.
+  const rolls = path === '/' && main.kind === 'deal' && (main.deal.hand?.title ?? null) !== (main.deal.handWas?.title ?? null);
   if (main.kind === 'face')
     return (
       <Later key={main.id} ms={wait}>
@@ -200,7 +204,7 @@ export function GameEvents({ back }: { back: BackKey }) {
     );
   // A late log isn't a keep on the table: its receipt comes at once.
   return (
-    <Later key={main.id} ms={main.kind === 'deal' ? wait : 0}>
+    <Later key={main.id} ms={main.kind === 'deal' ? momentDelay({ comeback: fromComeback, reduced, table, roll: rolls }) : 0}>
       <ReceiptBanner moment={moment} back={back} keep={ownKeep} onDone={done} />
     </Later>
   );

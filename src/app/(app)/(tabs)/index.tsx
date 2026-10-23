@@ -34,6 +34,7 @@ import {
   densityFor,
   feltFor,
   grouped,
+  HAND_ROLL_COUNT_MS,
   handLineCopy,
   ideaLabel,
   identityLine,
@@ -1072,7 +1073,7 @@ function RollingChips({ from, to }: { from: number; to: number }) {
     let frame = 0;
     const start = Date.now();
     const step = () => {
-      const u = Math.min(1, (Date.now() - start) / 520);
+      const u = Math.min(1, (Date.now() - start) / HAND_ROLL_COUNT_MS);
       const eased = 1 - Math.pow(1 - u, 3);
       setValue(Math.round(from + (to - from) * eased));
       if (u < 1) frame = requestAnimationFrame(step);
