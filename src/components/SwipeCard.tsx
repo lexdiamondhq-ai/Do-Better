@@ -248,7 +248,9 @@ export function SwipeCard({
   const lifting = useSharedValue(0);
   const slam = useSharedValue(0);
   const wait = useSharedValue(0);
-  const [turning, setTurning] = useState<{ dir: 'up' | 'down'; face: TurnFace | null; compact: boolean } | null>(null);
+  // While it turns, the card holds both its sides as they were when it was kept, so nothing on it reflows
+  // as the day it just kept updates the screen behind it.
+  const [turning, setTurning] = useState<{ dir: 'up' | 'down'; face: TurnFace | null; compact: boolean; front: ReactNode; back: ReactNode } | null>(null);
   const [burst, setBurst] = useState(false);
   const view = useRef<View>(null);
   const face = useSharedValue<TurnFace | null>(null);
@@ -325,7 +327,7 @@ export function SwipeCard({
   const beginTurn = (dir: 'up' | 'down') => {
     const h = cardH.get();
     const compact = densityFor({ cardHeight: h || height, windowHeight: height, fontScale: 1, screenReader: false }).mode === 'compact';
-    setTurning({ dir, face: face.get(), compact });
+    setTurning({ dir, face: face.get(), compact, front: children, back: backFace?.(dir) ?? null });
     setNote((n) => turnNote(dir, n));
   };
 
@@ -564,8 +566,9 @@ export function SwipeCard({
       ],
     };
   });
-  // The dark side until the card is past its edge, then the bright one. With Reduce Motion, a crossfade.
-  const frontStyle = useAnimatedStyle(() => ({ opacity: turn.get() > 1 ? 0 : 1 - cross.get() }));
+  // The dark side until the card is past its edge, then the bright one. With Reduce Motion the bright side
+  // fades in over the dark one, which stays solid underneath so nothing behind the card shows through.
+  const frontStyle = useAnimatedStyle(() => ({ opacity: turn.get() > 1 || cross.get() >= 1 ? 0 : 1 }));
   const backStyle = useAnimatedStyle(() => ({ opacity: turn.get() > 1 ? 1 : cross.get() }));
 
   // Each style reads the shared values itself: Reanimated only re-runs a style for values read in its own body.
@@ -595,11 +598,12 @@ export function SwipeCard({
   // On the bright side the note is pressed on like a stamp: it lands big and settles.
   const noteStyle = useAnimatedStyle(() => {
     const n = noteIn.get();
-    return { opacity: Math.min(1, n), transform: [{ rotate: '-6deg' }, { scale: slam.get() ? 1.35 - 0.35 * n : 0.8 + 0.2 * n }] };
+    const slammed = slam.get() > 0;
+    return { opacity: Math.min(1, slammed ? n * 5 : n), transform: [{ rotate: '-6deg' }, { scale: slammed ? 1.35 - 0.35 * n : 0.8 + 0.2 * n }] };
   });
   const turnStampStyle = useAnimatedStyle(() => {
     const n = noteIn.get();
-    return { opacity: Math.min(1, n), transform: [{ rotate: '-9deg' }, { scale: 1.35 - 0.35 * n }] };
+    return { opacity: Math.min(1, n * 5), transform: [{ rotate: '-9deg' }, { scale: 1.35 - 0.35 * n }] };
   });
 
   const ways: { dir: SwipeDirection; style: typeof upStyle; at: ViewStyle }[] = [
@@ -638,11 +642,11 @@ export function SwipeCard({
         }}
       >
         <Animated.View style={[StyleSheet.absoluteFill, turns ? frontStyle : null]} pointerEvents={settled && !ghost ? 'box-none' : 'none'}>
-          {turns ? <TurnContext.Provider value={turnover}>{children}</TurnContext.Provider> : children}
+          {turns ? <TurnContext.Provider value={turnover}>{turning ? turning.front : children}</TurnContext.Provider> : children}
         </Animated.View>
-        {turning && backFace ? (
+        {turning ? (
           <Animated.View pointerEvents="none" aria-hidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, backStyle]}>
-            <BackDensity.Provider value={{ compact: turning.compact }}>{backFace(turning.dir)}</BackDensity.Provider>
+            <BackDensity.Provider value={{ compact: turning.compact }}>{turning.back}</BackDensity.Provider>
             {burst ? (
               <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius.card, overflow: 'hidden' }]}>
                 <Burst kind="comeback" color={bright?.soft ?? withAlpha(INK, 0.4)} />
