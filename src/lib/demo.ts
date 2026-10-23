@@ -13,10 +13,10 @@
 import type { Plan } from '@/engine/comeback';
 import { addDays, daysBetween, weekday, weekStart, type Day } from '@/engine/day';
 import { keptCards, unit, type DealHabit } from '@/engine/deal';
-import { callPrices, playPastWeeks, type CallPrice, type Week } from '@/engine/game';
+import { callPrices, playLiveWeek, playPastWeeks, type CallPrice, type Week } from '@/engine/game';
 import { indexCheckIns, type Level } from '@/engine/kept';
 import { RECIPES } from '@/engine/playbook';
-import { atLeast, handIndex, type HandKind } from '@/engine/poker';
+import { atLeast, handIndex, HANDS, type HandKind } from '@/engine/poker';
 import { suitColors } from '@/theme/tokens';
 
 import type { Backend, Loaded } from './backend';
@@ -177,9 +177,26 @@ function variety(weeks: readonly Week[]): number {
 }
 
 /**
+ * Whether the Queen's Joker pays on the demo's opening day: with every other card kept at its Floor first,
+ * as the day plays, keeping Reach out turns today's card into a Joker that lifts the week's hand to one that
+ * pays more chips. On a Monday the Joker is the week's only card, so it never can.
+ */
+function jokerPays(today: Day, habits: readonly Habit[], days: readonly HabitDay[], seed: string): boolean {
+  const deal: DealHabit[] = habits.map((h) => ({ id: h.id, suit: h.suit, startedOn: h.startedOn, archivedOn: null }));
+  const chips = (kept: readonly HabitDay[]) => {
+    const hand = playLiveWeek({ seed, today, habits: deal, checkIns: indexCheckIns(kept), calls: new Map() }).hand;
+    return hand ? HANDS[hand.kind].chips : 0;
+  };
+  const others = [...days, ...habits.filter((h) => h.recipeKey !== QUEEN).map((h) => ({ habitId: h.id, day: today, level: 'floor' as const }))];
+  const queen = habits.find((h) => h.recipeKey === QUEEN);
+  return !!queen && chips([...others, { habitId: queen.id, day: today, level: 'floor' }]) > chips(others);
+}
+
+/**
  * The deal seed. The public demo opens on last week's Showdown, so it takes a deal whose last week made a
- * call that pays, and among those the one with the widest spread of hands. A typical player takes the
- * middle one by spread, so a phone test sees what most players would.
+ * call that pays, then one whose Queen night lifts the hand (so the Joker's payoff can be seen), and among
+ * those the one with the widest spread of hands. A typical player takes the middle one by spread, so a
+ * phone test sees what most players would.
  */
 function pickSeed(today: Day, habits: readonly Habit[], days: readonly HabitDay[], typical: boolean): { seed: string; weeks: Week[] } {
   const deals = Array.from({ length: typical ? 15 : 8 }, (_, i) => {
@@ -189,7 +206,9 @@ function pickSeed(today: Day, habits: readonly Habit[], days: readonly HabitDay[
   });
   if (typical) return [...deals].sort((a, b) => a.score - b.score)[Math.floor(deals.length / 2)];
   const opens = deals.filter((d) => lastCallPays(d.weeks, habits));
-  return (opens.length ? opens : deals).reduce((best, d) => (d.score > best.score ? d : best));
+  const pool = opens.length ? opens : deals;
+  const lifts = pool.filter((d) => jokerPays(today, habits, days, d.seed));
+  return (lifts.length ? lifts : pool).reduce((best, d) => (d.score > best.score ? d : best));
 }
 
 /** The highest callable hand a week's hand makes, or a Pair for a week that made none. */

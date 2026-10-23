@@ -638,6 +638,11 @@ describe('the face-card moment', () => {
     expect(jokerResult({ ...queens, cards: [played(12)] }, { chips: 1200, chipsWas: 140, warmup: false })).toBeNull();
   });
 
+  it('says a Joker alone in the week pairs with the next card', () => {
+    const alone = { kind: 'high-card' as const, title: 'Ace high', cards: [played(14, true)] };
+    expect(jokerResult(alone, { chips: 10, chipsWas: 10, warmup: false })).toBe('Your Joker plays as an Ace: Ace high. Your next card pairs with it.');
+  });
+
   it('returns nothing with no Joker in the hand, or no hand', () => {
     expect(jokerResult({ ...queens, cards: [played(12), played(12)] }, { chips: 30, chipsWas: 10, warmup: false })).toBeNull();
     expect(jokerResult(null, { chips: 0, chipsWas: 0, warmup: false })).toBeNull();

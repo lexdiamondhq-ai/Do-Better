@@ -4,6 +4,7 @@ import { planLine, planOffered } from '@/engine/comeback';
 import { FACES, RUNGS, summarizeCourt } from '@/engine/court';
 import { addDays, weekday, weekStart, type Day } from '@/engine/day';
 import { lastShowdown, playGame } from '@/engine/game';
+import { HANDS } from '@/engine/poker';
 import { indexCheckIns, neverTwiceDay, type Level } from '@/engine/kept';
 import { partOfDay } from '@/engine/playbook';
 import { buildQueue, partOfDayAt } from '@/engine/today';
@@ -61,6 +62,17 @@ describe.each(WEEK)('the demo deck on %s', (today) => {
     const queen = [expect.objectContaining({ kind: 'face', suit: 'hearts', face: expect.objectContaining({ face: 'queen' }), joker: true })];
     expect(momentsOf(walked, keep(walked, REACH_OUT, today), today, backend.seed, { habitId: REACH_OUT, level: 'floor', day: today }, memory)).toEqual(queen);
     expect(momentsOf(data, keep(data, REACH_OUT, today), today, backend.seed, { habitId: REACH_OUT, level: 'floor', day: today }, newMemory())).toEqual(queen);
+  });
+
+  it('pays more chips on the Queen night than before it, after the everyday cards, on every day but Monday', async () => {
+    if (weekday(today) === 0) return;
+    const { backend, data } = await open(today);
+    const chips = (d: Loaded) => {
+      const hand = playGame(gameInput(d, today, backend.seed)).current.hand;
+      return hand ? HANDS[hand.kind].chips : 0;
+    };
+    const everyday = keep(keep(keep(data, WALK, today), 'demo-deep-work', today), 'demo-read', today);
+    expect(chips(keep(everyday, REACH_OUT, today))).toBeGreaterThan(chips(everyday));
   });
 
   it('at 09:00 lets an everyday card come before Reach out, so the Queen comes later in the day', async () => {
