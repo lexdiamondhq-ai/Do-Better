@@ -92,9 +92,21 @@ function store<T>(initial: T) {
 const lastKeep = store<KeepNote | null>(null);
 const receiptAnchor = store<number | null>(null);
 
-/** Today calls this from every keep. */
+/**
+ * How long a keep's note lasts. The moments of a check-in are worked out right after it (data.tsx), and a
+ * receipt keeps the note it rose with, so after this the note can only belong to a keep that caused no moment:
+ * a later moment from another screen must not borrow its table, its Comeback or what today was before it.
+ */
+const KEEP_NOTE_MS = 4000;
+let keepExpiry: ReturnType<typeof setTimeout> | undefined;
+
+/** Today and a card's page call this from every keep, so the moment it causes knows where it came from. */
 export function noteKeep(keep: KeepNote) {
   lastKeep.set(keep);
+  clearTimeout(keepExpiry);
+  keepExpiry = setTimeout(() => {
+    if (lastKeep.get() === keep) lastKeep.set(null);
+  }, KEEP_NOTE_MS);
 }
 
 /**
@@ -248,7 +260,7 @@ function Flip({ from, to, back, size = 'sm', delay = 220, still = false }: { fro
  * was saved. Drops in at the top, leaves on its own after a few seconds (longer with a screen reader),
  * and can be flicked away upward or closed. A late log carries its own Undo.
  */
-function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEvent>; back: BackKey; keep: KeepNote | null; onDone: () => void }) {
+function ReceiptBanner({ moment, back, keep: keepNow, onDone }: { moment: Moment<GameEvent>; back: BackKey; keep: KeepNote | null; onDone: () => void }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -267,6 +279,8 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
   const finish = useEffectEvent(onDone);
   // The Joker's rule is explained on the first Joker only; read once, so marking it seen can't take the line away mid-read.
   const [explainJoker] = useState(() => !hasSeen(prefs, seed, JOKER_RULE));
+  // The keep this receipt rose for, held for its whole stay: a keep made meanwhile can't take its plan offer away.
+  const [keep] = useState(keepNow);
 
   let card: { from: CardFace | null; to: CardFace } | null = null;
   let glyph: ReactNode = null;
@@ -394,13 +408,20 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
     if (explained) markSeen(seed, JOKER_RULE);
   }, [explained, markSeen, seed]);
 
+  // The receipt's entrance, read once as it rises: its words can change while it is up (a tip moving on), but
+  // its sound, haptic, announcement and stay never play twice.
+  const entrance = useEffectEvent(() => ({ sound, joker, spoken, offersPlan, anchored, keep }));
+  const leaveTo = useEffectEvent(() => away);
   useEffect(() => {
+    const { sound, joker, spoken, offersPlan, anchored, keep } = entrance();
     const end = () => finish();
     y.set(withSpring(0, { mass: 1, damping: 16, stiffness: 180, reduceMotion: ReduceMotion.System }));
-    // On Today the keep has had its haptic and its sound, and the card dealt into the week its tick: the
-    // receipt adds no haptic (one per beat) and only a sound that carries news (a card up, a Joker).
-    if (!anchored || sound !== 'flip') playSound(sound, 200);
-    if (!anchored) {
+    // After a keep made here, the keep has had its haptic and its sound (and on Today the card dealt into the
+    // week its tick): the receipt adds no haptic (one per beat) and only a sound that carries news (a card up,
+    // a Joker). A moment from elsewhere (a late log, another screen's keep) brings its own.
+    const followsKeep = anchored || !!keep;
+    if (!followsKeep || sound !== 'flip') playSound(sound, 200);
+    if (!followsKeep) {
       if (joker) feel.joker();
       else feel.flip();
     }
@@ -409,7 +430,7 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
     let timer: ReturnType<typeof setTimeout> | undefined;
     const leave = () =>
       y.set(
-        withTiming(away, { duration: 240, reduceMotion: ReduceMotion.Never }, (ok) => {
+        withTiming(leaveTo(), { duration: 240, reduceMotion: ReduceMotion.Never }, (ok) => {
           'worklet';
           if (ok) scheduleOnRN(end);
         }),
@@ -424,7 +445,7 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
       alive = false;
       clearTimeout(timer);
     };
-  }, [y, sound, joker, spoken, away, offersPlan, anchored]);
+  }, [y]);
 
   const close = () => onDone();
   const plan = planFor

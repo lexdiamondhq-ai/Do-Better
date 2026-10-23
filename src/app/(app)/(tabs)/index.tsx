@@ -380,7 +380,8 @@ function Table({ deck }: { deck: Deck }) {
     // on the Comeback card offers a plan.
     noteKeep({ habitId: id, suit: view.habit.suit, level, was: view.today, comeback: !!view.neverTwice, handWas: game.current.hand, table });
     playSound(keepSound(view.habit.suit, level, { comeback: !!view.neverTwice }));
-    if (view.neverTwice) feel.turnover();
+    // Only the front card turns over on the table; a Comeback kept from the list or a pill gets the plain keep's touch.
+    if (view.neverTwice && table) feel.turnover();
     else if (level === 'ceiling') feel.ceiling();
     else feel.floor();
     // The keep that finishes the day strums today's notes as one chord, and the pills ring in time.
@@ -508,6 +509,8 @@ function Table({ deck }: { deck: Deck }) {
   function logLate(view: HabitView, level: Level) {
     playSound('flip');
     feel.flip();
+    // A late log is no keep on the table: its moment comes at once, and never borrows an earlier keep's note.
+    noteKeep({ habitId: view.habit.id, suit: view.habit.suit, level, was: null, comeback: false, handWas: game.current.hand, table: false });
     // A Comeback card that was about yesterday turns over to today's face.
     if (queue[0]?.id === view.habit.id && queue[0].kind === 'comeback') bringForward(focused);
     // The receipt's own Undo takes back a late log; the chip for today's last check-in goes, so the two never sit side by side.

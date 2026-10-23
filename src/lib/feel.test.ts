@@ -72,15 +72,20 @@ describe('feel', () => {
     expect(calls).toEqual(['notify:success', 'impact:heavy']);
   });
 
-  it('turns a Comeback card over in three growing knocks and a success', async () => {
+  it('turns a Comeback card over in three growing knocks and a success as the bright side shows', async () => {
     const feel = await load();
+    const { comebackExit } = await import('@/engine/comeback');
+    const { lightMs, flipMs } = comebackExit({ firstMove: false, reduced: false });
     feel.turnover();
     expect(calls).toEqual(['impact:light']);
-    vi.advanceTimersByTime(110);
+    vi.advanceTimersByTime(lightMs / 2);
     expect(calls).toEqual(['impact:light', 'impact:medium']);
-    vi.advanceTimersByTime(110);
+    vi.advanceTimersByTime(lightMs / 2);
     expect(calls).toEqual(['impact:light', 'impact:medium', 'impact:heavy']);
-    vi.advanceTimersByTime(110);
+    // The success lands at the turn's midpoint, never before the bright side can be seen.
+    vi.advanceTimersByTime(flipMs / 2 - 1);
+    expect(calls).toHaveLength(3);
+    vi.advanceTimersByTime(1);
     expect(calls).toEqual(['impact:light', 'impact:medium', 'impact:heavy', 'notify:success']);
   });
 

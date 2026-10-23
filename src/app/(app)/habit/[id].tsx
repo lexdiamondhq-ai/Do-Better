@@ -7,6 +7,7 @@ import Svg, { Path } from 'react-native-svg';
 
 import { ask } from '@/components/Ask';
 import { CardPicture } from '@/components/CardOut';
+import { noteKeep } from '@/components/Events';
 import { Arrow, PileLegend, pileColors, WeeksGrid } from '@/components/Pile';
 import { CARD_SIZES, faceOfCourt, faceOfDay, PlayingCard } from '@/components/PlayingCard';
 import { SuitGlyph } from '@/components/Suit';
@@ -71,10 +72,13 @@ export default function HabitDetail() {
    */
   const keep = (level: Level, day?: Day) => {
     const comeback = !!view.neverTwice && !day;
-    if (comeback) feel.turnover();
-    else if (level === 'ceiling') feel.ceiling();
+    // Nothing turns over on this page, so a Comeback keep gets the plain keep's touch (the note still resolves).
+    if (level === 'ceiling') feel.ceiling();
     else feel.floor();
     playSound(keepSound(habit.suit, level, { comeback }));
+    // The moment this keep causes comes at once (no card leaves a table here), and knows what today was before
+    // it, so raising a kept Floor to the Ceiling never repeats the card's wear line.
+    noteKeep({ habitId: habit.id, suit: habit.suit, level, was: day ? null : view.today, comeback, handWas: deck.game.current.hand, table: false });
     keepCard(view, level, { day }).catch(fail);
   };
 

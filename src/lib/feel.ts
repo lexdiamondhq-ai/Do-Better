@@ -1,6 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
 
+import { comebackExit } from '@/engine/comeback';
 import type { Beat } from '@/engine/rhythm';
 
 /**
@@ -81,14 +82,16 @@ export function chips() {
 }
 
 /**
- * The dark Comeback card turning back over in your hand: three knocks that grow, light, medium and
- * heavy, 110 ms apart, then a success as the bright side lands.
+ * The dark Comeback card turning back over in your hand (`comebackExit`): three knocks that grow, light,
+ * medium and heavy, while the warm light spreads and the turn begins, then a success at the turn's midpoint,
+ * the moment the bright side shows.
  */
 export function turnover() {
+  const { lightMs, flipMs } = comebackExit({ firstMove: false, reduced: false });
   play(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-  later(110, () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
-  later(220, () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy));
-  later(330, () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+  later(Math.round(lightMs / 2), () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+  later(lightMs, () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy));
+  later(lightMs + Math.round(flipMs / 2), () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
 }
 
 /** How hard each beat of a rhythm knocks. A success is the double tap, not a knock. */
