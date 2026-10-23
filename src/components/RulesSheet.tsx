@@ -537,6 +537,11 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
   // Where the page is scrolling to after a chip (or the opening topic) asked for a section. Until it
   // gets there, that section keeps the highlight; after it, the highlight follows the page.
   const heading = useRef<number | null>(null);
+  // Where the page last arrived after a jump. Moving off it by any means (a drag, a wheel, the keyboard
+  // or VoiceOver, which never start a drag) hands the page to the reader.
+  const landed = useRef<number | null>(null);
+  // Where the page is now, from the last scroll event.
+  const at = useRef(0);
   const [active, setActive] = useState<RulesTopic>(topic ?? RULES[0].key);
   // A page sheet starts below the status bar; anywhere else the sheet covers the whole screen.
   const top = Platform.OS === 'ios' ? space.lg : insets.top + space.md;
@@ -544,6 +549,12 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
   const jump = (key: RulesTopic, animated: boolean) => {
     const y = openingScroll(key, offsets.current);
     if (y === null) return;
+    // Already there: no scroll event will come to say so.
+    if (Math.abs(at.current - y) <= 2) {
+      heading.current = null;
+      landed.current = at.current;
+      return;
+    }
     heading.current = y;
     scroll.current?.scrollTo({ y, animated });
   };
@@ -557,12 +568,15 @@ function RulesBody({ topic, onClose }: { topic?: RulesTopic; onClose: () => void
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const atEnd = contentOffset.y + layoutMeasurement.height >= contentSize.height - 4;
+    at.current = contentOffset.y;
     if (heading.current !== null) {
       // Still on the way to the section asked for. A section near the end can't reach the top, so the end counts as there.
       if (Math.abs(contentOffset.y - heading.current) > 2 && !atEnd) return;
       heading.current = null;
+      landed.current = contentOffset.y;
       return;
     }
+    if (!settled.current && landed.current !== null && Math.abs(contentOffset.y - landed.current) > 2) settled.current = true;
     const tops = RULES.flatMap((s) => {
       const y = offsets.current[s.key];
       return y === undefined ? [] : [{ key: s.key, y }];
