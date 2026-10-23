@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type PropsWithChildren, type ReactNode, type Ref, type RefObject } from 'react';
+import { createContext, useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useMemo, useRef, useState, type PropsWithChildren, type ReactNode, type Ref, type RefObject } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View, type AccessibilityActionEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -292,15 +292,16 @@ export function SwipeCard({
   /** A window point on the card face, from the card's centre at rest and its own size. */
   const toCard = (at: Point, centre: Point): Point => ({ x: at.x - (centre.x - cardW.get() / 2), y: at.y - (centre.y - cardH.get() / 2) });
 
+  // The settle timer measures with whatever the card looks like when it fires, not when it was set.
+  const measureSettled = useEffectEvent(() => measure());
+
   useEffect(() => {
     if (ghost) return;
     const id = setTimeout(() => {
       setSettled(true);
-      measure();
+      measureSettled();
     }, SETTLE_MS);
     return () => clearTimeout(id);
-    // `measure` only reads refs and sets shared values when the timer fires.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ghost]);
 
   useEffect(() => {
