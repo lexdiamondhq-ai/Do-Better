@@ -12,6 +12,7 @@ import { SUIT_INFO, type Suit } from '@/engine/cards';
 import { weekday } from '@/engine/day';
 import { weekTotal, type BackKey } from '@/engine/game';
 import { HANDS } from '@/engine/poker';
+import { madeThisLine, stampsFor } from '@/engine/showdown';
 import { weekOf } from '@/lib/format';
 import { chipText, feltFor, FOOTER, habitLine, handLines, identityPhrase, SHARE_INSET, SHARE_LAYOUT, SHARE_TEXT_WIDTH, stampSize, suitedLine, type HabitLine, type ShareTarget } from '@/lib/share';
 import { withAlpha } from '@/theme/color';
@@ -25,8 +26,9 @@ const FIXED = 1;
 
 /**
  * The picture a shared hand or face card becomes: a 9:16 card in the colours of your card back, with the
- * felt inside lit by the suit that led. A hand shows its five cards, the stamp, what it paid, a made call,
- * the Suited line and the week's seven days. Habit names appear only when `target.names` is on.
+ * felt inside lit by the suit that led. A hand shows its five cards with their ↓ and ↑ stamps, the stamp,
+ * what it paid, what made it, a made call, the Suited line and the week's seven days. Habit names appear
+ * only when `target.names` is on.
  *
  * It is laid out at 360 × 640 points and captured at 1080 × 1920 pixels.
  */
@@ -90,10 +92,11 @@ function HandSide({ target, habits }: { target: Extract<ShareTarget, { kind: 'ha
   const made = week.call && week.madeCall ? HANDS[week.call].name : null;
   const played = new Set(hand.cards.map((c) => (c.river ? 'river' : c.day)));
   const names = target.names && habits?.length ? habits.slice(0, 4) : [];
+  const credit = madeThisLine(week);
   return (
     <View style={{ flex: 1, gap: 14 }}>
       <Top right={weekOf(week.start)} />
-      <HandFan faces={playedFaces(hand.cards)} size="md" width={86} spread={0.55} tilt={8} style={{ marginTop: 6 }} />
+      <HandFan faces={playedFaces(hand.cards)} days={hand.cards.map((c) => c.day)} stamps={stampsFor(week)} size="md" width={86} spread={0.55} tilt={8} style={{ marginTop: 6 }} />
       <View style={{ alignItems: 'center' }}>
         {/* A picture can't wrap or scroll, so the stamp is sized to fit its line: "Three of a kind" whole, never "Three of a ki…". */}
         <Display size={stampSize(lines.name, SHARE_TEXT_WIDTH, 44)} maxFontSizeMultiplier={FIXED} numberOfLines={1} style={{ textAlign: 'center' }}>
@@ -109,6 +112,11 @@ function HandSide({ target, habits }: { target: Extract<ShareTarget, { kind: 'ha
         <Chips value={weekTotal(week)} size={22} pill sign />
       </View>
       <View style={{ gap: 4, alignItems: 'center' }}>
+        {credit ? (
+          <Body size={13} weight="heavy" maxFontSizeMultiplier={FIXED} numberOfLines={2} style={{ textAlign: 'center' }}>
+            {credit}
+          </Body>
+        ) : null}
         {made ? (
           <Body size={14} weight="heavy" maxFontSizeMultiplier={FIXED} style={{ textAlign: 'center' }}>
             {`✓ Called ${made} and made it`}

@@ -1,15 +1,15 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, Image, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type View as ViewType } from 'react-native';
+import { AccessibilityInfo, Image, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type View as ViewType } from 'react-native';
 import Animated, { Easing, useAnimatedReaction, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { CardBack } from '@/components/CardBack';
-import { ChipIcon, Chips, formatChips } from '@/components/Chips';
-import { fanCardWidth, fanLayout, HandRow, playedFaces } from '@/components/HandFan';
-import { CARD_SIZES, CardSlot, faceLabel, faceOfDay, PlayingCard, type CardFace } from '@/components/PlayingCard';
+import { Chips, formatChips } from '@/components/Chips';
+import { fanCardWidth, fanLayout, HandFan, HandRow, HOLD_HINT, HOLD_HINT_H, playedFaces } from '@/components/HandFan';
+import { CARD_SIZES, CardSlot, faceLabel, faceOfDay, PlayingCard, StampSeal, type CardFace } from '@/components/PlayingCard';
 import { SaveDeckCard } from '@/components/SaveDeckCard';
 import { ShareButton } from '@/components/ShareButton';
 import { SuitGlyph } from '@/components/Suit';
@@ -24,27 +24,34 @@ import { BACKS, chapterRecap, lastShowdown, TABLES, unlocksFor, weekReview, week
 import { indexCheckIns } from '@/engine/kept';
 import { HANDS, type Hand, type PlayedCard } from '@/engine/poker';
 import { handRhythm } from '@/engine/rhythm';
+import { captionsFor, fanOrder, handSoFar, madeThisLine, payoutLine, payoutPieces, stampsFor } from '@/engine/showdown';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
 import { useDeck, useLook } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { weekOf, weekRange } from '@/lib/format';
 import { courtHabits, dealHabits, gameInput } from '@/lib/play';
-import { usePrefs } from '@/lib/prefs';
+import { hasSeen, usePrefs } from '@/lib/prefs';
 import { useReviewAsk } from '@/lib/review';
-import { callLine, feltFor, handLines, stampSize, suitedLine, weekLine, weekSuit, type Felt } from '@/lib/share';
+import { callLine, captionFacts, feltFor, handLines, stampSize, suitedLine, weekLine, weekSuit, type Felt } from '@/lib/share';
 import { playSound, playTones } from '@/lib/sound';
 import type { Habit } from '@/lib/types';
 import { mix, withAlpha } from '@/theme/color';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
-import { cardColors, fontScale, radius, space, tables, TAP } from '@/theme/tokens';
+import { cardColors, fontScale, fonts, radius, space, tables, TAP } from '@/theme/tokens';
 
 /** How long the table waits for a tap before it turns the next card itself. */
 const IDLE_MS = 1500;
 /** How long the river waits to be held before it turns on its own, so nobody is left stuck. */
 const RIVER_WAIT_MS = 4500;
 const FLIP_MS = 420;
+/** The river turns bigger and slower than the days: it is the card that decides. */
+const RIVER_FLIP_MS = 760;
+/** The table holds still on "The river decides" this long before the river can be turned. */
+const DECIDE_MS = 600;
 const GATHER_MS = 820;
+/** How far apart the stamps press into the fan, and when the first one lands after the result. */
+const STAMPS_AT_MS = 300;
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const FELT_GRAIN = require('@/assets/felt.png');
 
@@ -59,10 +66,14 @@ type StageItem = {
   label: string;
   day: string;
   arc: Spot;
+  /** The day's card itself, for naming the hand as the cards turn. */
+  card: DayCard;
   /** Its place in the fan, for the five cards that make the hand. */
   fan: Spot | null;
-  /** Which of the five it is, left to right, so the fan overlaps in order. */
+  /** Which of the five it is in the hand (`hand.cards`). */
   at: number | null;
+  /** Where it sits in the fan, left to right (a straight climbs low to high), so the fan overlaps in order. */
+  pos: number | null;
   river: boolean;
 };
 
@@ -72,7 +83,7 @@ type Empty = { key: string; day: string; arc: Spot };
  * Where everything sits: the week face down in a 4 + 3 arc with the river below it, and the fan the best
  * five fly into. Cards are drawn at fan size and scaled down in the arc, so they stay sharp as they grow.
  */
-function stageGeometry(width: number, lift = 0, count = 5, fanMax = 150) {
+function stageGeometry(width: number, lift = 0, count = 5, fanMax = 150, line = 0) {
   const gutter = space.xl;
   const fanW = fanCardWidth(width - gutter * 2, fanMax);
   const ratio = CARD_SIZES.lg.h / CARD_SIZES.lg.w;
@@ -86,7 +97,9 @@ function stageGeometry(width: number, lift = 0, count = 5, fanMax = 150) {
   const rowGap = 26;
   const rw = Math.round(aw * 1.16);
   const rh = Math.round(rw * ratio);
-  const top = 6 + lift;
+  // The line naming the hand so far sits over the arc, in `line` points of its own.
+  const lineTop = 6 + lift;
+  const top = lineTop + line;
   const row = (i: number, n: number, y: number): Spot => {
     const off = i - (n - 1) / 2;
     return { x: width / 2 + off * (aw + gap), y: y + off * off * 3, r: off * 3, s: aw / fanW };
@@ -107,6 +120,8 @@ function stageGeometry(width: number, lift = 0, count = 5, fanMax = 150) {
     rw,
     rh,
     revealHeight: riverY + rh / 2 + 40,
+    lineTop,
+    line,
     deck: { x: width / 2, y: -40 },
   };
 }
@@ -116,8 +131,10 @@ type Geometry = ReturnType<typeof stageGeometry>;
 /** The cards on the stage: every dealt day, then the river, with the five that make the hand marked for the fan. */
 function stageItems(week: Week, geo: Geometry): { items: StageItem[]; empty: Empty[] } {
   const hand = week.hand;
-  const playedBy = new Map<string, { card: PlayedCard; at: number }>();
-  hand?.cards.forEach((card, at) => playedBy.set(card.river ? 'river' : card.day, { card, at }));
+  const playedBy = new Map<string, { card: PlayedCard; at: number; pos: number }>();
+  // The same order HandFan fans the hand in, so the cards fly to the very spots the fan then holds.
+  const order = fanOrder(hand?.cards.map((c) => c.rank) ?? []);
+  hand?.cards.forEach((card, at) => playedBy.set(card.river ? 'river' : card.day, { card, at, pos: order.indexOf(at) }));
   const items: StageItem[] = [];
   const empty: Empty[] = [];
   const faceFor = (card: DayCard, played: PlayedCard | undefined): CardFace =>
@@ -130,13 +147,13 @@ function stageItems(week: Week, geo: Geometry): { items: StageItem[]; empty: Emp
     }
     const played = playedBy.get(slot.day);
     const face = faceFor(slot.card, played?.card);
-    items.push({ key: slot.day, index: items.length, face, label: `${day}: ${faceLabel(face)}`, day, arc: geo.days[i], fan: played ? geo.fanSpots[played.at] : null, at: played?.at ?? null, river: false });
+    items.push({ key: slot.day, index: items.length, face, label: `${day}: ${faceLabel(face)}`, day, arc: geo.days[i], card: slot.card, fan: played ? geo.fanSpots[played.pos] : null, at: played?.at ?? null, pos: played?.pos ?? null, river: false });
   });
   const river = week.river.card;
   if (river) {
     const played = playedBy.get('river');
     const face = faceFor(river, played?.card);
-    items.push({ key: 'river', index: items.length, face, label: `The river: ${faceLabel(face)}`, day: 'River', arc: geo.river, fan: played ? geo.fanSpots[played.at] : null, at: played?.at ?? null, river: true });
+    items.push({ key: 'river', index: items.length, face, label: `The river: ${faceLabel(face)}`, day: 'River', arc: geo.river, card: river, fan: played ? geo.fanSpots[played.pos] : null, at: played?.at ?? null, pos: played?.pos ?? null, river: true });
   }
   return { items, empty };
 }
@@ -172,6 +189,8 @@ export default function Showdown() {
 
 /** A phone this short gets a smaller fan and stamp, so the hand, its total and what it's made of all show above the buttons. */
 const SHORT_SCREEN = 700;
+/** The week's heading and two lines under it: room for the turning hints and the result's week line alike. */
+const HEAD_MIN = Math.round(30 * 1.08) + space.xs + 2 * Math.round(15 * 1.4);
 
 function Table({ week, game, replay, sample }: { week: Week; game: Game; replay: boolean; sample: boolean }) {
   const base = useTheme();
@@ -181,7 +200,7 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   const deck = useDeck();
   const { state, today, seed } = useData();
   const { demo } = useAuth();
-  const { prefs, setPrefs, seeShowdown } = usePrefs();
+  const { prefs, ready: prefsReady, setPrefs, seeShowdown } = usePrefs();
   const { back } = useLook();
   const askReview = useReviewAsk();
   const reduced = useReducedMotion();
@@ -191,10 +210,11 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   const felt = feltFor(base, weekSuit(review, week.hand));
   const short = height < SHORT_SCREEN;
   const fanMax = short ? 86 : 150;
+  const lineH = short ? 42 : 54;
   // The face-down week sits low on the felt, with the river card to be held in easy reach of a thumb.
   const room = height - insets.top - insets.bottom - 170;
-  const lift = Math.round(Math.min(170, Math.max(0, (room - stageGeometry(width, 0, 5, fanMax).revealHeight) * 0.55)));
-  const geo = stageGeometry(width, lift, week.hand?.cards.length ?? 5, fanMax);
+  const lift = Math.round(Math.min(170, Math.max(0, (room - stageGeometry(width, 0, 5, fanMax, lineH).revealHeight) * 0.55)));
+  const geo = stageGeometry(width, lift, week.hand?.cards.length ?? 5, fanMax, lineH);
   const { items, empty } = stageItems(week, geo);
   const riverIndex = items.findIndex((i) => i.river);
   const playable = !!week.hand && !week.warmup;
@@ -213,9 +233,18 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   const startAtResult = reduced || !playable;
   const [phase, setPhase] = useState<Phase>(startAtResult ? 'result' : 'turn');
   const [turned, setTurned] = useState<boolean[]>(() => items.map(() => startAtResult));
+  // Which cards show their face yet: a card counts from the moment it crosses its edge, so the hand is
+  // named as you see each card, never before.
+  const [faceUp, setFaceUp] = useState<boolean[]>(() => items.map(() => startAtResult));
+  // "The river decides": once the days are up, the table holds still a moment before the river can turn.
+  const [decided, setDecided] = useState(false);
+  // The one-time "Hold a card to read it." goes under the fan on a screen with room for it. Decided once, as
+  // the Showdown opens, so the hand's name knows where it will land.
+  const [holdHint] = useState(() => !short && prefsReady && !hasSeen(prefs, seed, HOLD_HINT));
   const [instant, setInstant] = useState(startAtResult);
   const [step, setStep] = useState(startAtResult ? 3 : 0);
   const [footerH, setFooterH] = useState(160);
+  const [headH, setHeadH] = useState(0);
   const gather = useSharedValue(startAtResult ? 1 : 0);
   const quiet = useRef(startAtResult);
   const primary = useRef<ViewType>(null);
@@ -233,7 +262,20 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   );
 
   const daysTurned = items.every((item, i) => item.river || turned[i]);
-  const riverReady = phase === 'turn' && daysTurned && riverIndex >= 0 && !turned[riverIndex];
+  const daysUp = items.every((item, i) => item.river || faceUp[i]);
+  const allUp = items.length > 0 && items.every((_, i) => faceUp[i]);
+  const riverPending = phase === 'turn' && riverIndex >= 0 && !turned[riverIndex];
+  const riverReady = riverPending && daysTurned && decided;
+  // The line over the arc: the hand so far as each card shows, then "The river decides" while the river waits.
+  const soFar = phase === 'turn' ? handSoFar(items.filter((_, i) => faceUp[i]).map((item) => item.card)) : null;
+  const deciding = riverPending && daysUp;
+  const soFarText = deciding ? 'The river decides' : soFar ? `${soFar.title}…` : null;
+  const soFarSub = deciding && soFar ? `${soFar.title}…` : null;
+  // Once every card shows, the hand's name goes up big, and in the gather it drops to where the stamp lands.
+  const lines = week.hand ? handLines(week.hand) : null;
+  const nameSize = lines ? stampSize(lines.name, width - space.xl * 2, short ? 38 : 44) : 0;
+  const finalName = playable && lines && ((phase === 'turn' && allUp) || phase === 'gather') ? lines.name : null;
+  const stampTop = geo.fanHeight + (holdHint ? HOLD_HINT_H : 0) + space.sm + (short ? space.xs : space.md);
 
   const turn = (i: number) => setTurned((was) => (was[i] ? was : was.map((on, j) => on || j === i)));
 
@@ -252,12 +294,29 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
     const next = items.findIndex((item, i) => !item.river && !turned[i]);
     let timer: ReturnType<typeof setTimeout>;
     if (next >= 0) timer = setTimeout(() => turn(next), turned.some(Boolean) ? IDLE_MS : IDLE_MS + 500);
-    else if (riverIndex >= 0 && !turned[riverIndex]) timer = setTimeout(() => turn(riverIndex), RIVER_WAIT_MS);
-    // A turned river gets a moment on the table, settled back into its place, before the hand gathers.
-    else timer = setTimeout(startGather, riverIndex >= 0 ? 1050 : 700);
+    else if (riverIndex >= 0 && !turned[riverIndex]) {
+      // The river only waits to be held once the table has said "The river decides".
+      if (!decided) return;
+      timer = setTimeout(() => turn(riverIndex), RIVER_WAIT_MS);
+    }
+    // The last card gets a moment on the table, with the hand's name up big, before the hand gathers.
+    else timer = setTimeout(startGather, riverIndex >= 0 ? RIVER_FLIP_MS + 700 : FLIP_MS + 700);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs again on every turn, which is the point
-  }, [phase, turned]);
+  }, [phase, turned, decided]);
+
+  // The hold before the river: the last day finishes turning, then the table waits DECIDE_MS.
+  useEffect(() => {
+    if (!riverPending || !daysUp || decided) return;
+    const timer = setTimeout(() => setDecided(true), FLIP_MS / 2 + DECIDE_MS);
+    return () => clearTimeout(timer);
+  }, [riverPending, daysUp, decided]);
+
+  // A screen reader hears the hand form, card by card (iOS; Android reads the line's live region).
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || quiet.current || !soFarText) return;
+    AccessibilityInfo.announceForAccessibility(soFarSub ? `${soFarText}. ${soFarSub}` : soFarText);
+  }, [soFarText, soFarSub]);
 
   // The hand the result plays, held for this Showdown, so a refresh that re-deals the week never plays it twice.
   const [resultHand] = useState(() => week.hand);
@@ -299,7 +358,7 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
       return;
     }
     const call = callLine(week);
-    const said = [week.hand ? `${week.hand.title}. Pays ${formatChips(week.chips)} chips.` : '', call?.title ?? '', latest ? `Your stack: ${formatChips(game.stack)} chips.` : ''];
+    const said = [week.hand ? `${week.hand.title}.` : '', madeThisLine(week) ?? '', payoutLine(week) ? `${payoutLine(week)} chips.` : '', call?.title ?? '', latest ? `Your stack: ${formatChips(game.stack)} chips.` : ''];
     AccessibilityInfo.announceForAccessibility(said.filter(Boolean).join(' '));
     focusTimer.current = setTimeout(() => {
       if (primary.current && typeof AccessibilityInfo.sendAccessibilityEvent === 'function') AccessibilityInfo.sendAccessibilityEvent(primary.current, 'focus');
@@ -322,6 +381,7 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   }, []);
 
   const onHalf = (i: number) => {
+    setFaceUp((was) => (was[i] ? was : was.map((on, j) => on || j === i)));
     if (quiet.current) return;
     if (items[i]?.river) {
       playSound('cardUp');
@@ -348,7 +408,10 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   // Showdowns played while you were away, older than this one and newer than the last you saw.
   const seen = prefs.showdownSeen[seed];
   const away = latest && seen ? game.weeks.filter((w) => w.hand && !w.warmup && w.start > seen && w.start < week.start).reverse() : [];
-  const stageHeight = phase === 'result' ? geo.fanHeight + space.sm : geo.revealHeight;
+  // The fan, in hand order, with each card as the table showed it, so the swap from stage to fan is seamless.
+  const hand = week.hand;
+  const fanFaces = hand ? hand.cards.map((c, at) => items.find((item) => item.at === at)?.face ?? playedFaces([c])[0]) : [];
+  const facts = state.status === 'ready' ? captionFacts(state.habits, state.days) : null;
   // The chips are in the stack the moment the week ends, so the first time through this says where you go
   // next rather than asking you to put them there. A replay just closes.
   const doneLabel = latest && playable && !replayed ? 'On to this week' : 'Close';
@@ -386,7 +449,14 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
               ) : null
             }
           />
-          <View style={{ gap: space.xs, marginTop: space.sm, marginBottom: short ? space.sm : space.lg, minHeight: 74 }}>
+          <View
+            // Never shorter than it has been, so the stage under it stays put as the words change from turning to the result.
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              setHeadH((was) => Math.max(was, h));
+            }}
+            style={{ gap: space.xs, marginTop: space.sm, marginBottom: short ? space.sm : space.lg, minHeight: Math.max(HEAD_MIN, headH) }}
+          >
             <Display size={30} header>
               {weekOf(week.start)}
             </Display>
@@ -407,30 +477,49 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
             )}
           </View>
 
-          {playable ? (
-            <View style={{ height: stageHeight, marginHorizontal: -space.xl, zIndex: 2 }}>
-              {phase !== 'result'
-                ? empty.map((e) => <EmptySpot key={e.key} spot={e} geo={geo} gather={gather} color={felt.theme.dashed} />)
-                : null}
-              {items.map((item, i) =>
-                phase === 'result' && !item.fan ? null : (
-                  <StageCard
-                    key={item.key}
-                    item={item}
-                    geo={geo}
-                    back={back}
-                    felt={felt}
-                    turned={phase !== 'turn' || !!turned[i]}
-                    instant={instant}
-                    gather={gather}
-                    ready={item.river ? riverReady : phase === 'turn'}
-                    showDay={phase === 'turn'}
-                    gathered={phase !== 'turn'}
-                    onTurn={() => turn(i)}
-                    onHalf={onHalf}
-                  />
-                ),
-              )}
+          {playable && phase === 'result' && hand ? (
+            // The settled fan: the same spots the cards flew to, now stamped, lifting on the hand's rhythm, and
+            // each card held to read the day it came from.
+            <View style={{ marginHorizontal: -space.xl, paddingBottom: space.sm, zIndex: 2 }}>
+              <HandFan
+                faces={fanFaces}
+                days={hand.cards.map((c) => c.day)}
+                stamps={stampsFor(week)}
+                captions={facts ? captionsFor(week, facts) : undefined}
+                rhythm={instant ? undefined : handRhythm(hand.kind)}
+                stampsAt={instant ? undefined : STAMPS_AT_MS}
+                hint={holdHint}
+                size="lg"
+                width={geo.fanW}
+                spread={0.55}
+                tilt={9}
+              />
+            </View>
+          ) : playable ? (
+            <View style={{ height: geo.revealHeight, marginHorizontal: -space.xl, zIndex: 2 }}>
+              {empty.map((e) => (
+                <EmptySpot key={e.key} spot={e} geo={geo} gather={gather} color={felt.theme.dashed} />
+              ))}
+              {finalName ? null : <SoFarLine top={geo.lineTop} height={geo.line} text={soFarText} sub={soFarSub} gather={gather} short={short} />}
+              {items.map((item, i) => (
+                <StageCard
+                  key={item.key}
+                  item={item}
+                  geo={geo}
+                  back={back}
+                  felt={felt}
+                  turned={phase !== 'turn' || !!turned[i]}
+                  instant={instant}
+                  gather={gather}
+                  ready={item.river ? riverReady : phase === 'turn'}
+                  showDay={phase === 'turn'}
+                  gathered={phase !== 'turn'}
+                  peek={phase !== 'turn' && item.pos !== null && item.pos < (hand?.cards.length ?? 0) - 1 ? 0.55 : undefined}
+                  onTurn={() => turn(i)}
+                  onHalf={onHalf}
+                />
+              ))}
+              {finalName ? <FinalName name={finalName} size={nameSize} top={geo.lineTop + (geo.line - Math.round(nameSize * 1.08)) / 2} to={stampTop} gather={gather} /> : null}
             </View>
           ) : (
             <StaticWeek week={week} back={back} />
@@ -440,6 +529,7 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
             <Result
               week={week}
               hand={week.hand}
+              handed={!instant}
               game={game}
               review={review}
               habits={state.status === 'ready' ? state.habits : []}
@@ -521,6 +611,66 @@ function TopBar({ eyebrow, range, right }: { eyebrow: string; range: string; rig
   );
 }
 
+/**
+ * The line over the arc: the hand so far, renamed as each card shows ("Two pair, Nines and Fours…"), and
+ * "The river decides" while the river waits, with the hand so far under it. Each new line rises into place.
+ */
+function SoFarLine({ top, height, text, sub, gather, short }: { top: number; height: number; text: string | null; sub: string | null; gather: SharedValue<number>; short: boolean }) {
+  const style = useAnimatedStyle(() => ({ opacity: 1 - Math.min(1, gather.get() * 3) }));
+  return (
+    <Animated.View
+      pointerEvents="none"
+      accessibilityLiveRegion="polite"
+      style={[{ position: 'absolute', left: space.xl, right: space.xl, top, height, alignItems: 'center', justifyContent: 'center' }, style]}
+    >
+      {text ? <LineText key={`${text}|${sub ?? ''}`} text={text} sub={sub} size={short ? 20 : 24} /> : null}
+    </Animated.View>
+  );
+}
+
+function LineText({ text, sub, size }: { text: string; sub: string | null; size: number }) {
+  const t = useTheme();
+  const show = useSharedValue(0);
+  useEffect(() => {
+    show.set(withTiming(1, { duration: 240, easing: Easing.out(Easing.cubic) }));
+  }, [show]);
+  const style = useAnimatedStyle(() => ({ opacity: show.get(), transform: [{ translateY: (1 - show.get()) * 10 }] }));
+  return (
+    <Animated.View accessible accessibilityLabel={sub ? `${text}. ${sub}` : text} style={[{ alignItems: 'center' }, style]}>
+      <Display size={size} numberOfLines={1} style={{ textAlign: 'center' }}>
+        {text}
+      </Display>
+      {sub ? (
+        <Body size={13} weight="heavy" color={t.textSecondary} numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
+          {sub}
+        </Body>
+      ) : null}
+    </Animated.View>
+  );
+}
+
+/**
+ * The hand's name, up big the moment its last card shows. As the cards gather into the fan it drops to
+ * the very spot where the result's stamp sits, at the stamp's size, so the stamp simply takes over.
+ */
+function FinalName({ name, size, top, to, gather }: { name: string; size: number; top: number; to: number; gather: SharedValue<number> }) {
+  const pop = useSharedValue(0);
+  useEffect(() => {
+    pop.set(withSpring(1, { damping: 13, stiffness: 240, mass: 0.7 }));
+  }, [pop]);
+  const style = useAnimatedStyle(() => ({
+    opacity: Math.min(1, pop.get() * 1.8),
+    transform: [{ translateY: (to - top) * gather.get() }, { scale: 0.55 + 0.45 * pop.get() }],
+  }));
+  return (
+    <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: space.xl, right: space.xl, top, alignItems: 'center', zIndex: 40 }, style]}>
+      <Display size={size} numberOfLines={1} style={{ textAlign: 'center' }}>
+        {name}
+      </Display>
+    </Animated.View>
+  );
+}
+
 /** A dashed place in the arc for a day with no card. */
 function EmptySpot({ spot, geo, gather, color }: { spot: Empty; geo: Geometry; gather: SharedValue<number>; color: string }) {
   const style = useAnimatedStyle(() => ({ opacity: 1 - gather.get() }));
@@ -548,6 +698,7 @@ function StageCard({
   ready,
   showDay,
   gathered,
+  peek,
   onTurn,
   onHalf,
 }: {
@@ -561,6 +712,8 @@ function StageCard({
   ready: boolean;
   showDay: boolean;
   gathered: boolean;
+  /** In the fan, how much of the card shows past the next one, so a card with no suit keeps its mark in view. */
+  peek?: number;
   onTurn: () => void;
   onHalf: (index: number) => void;
 }) {
@@ -580,7 +733,7 @@ function StageCard({
 
   useEffect(() => {
     if (!turned) return;
-    flip.set(instant ? 1 : withTiming(1, { duration: river ? 560 : FLIP_MS, easing: Easing.inOut(Easing.quad) }));
+    flip.set(instant ? 1 : withTiming(1, { duration: river ? RIVER_FLIP_MS : FLIP_MS, easing: Easing.inOut(Easing.cubic) }));
   }, [flip, turned, instant, river]);
 
   // Once the river has turned it settles back into its place, so it never sits lifted over the cards beside it.
@@ -616,9 +769,11 @@ function StageCard({
     const r = fromR + (to.r - fromR) * g;
     const s = fromS + (to.s - fromS) * g;
     const lift = river ? Math.max(p, pulse.get() * 0.25) : 0;
+    // The river grows as it turns, biggest edge-on, and settles back as its face lands.
+    const pop = river ? Math.sin(Math.PI * Math.min(1, Math.max(0, flip.get()))) * 0.24 : 0;
     return {
       opacity: Math.min(1, e * 2) * (fan ? 1 : 1 - g),
-      transform: [{ translateX: x - w / 2 }, { translateY: y - h / 2 - lift * 14 }, { rotate: `${r - lift * 3}deg` }, { scale: s * (1 + lift * 0.07) }],
+      transform: [{ translateX: x - w / 2 }, { translateY: y - h / 2 - lift * 14 - pop * h * 0.3 }, { rotate: `${r - lift * 3}deg` }, { scale: s * (1 + lift * 0.07 + pop) }],
     };
   });
   const backFace = useAnimatedStyle(() => ({ transform: [{ perspective: 900 }, { rotateY: `${-flip.get() * 180}deg` }] }));
@@ -669,7 +824,7 @@ function StageCard({
           {river ? <RiverMark w={w} h={h} /> : null}
         </Animated.View>
         <Animated.View style={[StyleSheet.absoluteFill, { backfaceVisibility: 'hidden' }, frontFace]}>
-          <PlayingCard face={item.face} size="lg" width={w} />
+          <PlayingCard face={item.face} size="lg" width={w} peek={peek} />
         </Animated.View>
       </Pressable>
       {showDay ? (
@@ -748,18 +903,10 @@ function useCountUp(to: number, run: boolean, instant: boolean, duration = 900):
   return instant ? to : run ? value : 0;
 }
 
-function CountUp({ to, run, instant, size, sign }: { to: number; run: boolean; instant: boolean; size: number; sign?: boolean }) {
-  const value = useCountUp(to, run, instant);
-  return (
-    <View accessible accessibilityLabel={`${sign ? '+' : ''}${formatChips(to)} chips`}>
-      <Chips value={value} size={size} sign={sign} />
-    </View>
-  );
-}
-
 function Result({
   week,
   hand,
+  handed,
   game,
   review,
   habits,
@@ -779,6 +926,8 @@ function Result({
 }: {
   week: Week;
   hand: Hand;
+  /** The hand's name dropped into place in the gather, so the stamp takes over from it instead of landing from nowhere. */
+  handed: boolean;
   game: Game;
   review: WeekReview | null;
   habits: readonly Habit[];
@@ -799,41 +948,63 @@ function Result({
   const t = useTheme();
   const { width } = useWindowDimensions();
   const stamp = useSharedValue(instant ? 1 : 0);
+  const credit = useSharedValue(instant ? 1 : 0);
   const rest = useSharedValue(instant ? 1 : 0);
   const call = callLine(week);
   const lines = handLines(hand);
   const suited = suitedLine(hand);
+  const made = madeThisLine(week);
 
   useEffect(() => {
     stamp.set(instant ? 1 : withSpring(1, { damping: 11, stiffness: 190, mass: 0.8 }));
   }, [stamp, instant]);
   useEffect(() => {
+    if (step >= 1) credit.set(instant ? 1 : withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) }));
+  }, [credit, step, instant]);
+  useEffect(() => {
     if (step >= 3) rest.set(instant ? 1 : withTiming(1, { duration: 380 }));
   }, [rest, step, instant]);
 
-  const stampStyle = useAnimatedStyle(() => ({ opacity: Math.min(1, stamp.get() * 1.5), transform: [{ scale: 1.35 - 0.35 * stamp.get() }] }));
+  // Handed over, the name is already in place and lands with a short thump; otherwise it stamps down from above.
+  const nameStyle = useAnimatedStyle(() =>
+    handed ? { transform: [{ scale: 1.07 - 0.07 * stamp.get() }] } : { opacity: Math.min(1, stamp.get() * 1.5), transform: [{ scale: 1.35 - 0.35 * stamp.get() }] },
+  );
+  const detailStyle = useAnimatedStyle(() => ({ opacity: Math.min(1, stamp.get() * 1.2) }));
+  const creditStyle = useAnimatedStyle(() => ({ opacity: credit.get(), transform: [{ translateY: (1 - credit.get()) * 8 }] }));
   const restStyle = useAnimatedStyle(() => ({ opacity: rest.get(), transform: [{ translateY: (1 - rest.get()) * 16 }] }));
 
   return (
-    <View style={{ gap: short ? space.lg : space.xl, marginTop: short ? space.xs : space.md }}>
-      <Animated.View style={[{ alignItems: 'center', gap: 2 }, stampStyle]} accessible accessibilityRole="header" accessibilityLabel={hand.title}>
-        <Display size={stampSize(lines.name, width - space.xl * 2, short ? 38 : 44)} numberOfLines={1} style={{ textAlign: 'center' }}>
-          {lines.name}
-        </Display>
-        {lines.detail ? (
-          <Display size={20} color={t.textSecondary} style={{ textAlign: 'center' }}>
-            {lines.detail}
-          </Display>
+    <View style={{ gap: short ? space.md : space.lg, marginTop: short ? space.xs : space.md }}>
+      <View style={{ alignItems: 'center', gap: short ? space.xs : space.sm }}>
+        <View accessible accessibilityRole="header" accessibilityLabel={hand.title} style={{ alignItems: 'center', gap: 2, alignSelf: 'stretch' }}>
+          <Animated.View style={nameStyle}>
+            <Display size={stampSize(lines.name, width - space.xl * 2, short ? 38 : 44)} numberOfLines={1} style={{ textAlign: 'center' }}>
+              {lines.name}
+            </Display>
+          </Animated.View>
+          {lines.detail ? (
+            <Animated.View style={detailStyle}>
+              <Display size={short ? 18 : 20} color={t.textSecondary} style={{ textAlign: 'center' }}>
+                {lines.detail}
+              </Display>
+            </Animated.View>
+          ) : null}
+        </View>
+        {made ? (
+          <Animated.View style={creditStyle}>
+            <Credit text={made} short={short} />
+          </Animated.View>
         ) : null}
-        {suited ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: space.sm }}>
+        {/* Below 700 pt the Suited line goes to Behind the hand, so the payout stays above the buttons. */}
+        {suited && !short ? (
+          <Animated.View style={[{ flexDirection: 'row', alignItems: 'center', gap: 6 }, detailStyle]}>
             <SuitGlyph suit={hand.suited!.suit} size={14} color={t.text} />
             <Body size={14} weight="bold">
               {suited}
             </Body>
-          </View>
+          </Animated.View>
         ) : null}
-      </Animated.View>
+      </View>
 
       <Payout week={week} call={call} step={step} instant={instant} short={short} />
 
@@ -848,6 +1019,7 @@ function Result({
             checkIns={checkIns}
             today={today}
             game={game}
+            suited={suited && short ? { suit: hand.suited!.suit, text: suited } : null}
             mastered={latest ? mastered : null}
             onEdit={latest ? onEdit : null}
           />
@@ -861,54 +1033,113 @@ function Result({
   );
 }
 
-/** What the week pays: the hand, then the call, then the week's total, each counted in as it lands. */
+/**
+ * The one credit line under the hand. A line about Floor days wears the same ↓ seal as the cards it
+ * counts, so the words point at the stamps; a comeback line leads with its own ↺.
+ */
+function Credit({ text, short }: { text: string; short: boolean }) {
+  const floorish = /Floor day/.test(text);
+  return (
+    <View accessible accessibilityLabel={text} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: space.sm }}>
+      {floorish ? <StampSeal stamp="floor" r={short ? 8 : 9} /> : null}
+      <Body size={short ? 14 : 15} weight="heavy" style={{ textAlign: 'center', flexShrink: 1 }}>
+        {text}
+      </Body>
+    </View>
+  );
+}
+
+/**
+ * What the week pays, as one sum that counts: "Straight 100 + Call 100 = 200". The total runs up to the
+ * hand's chips, then, as the call lands, its piece shows and the same total runs on to the whole week.
+ * Its place is kept from the start, so nothing moves when it shows. With nothing to add: "Straight 100".
+ */
 function Payout({ week, call, step, instant, short }: { week: Week; call: ReturnType<typeof callLine>; step: number; instant: boolean; short: boolean }) {
   const t = useTheme();
+  const pieces = payoutPieces(week);
   const total = weekTotal(week);
-  const bonus = week.bonus > 0;
-  const name = week.hand ? HANDS[week.hand.kind].name : '';
+  const hasCall = pieces.some((p) => p.label === 'Call');
+  const callShown = !hasCall || step >= 2 || instant;
+  const first = pieces.filter((p) => p.label !== 'Call').reduce((sum, p) => sum + p.chips, 0);
+  const value = useTally(callShown ? total : first, step >= 1, instant);
+  const size = short ? 17 : 19;
+  const hidden = (p: { label: string }) => p.label === 'Call' && !callShown;
   return (
     <View style={{ gap: short ? space.sm : space.md, alignItems: 'center' }}>
-      <CountUp to={total} run={step >= 1} instant={instant} size={short ? 34 : 40} sign />
-      {bonus ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap', justifyContent: 'center' }} accessible accessibilityLabel={`${name} pays ${week.chips}, the call pays ${week.bonus}`}>
-          <Piece label={name} chips={week.chips} />
-          <Body weight="heavy" color={t.textSecondary}>
-            +
-          </Body>
-          <Piece label={week.callMultiplier > 1 ? `Call ×${week.callMultiplier}` : 'Call'} chips={week.bonus} />
-        </View>
-      ) : null}
-      {call && (step >= 2 || instant) ? <CallPanel call={call} week={week} /> : <View style={{ height: 1 }} />}
+      <View accessible accessibilityLabel={`${payoutLine(week) ?? ''} chips`} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, alignSelf: 'stretch' }}>
+        {pieces.length ? (
+          <Text
+            maxFontSizeMultiplier={fontScale.chrome}
+            style={{ flexShrink: 1, textAlign: 'right', fontFamily: fonts.displaySemi, fontSize: size, lineHeight: Math.round(size * 1.25), color: t.textSecondary }}
+          >
+            {pieces.map((p, i) => (
+              <Text key={p.label} style={hidden(p) ? { color: 'transparent' } : null}>
+                {i ? ' + ' : ''}
+                {`${p.label} `}
+                <Text style={{ color: hidden(p) ? 'transparent' : t.text }}>{formatChips(p.chips)}</Text>
+              </Text>
+            ))}
+            {pieces.length > 1 ? ' =' : ''}
+          </Text>
+        ) : null}
+        <Chips value={value} size={short ? 30 : 36} />
+      </View>
+      {call && (step >= 2 || instant) ? <CallPanel call={call} instant={instant} /> : null}
     </View>
   );
 }
 
-function Piece({ label, chips }: { label: string; chips: number }) {
-  const t = useTheme();
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1.5, borderColor: t.border, paddingVertical: 4, paddingLeft: space.md, paddingRight: space.sm }}>
-      <Body size={13} weight="heavy">
-        {label}
-      </Body>
-      <ChipIcon size={14} />
-      <Body size={13} weight="heavy">
-        {formatChips(chips)}
-      </Body>
-    </View>
-  );
+/** Like useCountUp, but runs on from wherever it stands when `to` moves, so a sum can grow as its pieces land. */
+function useTally(to: number, run: boolean, instant: boolean, duration = 800): number {
+  const [value, setValue] = useState(0);
+  const at = useRef(0);
+  useEffect(() => {
+    if (!run || instant) return;
+    const from = at.current;
+    if (from === to) return;
+    let frame = 0;
+    let decile = 0;
+    let began: number | null = null;
+    const tick = (now: number) => {
+      began ??= now;
+      const p = Math.min(1, (now - began) / duration);
+      const v = Math.round(from + (to - from) * (1 - (1 - p) ** 3));
+      at.current = v;
+      setValue(v);
+      const d = Math.floor(p * 10);
+      if (d > decile) {
+        decile = d;
+        feel.tick();
+      }
+      if (p < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [to, run, instant, duration]);
+  return instant ? to : run ? value : 0;
 }
 
-function CallPanel({ call, week }: { call: NonNullable<ReturnType<typeof callLine>>; week: Week }) {
+/** The call, said in one line under the sum: made, missed, or none made. */
+function CallPanel({ call, instant }: { call: NonNullable<ReturnType<typeof callLine>>; instant: boolean }) {
   const t = useTheme();
   const made = call.kind === 'made';
+  const show = useSharedValue(instant ? 1 : 0);
+  useEffect(() => {
+    show.set(instant ? 1 : withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) }));
+  }, [show, instant]);
+  const style = useAnimatedStyle(() => ({ opacity: show.get(), transform: [{ translateY: (1 - show.get()) * 8 }] }));
+  const text = call.detail ? `${call.title} ${call.detail}` : call.title;
   return (
-    <View style={[{ alignSelf: 'stretch', borderRadius: radius.lg, padding: space.lg, flexDirection: 'row', alignItems: 'center', gap: space.md }, raisedStyle(t)]}>
+    <Animated.View
+      accessible
+      accessibilityLabel={text}
+      style={[{ alignSelf: 'stretch', borderRadius: radius.md, paddingVertical: space.sm + 2, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm + 2 }, raisedStyle(t), style]}
+    >
       <View
         style={{
-          width: 40,
-          height: 40,
-          borderRadius: 20,
+          width: 26,
+          height: 26,
+          borderRadius: 13,
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: made ? t.onRaised : 'transparent',
@@ -916,22 +1147,14 @@ function CallPanel({ call, week }: { call: NonNullable<ReturnType<typeof callLin
           borderColor: t.onRaisedSecondary,
         }}
       >
-        <Display size={20} color={made ? t.raised : t.onRaisedSecondary}>
+        <Display size={14} color={made ? t.raised : t.onRaisedSecondary} maxFontSizeMultiplier={fontScale.graphic}>
           {made ? '✓' : call.kind === 'missed' ? '·' : '?'}
         </Display>
       </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Body weight="heavy" color={t.onRaised}>
-          {call.title}
-        </Body>
-        {call.detail ? (
-          <Body size={14} color={t.onRaisedSecondary}>
-            {call.detail}
-          </Body>
-        ) : null}
-      </View>
-      {made && week.bonus > 0 ? <Chips value={week.bonus} size={15} sign color={t.onRaised} /> : null}
-    </View>
+      <Body size={14} weight="heavy" color={t.onRaised} style={{ flex: 1 }}>
+        {text}
+      </Body>
+    </Animated.View>
   );
 }
 
@@ -1028,6 +1251,7 @@ function BehindTheHand({
   checkIns,
   today,
   game,
+  suited,
   mastered,
   onEdit,
 }: {
@@ -1038,6 +1262,8 @@ function BehindTheHand({
   checkIns: readonly { habitId: string; day: Day; level: 'floor' | 'ceiling' }[];
   today: Day;
   game: Game;
+  /** The Suited line, here instead of under the hand on a short screen. */
+  suited: { suit: Suit; text: string } | null;
   mastered: Habit | null;
   onEdit: ((id: string, focus: 'floor' | 'ceiling') => void) | null;
 }) {
@@ -1070,6 +1296,14 @@ function BehindTheHand({
         <Stat value={review.keptDays} label={review.keptDays === 1 ? 'time kept' : 'times kept'} />
         <Stat value={review.ceilings} label={review.ceilings === 1 ? 'Ceiling' : 'Ceilings'} />
       </View>
+      {suited ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+          <SuitGlyph suit={suited.suit} size={14} color={t.onRaised} />
+          <Body size={14} weight="heavy" color={t.onRaised} style={{ flex: 1 }}>
+            {suited.text}
+          </Body>
+        </View>
+      ) : null}
       <View style={{ gap: space.md }}>
         <View aria-hidden style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: -space.xs }}>
           <View style={{ flex: 1 }} />
@@ -1106,12 +1340,12 @@ function BehindTheHand({
               <Body size={14} weight="heavy" color={t.onRaised} style={{ width: 32, textAlign: 'right' }} maxFontSizeMultiplier={fontScale.chrome}>
                 {`${hw.kept}/${hw.days}`}
               </Body>
-              <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: best ? t.onRaised : 'transparent' }}>
-                {best ? (
-                  <Body size={12} weight="heavy" color={t.raised} maxFontSizeMultiplier={fontScale.graphic}>
-                    ✓
-                  </Body>
-                ) : null}
+              <View
+                accessibilityRole={best ? 'image' : undefined}
+                accessibilityLabel={best ? 'Kept most this week' : undefined}
+                style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: best ? t.onRaised : 'transparent' }}
+              >
+                {best ? <BestMark /> : null}
               </View>
             </View>
           );
@@ -1121,6 +1355,16 @@ function BehindTheHand({
         <Key label="Ceiling" cell="ceiling" />
         <Key label="Floor" cell="floor" />
         <Key label="Not kept" cell="none" />
+        {review.best ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: t.onRaised }}>
+              <BestMark size={10} />
+            </View>
+            <Body size={12} weight="bold" color={t.onRaisedSecondary}>
+              Kept most this week
+            </Body>
+          </View>
+        ) : null}
       </View>
       {fix && weakHabit && onEdit ? (
         <Nudge text={`${weakHabit.name} was kept ${fix.kept} of ${fix.days} days. Make its Floor smaller?`} onPress={() => onEdit(weakHabit.id, 'floor')} />
@@ -1168,6 +1412,16 @@ function DayCell({ cell, color, w = 11, h = 18 }: { cell: Cell; color: string; w
     >
       {cell === 'floor' ? <View style={{ height: '50%', backgroundColor: color }} /> : null}
     </View>
+  );
+}
+
+/** The ✓ on the habit kept most this week, in the row and in the key under it. */
+function BestMark({ size = 12 }: { size?: number }) {
+  const t = useTheme();
+  return (
+    <Body size={size} weight="heavy" color={t.raised} maxFontSizeMultiplier={fontScale.graphic} aria-hidden>
+      ✓
+    </Body>
   );
 }
 

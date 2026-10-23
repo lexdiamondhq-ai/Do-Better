@@ -88,6 +88,48 @@ export function faceLabel(face: CardFace): string {
   return `${name}${also}${kind}`;
 }
 
+/**
+ * Everything a screen reader says for a card on the table: its face, how it's marked, and the day it came
+ * from: "Nine of Clubs, in your hand, a Floor day".
+ */
+export function cardLabel(face: CardFace, mark?: CardHighlight | null, stamp?: Stamp): string {
+  const marked = mark === 'held' ? ', in your hand' : mark === 'called' ? ', you called it' : '';
+  const day = stamp === 'floor' ? ', a Floor day' : stamp === 'ceiling' ? ', a Ceiling day' : '';
+  return `${faceLabel(face)}${marked}${day}`;
+}
+
+/**
+ * Where a card's stamp sits, in the card's own points: low on the left, clear of the pips, the court
+ * frame and the corner index, and inside the part of the card a fan leaves showing. Null on the smallest
+ * card, which has no room for one.
+ */
+export function stampSpot(size: CardSize, width = CARD_SIZES[size].w): { x: number; y: number; r: number } | null {
+  if (TIER[size] === 'tiny') return null;
+  const g = geometry(size, width);
+  const r = Math.max(6, g.w * (TIER[size] === 'small' ? 0.12 : 0.092));
+  return { x: g.w * 0.14, y: g.h - g.w * 0.17, r };
+}
+
+/**
+ * The stamp itself, pressed into the card like ink: ↓ for a Floor day, solid, the ground the hand stood
+ * on; ↑ for a Ceiling day, an open ring. Drawn `r` points in radius, tilted the way a hand stamps.
+ */
+export function StampSeal({ stamp, r, onInk = false }: { stamp: Stamp; r: number; onInk?: boolean }) {
+  const ink = onInk ? cardFace.bg : INK;
+  const paper = onInk ? INK : cardFace.bg;
+  const solid = stamp === 'floor';
+  const arrow = stamp === 'floor' ? 'M50 25 V72 M31 55 L50 74 L69 55' : 'M50 75 V28 M31 45 L50 26 L69 45';
+  return (
+    <View pointerEvents="none" style={{ width: r * 2, height: r * 2, transform: [{ rotate: '-8deg' }] }}>
+      <Svg width={r * 2} height={r * 2} viewBox="0 0 100 100">
+        <Circle cx={50} cy={50} r={46} fill={solid ? ink : paper} stroke={ink} strokeWidth={solid ? 0 : 8} />
+        <Circle cx={50} cy={50} r={solid ? 38 : 34} fill="none" stroke={solid ? paper : ink} strokeWidth={3} opacity={solid ? 0.35 : 0.3} />
+        <Path d={arrow} stroke={solid ? paper : ink} strokeWidth={11} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </Svg>
+    </View>
+  );
+}
+
 const JOKER_INK = INK;
 /** A Joker's edge catches the light, so it never melts into a dark table. */
 const JOKER_EDGE = 'rgba(255, 253, 248, 0.18)';
@@ -142,8 +184,15 @@ type Props = {
   width?: number;
   highlight?: boolean | CardHighlight;
   dim?: boolean;
-  /** ↓ for a Floor day or ↑ for a Ceiling day, at the card's foot. Accepted and not yet drawn (stream 3). */
+  /** ↓ for a Floor day or ↑ for a Ceiling day, stamped low on the card. Too small to draw on an `xs` card, but always said. */
   stamp?: Stamp;
+  /**
+   * How much of the card shows from its left edge, 0 to 1, when the next card in a fan lies over the rest.
+   * A card with no suit centres its mark and its word ("RIVER", "SAVED") in what shows, so they stay whole.
+   */
+  peek?: number;
+  /** What a screen reader says instead of the card's own name: a fan's caption for the card, say. */
+  accessibilityLabel?: string;
   /**
    * A card that isn't in the hand yet: a dashed edge and no shadow. Yesterday's card waiting to be saved
    * in the week strip, or an out the hand is drawing to on Hands. Callers set its opacity with `style`.
@@ -157,7 +206,7 @@ type Props = {
  * Ace a ringed pip, and a saved day a pale face with a turning arrow and no suit. A Joker is ink with
  * a gold star. The card is a picture: its text never grows with the phone's text size.
  */
-export function PlayingCard({ face, size = 'md', width, highlight, dim, dashed = false, style }: Props) {
+export function PlayingCard({ face, size = 'md', width, highlight, dim, dashed = false, stamp, peek, accessibilityLabel, style }: Props) {
   const t = useTheme();
   const g = geometry(size, width ?? CARD_SIZES[size].w);
   const mark: CardHighlight | null = highlight === true ? 'held' : highlight || null;
@@ -165,7 +214,8 @@ export function PlayingCard({ face, size = 'md', width, highlight, dim, dashed =
   const saved = face.kind === 'card' && !face.suit && !face.river;
   const lift = mark === 'held' ? Math.round(g.h * 0.06) : 0;
   const ring = Math.max(2, Math.round(g.w / 30));
-  const label = `${faceLabel(face)}${mark === 'held' ? ', in your hand' : mark === 'called' ? ', you called it' : ''}`;
+  const label = accessibilityLabel ?? cardLabel(face, mark, stamp);
+  const spot = stamp ? stampSpot(size, g.w) : null;
   return (
     <View accessible accessibilityRole="image" accessibilityLabel={label} style={[{ width: g.w, height: g.h, opacity: dim ? 0.4 : 1 }, style]}>
       <View style={{ flex: 1, transform: lift ? [{ translateY: -lift }] : undefined }}>
@@ -187,7 +237,12 @@ export function PlayingCard({ face, size = 'md', width, highlight, dim, dashed =
             boxShadow: dashed || (size === 'xs' && !lift) ? undefined : `0px ${Math.round(g.w / 22) + lift / 2}px ${Math.round(g.w / 7) + lift}px rgba(0, 0, 0, ${lift ? 0.3 : 0.22})`,
           }}
         >
-          {face.kind === 'joker' ? <JokerFace g={g} size={size} as={face.as} /> : <NumberFace face={face} size={size} g={g} />}
+          {face.kind === 'joker' ? <JokerFace g={g} size={size} as={face.as} /> : <NumberFace face={face} size={size} g={g} peek={peek} />}
+          {spot && stamp ? (
+            <View pointerEvents="none" style={{ position: 'absolute', left: spot.x - spot.r, top: spot.y - spot.r }}>
+              <StampSeal stamp={stamp} r={spot.r} onInk={joker} />
+            </View>
+          ) : null}
         </View>
         {mark === 'called' ? <CalledPin g={g} /> : null}
       </View>
@@ -244,7 +299,7 @@ function Corner({ label, ink, suit, rank, glyph, also, at, flip }: { label: stri
   );
 }
 
-function NumberFace({ face, size, g }: { face: Extract<CardFace, { kind: 'card' }>; size: CardSize; g: Geo }) {
+function NumberFace({ face, size, g, peek }: { face: Extract<CardFace, { kind: 'card' }>; size: CardSize; g: Geo; peek?: number }) {
   const tier = TIER[size];
   const suit = face.suit;
   const saved = !suit && !face.river;
@@ -277,12 +332,12 @@ function NumberFace({ face, size, g }: { face: Extract<CardFace, { kind: 'card' 
   return (
     <View style={{ flex: 1 }}>
       <Svg width={g.w} height={g.h} style={{ position: 'absolute', top: 0, left: 0 }}>
-        {tier === 'small' ? <SmallArt face={face} g={g} ink={ink} /> : <FullArt face={face} g={g} ink={ink} />}
+        {tier === 'small' ? <SmallArt face={face} g={g} ink={ink} peek={peek} /> : <FullArt face={face} g={g} ink={ink} peek={peek} />}
       </Svg>
       {saved || (face.rescued && suit) ? <SavedFrame g={g} /> : null}
       <Corner label={label} ink={ink} suit={suit} rank={g.rank} glyph={glyph} also={also} at={{ top: g.top, left: g.pad }} />
       <Corner label={label} ink={ink} suit={suit} rank={g.rank} glyph={glyph} at={{ bottom: g.top, right: g.pad }} flip />
-      {tier === 'full' && (saved || face.river) ? <Caption g={g} text={saved ? 'SAVED' : 'RIVER'} ink={ink} /> : null}
+      {tier === 'full' && (saved || face.river) ? <Caption g={g} text={saved ? 'SAVED' : 'RIVER'} ink={ink} peek={peek} /> : null}
     </View>
   );
 }
@@ -331,8 +386,9 @@ function Waves({ x, y, size, ink }: { x: number; y: number; size: number; ink: s
 }
 
 /** The middle of a small card: one big pip, or a court card's mark over a small pip. */
-function SmallArt({ face, g, ink }: { face: Extract<CardFace, { kind: 'card' }>; g: Geo; ink: string }) {
-  const cx = g.w / 2;
+function SmallArt({ face, g, ink, peek }: { face: Extract<CardFace, { kind: 'card' }>; g: Geo; ink: string; peek?: number }) {
+  // A card with no suit centres its mark in the part of the card a fan leaves showing.
+  const cx = face.suit ? g.w / 2 : shownMiddle(g, peek);
   const cy = g.h / 2;
   const court = courtOf(face.rank);
   if (court && court !== 'ace' && face.suit) {
@@ -365,12 +421,12 @@ function AceArt({ suit, cx, cy, size, ink, ring }: { suit: Suit; cx: number; cy:
 }
 
 /** The middle of a medium or larger card: real pips, a framed court card, a ringed Ace, or a saved day's arrow. */
-function FullArt({ face, g, ink }: { face: Extract<CardFace, { kind: 'card' }>; g: Geo; ink: string }) {
+function FullArt({ face, g, ink, peek }: { face: Extract<CardFace, { kind: 'card' }>; g: Geo; ink: string; peek?: number }) {
   const cx = g.w / 2;
   const cy = g.h / 2;
   const court = courtOf(face.rank);
   const suit = face.suit;
-  if (!suit) return <Pip face={face} x={cx} y={cy - g.h * 0.03} size={g.w * 0.42} ink={ink} />;
+  if (!suit) return <Pip face={face} x={shownMiddle(g, peek)} y={cy - g.h * 0.03} size={g.w * (peek ? 0.36 : 0.42)} ink={ink} />;
   if (court === 'ace') return <AceArt suit={suit} cx={cx} cy={cy} size={g.w * 0.4} ink={ink} ring={g.w * 0.022} />;
   if (court) {
     // A double-ended court card: the mark at the top and, upside down, at the bottom, inside a thin
@@ -414,11 +470,21 @@ function SavedFrame({ g }: { g: Geo }) {
   );
 }
 
-/** A small word under the middle mark of a card with no suit. */
-function Caption({ g, text, ink }: { g: Geo; text: string; ink: string }) {
+/** The middle of what shows of a card: the whole card, or the strip a fan leaves uncovered. */
+function shownMiddle(g: Geo, peek?: number): number {
+  return peek && peek < 1 ? (g.w * Math.max(0.3, peek)) / 2 : g.w / 2;
+}
+
+/** A small word under the middle mark of a card with no suit, kept whole inside what a fan leaves showing. */
+function Caption({ g, text, ink, peek }: { g: Geo; text: string; ink: string; peek?: number }) {
+  const shown = peek && peek < 1 ? g.w * Math.max(0.3, peek) : g.w;
+  const size = Math.max(7, g.w * 0.095);
+  // A word that would run past what shows is left off: the waves or the arrow above it say it alone.
+  if (text.length * (size * 0.7 + g.w * 0.02) > shown * 0.94) return null;
   return (
-    <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: g.h * 0.66, alignItems: 'center' }}>
-      <Text {...noScale} style={{ fontFamily: fonts.bodyHeavy, fontSize: Math.max(7, g.w * 0.095), letterSpacing: g.w * 0.02, color: ink }}>
+    // Centred on what shows, in a box as wide as the card, so the word never wraps.
+    <View pointerEvents="none" style={{ position: 'absolute', left: shown / 2 - g.w / 2, width: g.w, top: g.h * 0.66, alignItems: 'center' }}>
+      <Text {...noScale} style={{ fontFamily: fonts.bodyHeavy, fontSize: size, letterSpacing: g.w * 0.02, color: ink }}>
         {text}
       </Text>
     </View>
