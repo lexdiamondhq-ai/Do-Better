@@ -184,7 +184,7 @@ export const RULES: readonly RulesSection[] = [
     rules: [
       { term: 'Print', line: 'A card about the size of a playing card, with your card back on the reverse. Cut it out, fold it and leave it where its habit plays.' },
       { term: 'Lock screen', line: 'The same card, made to sit under your phone’s clock.' },
-      { term: 'When it plays first', line: 'A card needs a When it plays before it can leave the phone. No chips or hands go on it: it’s a cue, not a trophy.' },
+      { term: 'When it plays first', line: 'A card needs a When it plays before it can leave the phone. No chips or hands go on it: it marks when it plays, not what you won.' },
     ],
   },
   {

@@ -11,6 +11,10 @@ const RETIRED = /\b(rescued|bounce-backs?|habit-days?|crowned)\b/i;
 /** Streaks are gone. The only place the word may appear is the promise that there are none. */
 const STREAK = /streak/i;
 const NO_STREAKS = /\bno streaks\b/gi;
+/** The habit loop's label for the moment a habit plays. Do Better says When it plays. */
+const CUE = /\bcues?\b/i;
+/** A module path or a lone lowercase id (a notification channel), never text on screen. */
+const NOT_SHOWN = /^(@\/|\.\.?\/)|^[a-z-]+$/;
 /** A plan looks ahead. Nothing on screen asks for an excuse or counts the days that got away. */
 const SHAME = /\b(excuses?|days? missed|missed \d+)\b/i;
 
@@ -40,6 +44,12 @@ describe('words on screen', () => {
 
   it('never name a book, an author, or their labels', () => {
     expect(hits(BORROWED)).toEqual([]);
+  });
+
+  it('never call a card a cue: the moment a habit plays is When it plays', () => {
+    expect(texts.filter(({ text }) => CUE.test(text) && !NOT_SHOWN.test(text)).map(({ file, text }) => `${file}: ${text}`)).toEqual([]);
+    expect('it’s a cue, not a trophy').toMatch(CUE);
+    expect('@/engine/cues').toMatch(NOT_SHOWN);
   });
 
   it('never use casino words', () => {
