@@ -5,7 +5,7 @@ import type { DayCard, DealHabit } from '@/engine/deal';
 import { dealEvent, playGame, playLiveWeek, playPastWeeks, type DealEvent, type Game, type GameInput, type Week } from '@/engine/game';
 import { indexCheckIns, type Level } from '@/engine/kept';
 import { lateIndex, levelIn } from '@/engine/ledger';
-import type { HandKind } from '@/engine/poker';
+import type { Hand, HandKind } from '@/engine/poker';
 
 import type { Loaded } from './backend';
 import type { Habit } from './types';
@@ -123,9 +123,10 @@ export type GameEvent =
   /**
    * A suit earned a face card in the Court. `joker` when the same check-in also dealt a Joker, always
    * on today's card. Otherwise `jokerLands` says where it will: `today` when keeping anything today deals
-   * it (the face came from a day logged late), `next-week` when this week already has one.
+   * it (the face came from a day logged late), `next-week` when this week already has one. With a Joker,
+   * `handWas` is the week's hand before that check-in (null: none yet), since no deal comes with it.
    */
-  | { id: number; kind: 'face'; suit: Suit; face: FaceInfo; identities: string[]; joker: boolean; jokerLands?: 'today' | 'next-week' }
+  | { id: number; kind: 'face'; suit: Suit; face: FaceInfo; identities: string[]; joker: boolean; jokerLands?: 'today' | 'next-week'; handWas?: Hand | null }
   /** The very first card this player has been dealt. */
   | { id: number; kind: 'first'; habitId: string; level: Level; deal: DealEvent }
   /** Yesterday was logged late and got its card ("Yesterday saved"). `deal.card` is yesterday's card. */
@@ -182,7 +183,7 @@ export function momentsOf(before: Loaded, after: Loaded, today: Day, seed: strin
     const key = `face:${f.suit}:${f.face.face}:${today}`;
     if (memory.celebrated.has(key)) continue;
     memory.celebrated.add(key);
-    out.push({ kind: 'face', suit: f.suit, face: f.face, identities: f.identities, joker, ...jokerLands });
+    out.push({ kind: 'face', suit: f.suit, face: f.face, identities: f.identities, joker, ...(joker ? { handWas: was.hand } : {}), ...jokerLands });
     jokerShown ||= joker;
   }
 

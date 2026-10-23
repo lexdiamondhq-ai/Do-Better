@@ -182,8 +182,9 @@ export function GameEvents({ back }: { back: BackKey }) {
     return (
       <Later key={main.id} ms={wait}>
         {/* A face card that brings a Joker never has a deal of its own (play.ts leaves it out): any deal folded into
-            this moment is an earlier keep's, so the hand from before comes from the keep that earned the face. */}
-        <FaceEarned event={main} handWas={ownKeep ? ownKeep.handWas : undefined} also={alsoLine} onUndoLate={undoLate} onDone={done} />
+            this moment is an earlier keep's. The face carries the hand from before itself, so a Joker earned from a
+            keep anywhere (the habit page too) can say what it added; the keep note is the fallback. */}
+        <FaceEarned event={main} handWas={main.handWas !== undefined ? main.handWas : ownKeep ? ownKeep.handWas : undefined} also={alsoLine} onUndoLate={undoLate} onDone={done} />
       </Later>
     );
   if (main.kind === 'first')

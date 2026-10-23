@@ -56,6 +56,21 @@ describe('moments a check-in causes', () => {
     expect(moments[0]).toMatchObject({ kind: 'face', suit: 'hearts', joker: true, face: { face: 'queen' } });
   });
 
+  it('gives a face card that brought a Joker the hand from before, wherever the keep was made', () => {
+    // Monday and Tuesday kept this week, so the week already had a hand before today's keep.
+    const week = addDays(TODAY, -2);
+    const before = loaded([habit('reach', 'hearts', '2026-09-01')], [...kept('reach', '2026-09-10', 27), ...kept('reach', week, 2)]);
+    const moments = momentsOf(before, plus(before, 'reach', TODAY), TODAY, SEED, { habitId: 'reach', level: 'floor', day: TODAY }, newMemory());
+    const face = moments.find((m) => m.kind === 'face');
+    expect(face).toMatchObject({ kind: 'face', joker: true });
+    expect(face && 'handWas' in face ? face.handWas?.kind : null).toBe('high-card');
+  });
+
+  it('says there was no hand before when the Joker comes on the week’s first card', () => {
+    const moments = momentsOf(queenEve, plus(queenEve, 'reach', TODAY), TODAY, SEED, { habitId: 'reach', level: 'floor', day: TODAY }, newMemory());
+    expect(moments[0]).toMatchObject({ kind: 'face', joker: true, handWas: null });
+  });
+
   it("never replays a face card when today's check-in is undone and made again", () => {
     const memory = newMemory();
     const after = plus(queenEve, 'reach', TODAY);
