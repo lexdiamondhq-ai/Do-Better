@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { HAND_LADDER, type HandKind } from './poker';
-import { handRhythm } from './rhythm';
+import { CHIPS_AT_MS, CHIPS_GAP_MS, chipsAfter, handRhythm } from './rhythm';
 
 const KINDS: readonly HandKind[] = [...HAND_LADDER, 'flush'];
 
@@ -72,5 +72,24 @@ describe('the Showdown rhythm', () => {
   it('gives every kind of hand its own pattern', () => {
     const patterns = KINDS.map((kind) => JSON.stringify(handRhythm(kind).map((b) => [b.at, b.weight])));
     expect(new Set(patterns).size).toBe(KINDS.length);
+  });
+});
+
+describe('when the chips land', () => {
+  it('waits for every hand’s last beat and a little gap, so the chips never tap on the hand’s rhythm', () => {
+    for (const kind of KINDS) {
+      const beats = handRhythm(kind);
+      const at = chipsAfter(beats);
+      for (const b of beats) expect(at - b.at).toBeGreaterThanOrEqual(CHIPS_GAP_MS);
+      expect(at).toBeGreaterThanOrEqual(CHIPS_AT_MS);
+    }
+  });
+
+  it('lands at the usual moment for a short hand, and later for a full house or a royal flush', () => {
+    expect(chipsAfter(handRhythm('pair'))).toBe(CHIPS_AT_MS);
+    expect(chipsAfter(handRhythm('straight'))).toBe(CHIPS_AT_MS);
+    expect(chipsAfter(handRhythm('full-house'))).toBe(530 + CHIPS_GAP_MS);
+    expect(chipsAfter(handRhythm('royal-flush'))).toBe(630 + CHIPS_GAP_MS);
+    expect(chipsAfter([])).toBe(CHIPS_AT_MS);
   });
 });

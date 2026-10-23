@@ -23,7 +23,7 @@ import { inDeck, type DayCard } from '@/engine/deal';
 import { BACKS, chapterRecap, lastShowdown, TABLES, unlocksFor, weekReview, weekTotal, type BackKey, type Game, type TableKey, type Week, type WeekReview } from '@/engine/game';
 import { indexCheckIns } from '@/engine/kept';
 import { HANDS, type Hand, type PlayedCard } from '@/engine/poker';
-import { handRhythm } from '@/engine/rhythm';
+import { chipsAfter, handRhythm } from '@/engine/rhythm';
 import { captionsFor, fanOrder, handSoFar, madeThisLine, payoutLine, payoutPieces, stampsFor } from '@/engine/showdown';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
@@ -322,32 +322,42 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   // The hand the result plays, held for this Showdown, so a refresh that re-deals the week never plays it twice.
   const [resultHand] = useState(() => week.hand);
 
+  // Reduce Motion cuts the turning and the gather, not the result's sound and feel: a week with a hand still
+  // rings its chord, taps its rhythm and lands its chips once, over a result that is already in place.
+  const [calmStart] = useState(() => reduced && playable);
+
   // The result lands in beats: the hand stamps down, the chips count up, then the call and the rest.
   useEffect(() => {
-    if (phase !== 'result' || instant) return;
+    if (phase !== 'result' || (instant && !calmStart)) return;
     // The hand taps out its own shape and rings as its chord; with no hand, the plain success. The Ceiling
     // flourish never sounds under the chord.
+    const beats = resultHand ? handRhythm(resultHand.kind) : [];
     if (resultHand) {
-      feel.rhythm(handRhythm(resultHand.kind));
+      feel.rhythm(beats);
       playTones(handChord(resultHand));
     } else {
       playSound('ceiling');
       feel.ceiling();
     }
+    // The chips wait for the hand's last beat, so its shape ends before they land; the call and the rest follow.
+    const chipsAt = chipsAfter(beats);
+    const show = (n: number) => {
+      if (!calmStart) setStep(n);
+    };
     const timers = [
       setTimeout(() => {
-        setStep(1);
+        show(1);
         playSound('chips');
         feel.chips();
-      }, 520),
+      }, chipsAt),
       setTimeout(() => {
-        setStep(2);
+        show(2);
         if (week.bonus > 0) playSound('call');
-      }, 1550),
-      setTimeout(() => setStep(3), 2050),
+      }, chipsAt + 1030),
+      setTimeout(() => show(3), chipsAt + 1530),
     ];
     return () => timers.forEach(clearTimeout);
-  }, [phase, instant, week.bonus, resultHand]);
+  }, [phase, instant, calmStart, week.bonus, resultHand]);
 
   // Straight to the result: Skip, or a screen reader, which hears it said instead.
   const jump = (announce: boolean) => {

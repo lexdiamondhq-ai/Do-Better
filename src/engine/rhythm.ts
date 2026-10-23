@@ -74,3 +74,17 @@ export function handRhythm(kind: HandKind): Beat[] {
   });
   return beats;
 }
+
+/** The gap the chips leave after the hand's last beat, so the hand's shape ends before they land. */
+export const CHIPS_GAP_MS = 150;
+/** The earliest the chips land after the result shows, whatever the hand. */
+export const CHIPS_AT_MS = 520;
+
+/**
+ * When the chips land after the result shows: `CHIPS_AT_MS`, or `CHIPS_GAP_MS` after the hand's last beat
+ * when its rhythm runs later than that (a full house, a royal flush), so the chips' tap never lands on it.
+ */
+export function chipsAfter(beats: readonly Beat[]): number {
+  const last = beats.reduce((at, b) => Math.max(at, b.at), -Infinity);
+  return Math.max(CHIPS_AT_MS, Number.isFinite(last) ? last + CHIPS_GAP_MS : 0);
+}
