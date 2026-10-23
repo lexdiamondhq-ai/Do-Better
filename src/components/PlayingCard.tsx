@@ -237,7 +237,7 @@ export function PlayingCard({ face, size = 'md', width, highlight, dim, dashed =
             boxShadow: dashed || (size === 'xs' && !lift) ? undefined : `0px ${Math.round(g.w / 22) + lift / 2}px ${Math.round(g.w / 7) + lift}px rgba(0, 0, 0, ${lift ? 0.3 : 0.22})`,
           }}
         >
-          {face.kind === 'joker' ? <JokerFace g={g} size={size} as={face.as} /> : <NumberFace face={face} size={size} g={g} peek={peek} />}
+          {face.kind === 'joker' ? <JokerFace g={g} size={size} as={face.as} peek={peek} /> : <NumberFace face={face} size={size} g={g} peek={peek} />}
           {spot && stamp ? (
             <View pointerEvents="none" style={{ position: 'absolute', left: spot.x - spot.r, top: spot.y - spot.r }}>
               <StampSeal stamp={stamp} r={spot.r} onInk={joker} />
@@ -491,20 +491,47 @@ function Caption({ g, text, ink, peek }: { g: Geo; text: string; ink: string; pe
   );
 }
 
-function JokerFace({ g, size, as }: { g: Geo; size: CardSize; as?: FaceCard }) {
+function JokerFace({ g, size, as, peek }: { g: Geo; size: CardSize; as?: FaceCard; peek?: number }) {
   const stripe = g.w / 4;
+  const shown = peek && peek < 1 ? g.w * Math.max(0.3, peek) : g.w;
+  // In a fan only a strip shows, so the star and what the Joker plays as gather in that strip, the pill
+  // under the star in place of the word, leaving the foot free for the card's stamp.
+  const tight = shown < g.w && !!as && size !== 'xs' && size !== 'sm';
+  const stripes = (
+    <Svg width={g.w} height={g.h} style={{ position: 'absolute', top: 0, left: 0 }}>
+      {JOKER_STRIPES.map((suit, i) => (
+        <Path
+          key={suit}
+          d={`M${i * stripe - g.h * 0.6} ${g.h} L${i * stripe} 0 L${(i + 1) * stripe} 0 L${(i + 1) * stripe - g.h * 0.6} ${g.h} Z`}
+          fill={suitColors[suit].glyph}
+          opacity={0.42}
+        />
+      ))}
+    </Svg>
+  );
+  const pill = (font: number, padX: number) =>
+    as ? (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: cardFace.bg, borderRadius: 99, paddingHorizontal: padX, paddingVertical: 1 }}>
+        <Text {...noScale} style={{ fontFamily: fonts.display, fontSize: font, color: as.suit ? suitColors[as.suit].glyph : cardFace.ink }}>{`as ${rankLabel(as.rank)}`}</Text>
+        {as.suit ? <SuitGlyph suit={as.suit} size={Math.max(8, font * 0.92)} /> : null}
+      </View>
+    ) : null;
+  if (tight) {
+    return (
+      <View style={{ flex: 1 }}>
+        {stripes}
+        <View style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: shown, alignItems: 'center', justifyContent: 'center', gap: g.h * 0.03 }}>
+          <View>
+            <Star size={shown * 0.66} color={chip.bg} />
+          </View>
+          {pill(Math.max(9, g.w * 0.11), g.w * 0.04)}
+        </View>
+      </View>
+    );
+  }
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={g.w} height={g.h} style={{ position: 'absolute', top: 0, left: 0 }}>
-        {JOKER_STRIPES.map((suit, i) => (
-          <Path
-            key={suit}
-            d={`M${i * stripe - g.h * 0.6} ${g.h} L${i * stripe} 0 L${(i + 1) * stripe} 0 L${(i + 1) * stripe - g.h * 0.6} ${g.h} Z`}
-            fill={suitColors[suit].glyph}
-            opacity={0.42}
-          />
-        ))}
-      </Svg>
+      {stripes}
       {/* Wrapped so it stacks above the absolutely placed stripes on the web too. */}
       <View>
         <Star size={size === 'xs' ? g.w * 0.62 : g.w * 0.52} color={chip.bg} />
@@ -514,12 +541,7 @@ function JokerFace({ g, size, as }: { g: Geo; size: CardSize; as?: FaceCard }) {
           JOKER
         </Text>
       ) : null}
-      {as && size !== 'xs' && size !== 'sm' ? (
-        <View style={{ position: 'absolute', bottom: g.h * 0.06, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: cardFace.bg, borderRadius: 99, paddingHorizontal: g.w * 0.08, paddingVertical: 1 }}>
-          <Text {...noScale} style={{ fontFamily: fonts.display, fontSize: Math.max(9, g.w * 0.13), color: as.suit ? suitColors[as.suit].glyph : cardFace.ink }}>{`as ${rankLabel(as.rank)}`}</Text>
-          {as.suit ? <SuitGlyph suit={as.suit} size={Math.max(8, g.w * 0.12)} /> : null}
-        </View>
-      ) : null}
+      {as && size !== 'xs' && size !== 'sm' ? <View style={{ position: 'absolute', bottom: g.h * 0.06 }}>{pill(Math.max(9, g.w * 0.13), g.w * 0.08)}</View> : null}
     </View>
   );
 }

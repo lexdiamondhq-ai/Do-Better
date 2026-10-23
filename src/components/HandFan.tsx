@@ -303,11 +303,11 @@ function FanCard({
           accessible={false}
           accessibilityRole="none"
           onLongPress={() => {
-            lift.set(withSpring(-HOLD_LIFT, { damping: 14, stiffness: 260 }));
+            lift.set(withSpring(-HOLD_LIFT, { damping: 20, stiffness: 320 }));
             onHold();
           }}
           onPressOut={() => {
-            lift.set(withSpring(0, { damping: 14, stiffness: 260 }));
+            lift.set(withSpring(0, { damping: 20, stiffness: 320 }));
             onRelease();
           }}
           delayLongPress={260}

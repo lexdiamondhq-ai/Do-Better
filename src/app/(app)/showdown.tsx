@@ -268,7 +268,8 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
   const riverReady = riverPending && daysTurned && decided;
   // The line over the arc: the hand so far as each card shows, then "The river decides" while the river waits.
   const soFar = phase === 'turn' ? handSoFar(items.filter((_, i) => faceUp[i]).map((item) => item.card)) : null;
-  const deciding = riverPending && daysUp;
+  // Said from the moment the days are up until the river's face shows, its turn included.
+  const deciding = phase === 'turn' && riverIndex >= 0 && daysUp && !faceUp[riverIndex];
   const soFarText = deciding ? 'The river decides' : soFar ? `${soFar.title}…` : null;
   const soFarSub = deciding && soFar ? `${soFar.title}…` : null;
   // Once every card shows, the hand's name goes up big, and in the gather it drops to where the stamp lands.
