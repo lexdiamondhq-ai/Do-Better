@@ -458,12 +458,15 @@ export function SwipeCard({
     'worklet';
     gone.set(true);
     const centre = rest.get();
-    const info: CommitInfo = { at: centre ? { x: centre.x + x.get(), y: centre.y + y.get() } : undefined, grip: tag === 'swipe' ? (grip.get() ?? undefined) : undefined };
-    if (turns && (dir === 'up' || dir === 'down')) scheduleOnRN(beginTurn, dir);
+    const turning = turns && (dir === 'up' || dir === 'down');
+    // A Comeback card comes back to rest to turn over before it leaves, so today's card is dealt from there.
+    const at = centre ? (turning ? centre : { x: centre.x + x.get(), y: centre.y + y.get() }) : undefined;
+    const info: CommitInfo = { at, grip: tag === 'swipe' ? (grip.get() ?? undefined) : undefined };
+    if (turning) scheduleOnRN(beginTurn, dir);
     scheduleOnRN(commit, dir, tag, info);
     // The deck behind comes forward as this one goes.
     p.set(withTiming(1, { duration: 180, reduceMotion: ReduceMotion.Never }));
-    if (turns && (dir === 'up' || dir === 'down')) {
+    if (turning) {
       turnOver(dir, tag);
       return;
     }
