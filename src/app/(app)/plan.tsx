@@ -4,7 +4,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Chip, Display, Field, Label } from '@/components/ui';
-import { PLAN_WHENS, PLAN_WORDS_MAX, planLine, planThens, type Plan } from '@/engine/comeback';
+import { cleanPlanWords, PLAN_WHENS, PLAN_WORDS_MAX, planLine, planThens, type Plan } from '@/engine/comeback';
 import { useData } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
@@ -59,8 +59,8 @@ export default function PlanSheet() {
   const c = cardColors[habit.color];
   const saved = plans[habit.id] ?? null;
   const thens = planThens(habit);
-  const ownWords = words.trim();
-  const reason = when === OWN ? ownWords : when;
+  // The preview reads exactly what will be saved: the player's words, only tidied (`cleanPlanWords`).
+  const reason = when === OWN ? cleanPlanWords(words) : when;
   const plan: Plan | null = reason && then ? { when: reason, then, made: today } : null;
 
   const pickWhen = (key: string) => {
@@ -137,7 +137,8 @@ export default function PlanSheet() {
           </View>
         </Step>
 
-        {plan ? <Preview line={planLine(plan, habit)} accent={c.onDark} first={plan.then === 'first' && !!habit.twoMinuteLabel?.trim()} /> : null}
+        {/* Done it stays on the card whenever it has a first move, whichever keep the plan names. */}
+        {plan ? <Preview line={planLine(plan, habit)} accent={c.onDark} first={!!habit.twoMinuteLabel?.trim()} /> : null}
 
         <View style={{ gap: space.md }}>
           <Button label="Keep this plan" onPress={keep} disabled={!plan} />
