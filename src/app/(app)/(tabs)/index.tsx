@@ -1560,87 +1560,113 @@ function AllKept({
   const ideaActs = ideaGoes(deck.idea);
   return (
     // `under` lets the page run on under the floating tab bar, so nothing looks cut off where it stops; at
-    // its end the last line sits above the fade over the tab bar, never inside it.
-    <ScrollView
-      style={{ marginHorizontal: -space.sm, marginBottom: -under }}
-      contentContainerStyle={{ gap: space.lg, paddingBottom: under ? fadeHeight(under) + space.sm : space.lg, paddingTop: space.sm, paddingHorizontal: space.sm }}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
-        {card ? (
-          // A Joker sits smaller beside the words: the hand it plays into is the news, not the Joker itself.
-          <View accessible accessibilityLabel={`Today’s card: ${faceLabel(faceOfDay(card))}`} style={{ transform: [{ rotate: joker ? '-9deg' : '-6deg' }], marginLeft: space.xs }}>
-            <PlayingCard face={faceOfDay(card)} size={joker || compact ? 'md' : 'lg'} />
-          </View>
-        ) : null}
-        <View style={{ flex: 1, gap: space.xs }}>
-          <Label numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
-            {copy.eyebrow}
-          </Label>
-          <Display size={compact ? 32 : 40} header maxFontSizeMultiplier={fontScale.chrome}>
-            {copy.title}
-          </Display>
-          {/* The week's hand and what it pays, always: "Pair of Queens · 30 chips". */}
-          <Display size={compact ? 18 : 20} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: compact ? 22 : 25 }}>
-            {copy.hand}
-          </Display>
-        </View>
-      </View>
-
-      {undo ? (
-        <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(180)} style={{ flexDirection: 'row' }}>
-          {undo}
-        </Animated.View>
-      ) : null}
-
-      {climb ? (
-        <Animated.View layout={LinearTransition.duration(220)} style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-start' }}>
-          <Display size={18} aria-hidden>
-            ↑
-          </Display>
-          <Body size={14} weight="bold" color={t.textSecondary} style={{ flex: 1 }}>
-            {climb.text}
-          </Body>
-        </Animated.View>
-      ) : null}
-
-      {onReach ? (
-        <Animated.View layout={LinearTransition.duration(220)}>
-          <Button label="Any Ceiling still in reach?" variant="ghost" onPress={onReach} hint="Shows your Floor-kept cards again, one at a time" />
-        </Animated.View>
-      ) : null}
-
-      {north ? (
-        <Animated.View layout={LinearTransition.duration(220)} style={{ borderLeftWidth: 3, borderLeftColor: t.text, paddingLeft: space.md, gap: 2 }}>
-          <Label maxFontSizeMultiplier={fontScale.chrome}>Your North Star</Label>
-          <Display size={20}>{`“${north}”`}</Display>
-        </Animated.View>
-      ) : null}
-
-      <Animated.View layout={LinearTransition.duration(220)}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityHint={ideaActs ? deck.idea.cta : 'Opens the Playbook'}
-          onPress={onIdea}
-          style={({ pressed }) => [{ borderRadius: radius.lg, padding: space.lg, paddingHorizontal: space.xl, gap: space.xs, opacity: pressed ? 0.9 : 1 }, raisedStyle(t)]}
-        >
-          <Label color={t.onRaisedSecondary} maxFontSizeMultiplier={fontScale.chrome}>
-            {ideaLabel(deck.idea.reason)}
-          </Label>
-          <Display size={22} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
-            {deck.idea.principle.title}
-          </Display>
-          <Body size={15} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
-            {deck.idea.text ?? deck.idea.principle.tryThis}
-          </Body>
-          {ideaActs ? (
-            <Body size={15} weight="heavy" color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome} style={{ marginTop: space.xs }}>
-              {`${deck.idea.cta}\u00A0→`}
-            </Body>
+    // its end the last line sits above the fade over the tab bar, never inside it. At its top, what scrolls
+    // up under the pills fades into the table the same way.
+    <>
+      <ScrollView
+        style={{ marginHorizontal: -space.sm, marginBottom: -under }}
+        contentContainerStyle={{ gap: space.lg, paddingBottom: under ? fadeHeight(under) + space.sm : space.lg, paddingTop: under ? TOP_FADE : space.sm, paddingHorizontal: space.sm }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
+          {card ? (
+            // A Joker sits smaller beside the words: the hand it plays into is the news, not the Joker itself.
+            <View accessible accessibilityLabel={`Today’s card: ${faceLabel(faceOfDay(card))}`} style={{ transform: [{ rotate: joker ? '-9deg' : '-6deg' }], marginLeft: space.xs }}>
+              <PlayingCard face={faceOfDay(card)} size={joker || compact ? 'md' : 'lg'} />
+            </View>
           ) : null}
-        </Pressable>
-      </Animated.View>
-    </ScrollView>
+          <View style={{ flex: 1, gap: space.xs }}>
+            <Label numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome}>
+              {copy.eyebrow}
+            </Label>
+            <Display size={compact ? 32 : 40} header maxFontSizeMultiplier={fontScale.chrome}>
+              {copy.title}
+            </Display>
+            {/* The week's hand and what it pays, always: "Pair of Queens · 30 chips". */}
+            <Display size={compact ? 18 : 20} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: compact ? 22 : 25 }}>
+              {copy.hand}
+            </Display>
+          </View>
+        </View>
+
+        {undo ? (
+          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(180)} style={{ flexDirection: 'row' }}>
+            {undo}
+          </Animated.View>
+        ) : null}
+
+        {climb ? (
+          <Animated.View layout={LinearTransition.duration(220)} style={{ flexDirection: 'row', gap: space.sm, alignItems: 'flex-start' }}>
+            <Display size={18} aria-hidden>
+              ↑
+            </Display>
+            <Body size={14} weight="bold" color={t.textSecondary} style={{ flex: 1 }}>
+              {climb.text}
+            </Body>
+          </Animated.View>
+        ) : null}
+
+        {onReach ? (
+          <Animated.View layout={LinearTransition.duration(220)}>
+            <Button label="Any Ceiling still in reach?" variant="ghost" onPress={onReach} hint="Shows your Floor-kept cards again, one at a time" />
+          </Animated.View>
+        ) : null}
+
+        {north ? (
+          <Animated.View layout={LinearTransition.duration(220)} style={{ borderLeftWidth: 3, borderLeftColor: t.text, paddingLeft: space.md, gap: 2 }}>
+            <Label maxFontSizeMultiplier={fontScale.chrome}>Your North Star</Label>
+            <Display size={20}>{`“${north}”`}</Display>
+          </Animated.View>
+        ) : null}
+
+        <Animated.View layout={LinearTransition.duration(220)}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityHint={ideaActs ? deck.idea.cta : 'Opens the Playbook'}
+            onPress={onIdea}
+            style={({ pressed }) => [{ borderRadius: radius.lg, padding: space.lg, paddingHorizontal: space.xl, gap: space.xs, opacity: pressed ? 0.9 : 1 }, raisedStyle(t)]}
+          >
+            <Label color={t.onRaisedSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+              {ideaLabel(deck.idea.reason)}
+            </Label>
+            <Display size={22} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
+              {deck.idea.principle.title}
+            </Display>
+            <Body size={15} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
+              {deck.idea.text ?? deck.idea.principle.tryThis}
+            </Body>
+            {ideaActs ? (
+              <Body size={15} weight="heavy" color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome} style={{ marginTop: space.xs }}>
+                {`${deck.idea.cta}\u00A0→`}
+              </Body>
+            ) : null}
+          </Pressable>
+        </Animated.View>
+      </ScrollView>
+      {under ? <TopFade /> : null}
+    </>
+  );
+}
+
+/** How tall the soft edge is where the all-kept page scrolls up under the pills. */
+const TOP_FADE = space.lg;
+
+/** The table's own colour over the top of the all-kept page, so its lines fade out under the pills instead of being cut. */
+function TopFade() {
+  const t = useTheme();
+  const id = `top${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  return (
+    <View pointerEvents="none" aria-hidden style={{ position: 'absolute', left: -space.sm, right: -space.sm, top: 0, height: TOP_FADE }}>
+      <Svg width="100%" height="100%">
+        <Defs>
+          <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={t.bg} stopOpacity={1} />
+            <Stop offset="1" stopColor={t.bg} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Rect x={0} y={0} width="100%" height="100%" fill={`url(#${id})`} />
+      </Svg>
+    </View>
   );
 }
 
