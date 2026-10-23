@@ -665,18 +665,24 @@ function LineText({ text, sub, size }: { text: string; sub: string | null; size:
 }
 
 /**
- * The hand's name, up big the moment its last card shows. As the cards gather into the fan it drops to
- * the very spot where the result's stamp sits, at the stamp's size, so the stamp simply takes over.
+ * The hand's name, up big the moment its last card shows. As the cards gather into the fan it steps aside
+ * (fading out while they fly, so the white name never crosses the cream cards) and comes back at the very
+ * spot where the result's stamp sits, at the stamp's size, once they have settled, so the stamp simply takes over.
  */
 function FinalName({ name, size, top, to, gather }: { name: string; size: number; top: number; to: number; gather: SharedValue<number> }) {
   const pop = useSharedValue(0);
   useEffect(() => {
     pop.set(withSpring(1, { damping: 13, stiffness: 240, mass: 0.7 }));
   }, [pop]);
-  const style = useAnimatedStyle(() => ({
-    opacity: Math.min(1, pop.get() * 1.8),
-    transform: [{ translateY: (to - top) * gather.get() }, { scale: 0.55 + 0.45 * pop.get() }],
-  }));
+  const style = useAnimatedStyle(() => {
+    const g = gather.get();
+    // Out over the gather's first quarter, moved while unseen, back as the cards seat themselves.
+    const seen = g < 0.25 ? 1 - g / 0.25 : g > 0.88 ? (g - 0.88) / 0.12 : 0;
+    return {
+      opacity: Math.min(1, pop.get() * 1.8) * seen,
+      transform: [{ translateY: (to - top) * (g < 0.25 ? 0 : 1) }, { scale: 0.55 + 0.45 * pop.get() }],
+    };
+  });
   return (
     <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: space.xl, right: space.xl, top, alignItems: 'center', zIndex: 40 }, style]}>
       <Display size={size} numberOfLines={1} style={{ textAlign: 'center' }}>
