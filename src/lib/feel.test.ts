@@ -72,6 +72,61 @@ describe('feel', () => {
     expect(calls).toEqual(['notify:success', 'impact:heavy']);
   });
 
+  it('turns a Comeback card over in three growing knocks and a success', async () => {
+    const feel = await load();
+    feel.turnover();
+    expect(calls).toEqual(['impact:light']);
+    vi.advanceTimersByTime(110);
+    expect(calls).toEqual(['impact:light', 'impact:medium']);
+    vi.advanceTimersByTime(110);
+    expect(calls).toEqual(['impact:light', 'impact:medium', 'impact:heavy']);
+    vi.advanceTimersByTime(110);
+    expect(calls).toEqual(['impact:light', 'impact:medium', 'impact:heavy', 'notify:success']);
+  });
+
+  it('taps out a hand’s rhythm one beat at a time, each at its own moment', async () => {
+    const feel = await load();
+    const { handRhythm } = await import('@/engine/rhythm');
+    feel.rhythm(handRhythm('full-house'));
+    expect(calls).toEqual(['impact:heavy']);
+    vi.advanceTimersByTime(180);
+    expect(calls).toEqual(['impact:heavy', 'impact:heavy', 'impact:heavy']);
+    vi.advanceTimersByTime(260);
+    expect(calls).toEqual(['impact:heavy', 'impact:heavy', 'impact:heavy', 'impact:medium']);
+    vi.advanceTimersByTime(90);
+    expect(calls).toHaveLength(5);
+    calls.length = 0;
+    feel.rhythm(handRhythm('royal-flush'));
+    vi.advanceTimersByTime(1300);
+    expect(calls).toEqual(['impact:soft', 'impact:medium', 'impact:medium', 'impact:heavy', 'impact:rigid', 'notify:success', 'impact:rigid']);
+  });
+
+  it('turns over and taps rhythms in silence with haptics off, even halfway through', async () => {
+    const feel = await load();
+    const { handRhythm } = await import('@/engine/rhythm');
+    feel.setFeelSettings({ haptics: false });
+    feel.turnover();
+    feel.rhythm(handRhythm('five-of-a-kind'));
+    vi.advanceTimersByTime(1500);
+    expect(calls).toEqual([]);
+    feel.setFeelSettings({ haptics: true });
+    feel.turnover();
+    feel.rhythm(handRhythm('two-pair'));
+    expect(calls).toEqual(['impact:light', 'impact:medium']);
+    feel.setFeelSettings({ haptics: false });
+    vi.advanceTimersByTime(1500);
+    expect(calls).toEqual(['impact:light', 'impact:medium']);
+  });
+
+  it('turns over and taps rhythms in silence in a browser', async () => {
+    os = 'web';
+    const feel = await load();
+    feel.turnover();
+    feel.rhythm([{ at: 0, weight: 'success', card: -1 }]);
+    vi.advanceTimersByTime(1000);
+    expect(calls).toEqual([]);
+  });
+
   it('thins out a fast run of ticks', async () => {
     const feel = await load();
     for (let i = 0; i < 10; i++) {

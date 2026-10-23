@@ -42,6 +42,29 @@ describe('the Showdown rhythm', () => {
     expect(handRhythm('straight-flush').at(-1)).toMatchObject({ weight: 'success', card: -1 });
   });
 
+  it('runs a straight up its five cards from soft to rigid, 70 ms apart, and closes the flushes', () => {
+    const run = handRhythm('straight');
+    expect(run.map((b) => b.at)).toEqual([0, 70, 140, 210, 280]);
+    expect(run.map((b) => b.weight)).toEqual(['soft', 'firm', 'firm', 'heavy', 'rigid']);
+    expect(handRhythm('straight-flush').slice(5).map((b) => b.weight)).toEqual(['success']);
+    expect(handRhythm('royal-flush').slice(5).map((b) => b.weight)).toEqual(['success', 'rigid']);
+    expect(handRhythm('royal-flush').slice(5).every((b) => b.card === -1)).toBe(true);
+  });
+
+  it('spaces beats in a group 90 ms apart and groups 260 ms apart', () => {
+    expect(handRhythm('two-pair').map((b) => b.at)).toEqual([0, 90, 350, 440]);
+    expect(handRhythm('three-of-a-kind').map((b) => b.at)).toEqual([0, 90, 180]);
+    expect(handRhythm('five-of-a-kind').map((b) => [b.at, b.weight])).toEqual([
+      [0, 'heavy'],
+      [90, 'heavy'],
+      [180, 'heavy'],
+      [270, 'heavy'],
+      [360, 'heavy'],
+      [620, 'success'],
+    ]);
+    expect(handRhythm('high-card')).toEqual([{ at: 0, weight: 'soft', card: 0 }]);
+  });
+
   it('gives every kind of hand its own pattern', () => {
     const patterns = KINDS.map((kind) => JSON.stringify(handRhythm(kind).map((b) => [b.at, b.weight])));
     expect(new Set(patterns).size).toBe(KINDS.length);

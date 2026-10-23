@@ -1,7 +1,7 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { Platform } from 'react-native';
 
-import type { ToneStep } from '@/engine/chord';
+import type { KeySound, Tone, ToneStep } from '@/engine/chord';
 
 /**
  * The table's music and one sound for each thing you do. Every sound is made by
@@ -22,11 +22,49 @@ const SOURCES = {
   chips: require('../../assets/sounds/chips.mp3'),
   call: require('../../assets/sounds/call.mp3'),
   tap: require('../../assets/sounds/tap.mp3'),
-  /** A card landing in its slot in the week. The flip for now; stream 6 makes its own brush on the felt. */
-  deal: require('../../assets/sounds/flip.mp3'),
+  /** A card landing in its slot in the week: a brush across the felt and a soft tap. */
+  deal: require('../../assets/sounds/deal.mp3'),
+  // The day's chord (src/engine/chord.ts): each keep ends on its suit's note. Spades F, Hearts A,
+  // Diamonds C, Clubs D. A Floor sounds it softly, a Ceiling runs up to its octave, a Comeback steps up into it.
+  'floor-spades': require('../../assets/sounds/floor-spades.mp3'),
+  'floor-hearts': require('../../assets/sounds/floor-hearts.mp3'),
+  'floor-diamonds': require('../../assets/sounds/floor-diamonds.mp3'),
+  'floor-clubs': require('../../assets/sounds/floor-clubs.mp3'),
+  'ceiling-spades': require('../../assets/sounds/ceiling-spades.mp3'),
+  'ceiling-hearts': require('../../assets/sounds/ceiling-hearts.mp3'),
+  'ceiling-diamonds': require('../../assets/sounds/ceiling-diamonds.mp3'),
+  'ceiling-clubs': require('../../assets/sounds/ceiling-clubs.mp3'),
+  'resolve-spades': require('../../assets/sounds/resolve-spades.mp3'),
+  'resolve-hearts': require('../../assets/sounds/resolve-hearts.mp3'),
+  'resolve-diamonds': require('../../assets/sounds/resolve-diamonds.mp3'),
+  'resolve-clubs': require('../../assets/sounds/resolve-clubs.mp3'),
+  // The notes a finished day strums and a Showdown hand rings, and a low F for cards with no suit.
+  'ring-f4': require('../../assets/sounds/ring-f4.mp3'),
+  'ring-a4': require('../../assets/sounds/ring-a4.mp3'),
+  'ring-c5': require('../../assets/sounds/ring-c5.mp3'),
+  'ring-d5': require('../../assets/sounds/ring-d5.mp3'),
+  'ring-f5': require('../../assets/sounds/ring-f5.mp3'),
+  'ring-a5': require('../../assets/sounds/ring-a5.mp3'),
+  'ring-c6': require('../../assets/sounds/ring-c6.mp3'),
+  'ring-d6': require('../../assets/sounds/ring-d6.mp3'),
+  'ring-low': require('../../assets/sounds/ring-low.mp3'),
 } as const;
 
 export type SoundName = keyof typeof SOURCES;
+
+/** Every sound by name, so a test can check each keep sound and note has a file. */
+export const SOUND_NAMES = Object.keys(SOURCES) as SoundName[];
+
+// Every keep sound and ringing note the engine can ask for has a file here, or this line fails to type.
+const covered: [Exclude<KeySound | Tone, SoundName>] extends [never] ? true : never = true;
+void covered;
+
+/**
+ * The sounds loaded as soon as sounds are on, so the first of each is never late. The day's chord (a
+ * keep sound for each suit and the ring notes) would add some 30 players, so each of those is made the
+ * first time it plays, and a strum makes all of its notes before the first one rings.
+ */
+const EAGER = new Set<SoundName>(['floor', 'ceiling', 'later', 'flip', 'cardUp', 'joker', 'face', 'chips', 'call', 'tap', 'deal']);
 
 /**
  * The card-room tune: a 72 second loop. Phones play the AAC file, which loops without a gap; browsers
@@ -34,9 +72,61 @@ export type SoundName = keyof typeof SOURCES;
  */
 const MUSIC = Platform.OS === 'web' ? require('../../assets/sounds/music.mp3') : require('../../assets/sounds/music.m4a');
 
-const VOLUME: Record<SoundName, number> = { floor: 0.8, ceiling: 0.75, later: 0.6, flip: 0.7, cardUp: 0.7, joker: 0.8, face: 0.85, chips: 0.8, call: 0.6, tap: 0.4, deal: 0.7 };
-/** Sounds that can fire again before the last one ends get a second player, so the first isn't cut short. */
-const VOICES: Partial<Record<SoundName, number>> = { ceiling: 2, chips: 2, flip: 2 };
+/** Ring notes stay quiet: a full day strums up to eight of them at once. */
+const RING = 0.4;
+const VOLUME: Record<SoundName, number> = {
+  floor: 0.8,
+  ceiling: 0.75,
+  later: 0.6,
+  flip: 0.7,
+  cardUp: 0.7,
+  joker: 0.8,
+  face: 0.85,
+  chips: 0.8,
+  call: 0.6,
+  tap: 0.4,
+  deal: 0.6,
+  'floor-spades': 0.8,
+  'floor-hearts': 0.8,
+  'floor-diamonds': 0.8,
+  'floor-clubs': 0.8,
+  'ceiling-spades': 0.75,
+  'ceiling-hearts': 0.75,
+  'ceiling-diamonds': 0.75,
+  'ceiling-clubs': 0.75,
+  'resolve-spades': 0.8,
+  'resolve-hearts': 0.8,
+  'resolve-diamonds': 0.8,
+  'resolve-clubs': 0.8,
+  'ring-f4': RING,
+  'ring-a4': RING,
+  'ring-c5': RING,
+  'ring-d5': RING,
+  'ring-f5': RING,
+  'ring-a5': RING,
+  'ring-c6': RING,
+  'ring-d6': RING,
+  'ring-low': RING,
+};
+/**
+ * Sounds that can fire again before the last one ends get a second player, so the first isn't cut short.
+ * A ring note can come twice in one hand's chord (three Jokers ring the low F three times).
+ */
+const VOICES: Partial<Record<SoundName, number>> = {
+  ceiling: 2,
+  chips: 2,
+  flip: 2,
+  deal: 2,
+  'ring-f4': 2,
+  'ring-a4': 2,
+  'ring-c5': 2,
+  'ring-d5': 2,
+  'ring-f5': 2,
+  'ring-a5': 2,
+  'ring-c6': 2,
+  'ring-d6': 2,
+  'ring-low': 2,
+};
 const MUSIC_VOLUME = 0.32;
 const FADE_IN_MS = 1000;
 const FADE_OUT_MS = 400;
@@ -95,13 +185,24 @@ function pool(name: SoundName) {
   return p;
 }
 
-/** Loads every effect up front once sounds are on, so the first flip of a Showdown isn't late. */
+/** Loads the everyday effects up front once sounds are on, so the first flip of a Showdown isn't late. */
 function preload() {
   try {
     ensureMode();
-    for (const name of Object.keys(SOURCES) as SoundName[]) pool(name);
+    for (const name of EAGER) pool(name);
   } catch {
     // Effects load on first play instead.
+  }
+}
+
+/** Makes the players for sounds about to play, so a note due in a moment is ready when it's due. */
+function warm(names: Iterable<SoundName>) {
+  if (!soundsOn) return;
+  try {
+    ensureMode();
+    for (const name of names) pool(name);
+  } catch {
+    // They load on first play instead.
   }
 }
 
@@ -127,8 +228,16 @@ export function playSound(name: SoundName, delayMs = 0) {
   else go();
 }
 
-/** Plays a strum or a hand's chord, each note `delayMs` after `startMs`. Nothing rings until stream 6 adds the notes. */
-export function playTones(steps: readonly ToneStep[], startMs = 0) {}
+/**
+ * Plays a strum or a hand's chord, each note `delayMs` after `startMs`. Every note's player is made
+ * before the first rings, so a strum that starts 380 ms after the last keep is ready on time. The sounds
+ * switch applies to each note as it comes, so turning sounds off mid-strum stops the rest.
+ */
+export function playTones(steps: readonly ToneStep[], startMs = 0) {
+  if (!soundsOn || !steps.length) return;
+  warm(steps.map((s) => s.tone));
+  for (const step of steps) playSound(step.tone, Math.max(0, startMs + step.delayMs));
+}
 
 /** Moves the music's volume to `to` over `ms`, then runs `done`. */
 function ramp(to: number, ms: number, done?: () => void) {

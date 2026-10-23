@@ -80,12 +80,37 @@ export function chips() {
   later(90, () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
 }
 
-/** The dark Comeback card turning back over in your hand. Until stream 6 gives it its own pattern, a Floor's thud. */
+/**
+ * The dark Comeback card turning back over in your hand: three knocks that grow, light, medium and
+ * heavy, 110 ms apart, then a success as the bright side lands.
+ */
 export function turnover() {
-  floor();
+  play(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+  later(110, () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+  later(220, () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy));
+  later(330, () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
 }
 
-/** The Showdown result's rhythm, one tap per beat. Until stream 6 plays the beats, the Ceiling's success. */
+/** How hard each beat of a rhythm knocks. A success is the double tap, not a knock. */
+const KNOCK: Record<Exclude<Beat['weight'], 'success'>, Haptics.ImpactFeedbackStyle> = {
+  soft: Haptics.ImpactFeedbackStyle.Soft,
+  firm: Haptics.ImpactFeedbackStyle.Medium,
+  heavy: Haptics.ImpactFeedbackStyle.Heavy,
+  rigid: Haptics.ImpactFeedbackStyle.Rigid,
+};
+
+function knock(weight: Beat['weight']): () => Promise<void> {
+  return weight === 'success' ? () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success) : () => Haptics.impactAsync(KNOCK[weight]);
+}
+
+/**
+ * The Showdown result's rhythm, one tap per beat, so a hand taps out its own shape: a pair twice, a full
+ * house three then two, a straight a run that hardens. Each beat checks the setting as it lands, so
+ * turning haptics off mid-rhythm stops the rest.
+ */
 export function rhythm(beats: readonly Beat[]) {
-  ceiling();
+  for (const beat of beats) {
+    if (beat.at > 0) later(beat.at, knock(beat.weight));
+    else play(knock(beat.weight));
+  }
 }
