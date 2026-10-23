@@ -231,6 +231,29 @@ describe('recommend', () => {
     expect(rec).toMatchObject({ habitId: 'j', cta: 'Archive Journal for now' });
   });
 
+  it('asks for a plan for a card that came back twice this month and has none, opening the plan sheet', () => {
+    const habits = [facts({ id: 'r', name: 'Read', comebacks30: 1, hasPlan: false }), facts({ id: 'w', name: 'Walk', comebacks30: 2, hasPlan: false })];
+    const rec = recommend({ ...calm, habits }).find((r) => r.principle.key === 'obstacle');
+    expect(rec).toMatchObject({
+      reason: 'Walk’s next Comeback',
+      text: 'Walk came back twice this month. A plan for next time makes the next Comeback easier.',
+      cta: 'Make a plan for Walk',
+      habitId: 'w',
+      href: '/plan?habit=w',
+    });
+    expect(rec?.principle.title).toBe('Plan for the thing that stops you');
+    expect(rec?.field).toBeUndefined();
+    expect(recommend({ ...calm, habits: [facts({ id: 'w', name: 'Walk', comebacks30: 3, hasPlan: false })] }).find((r) => r.principle.key === 'obstacle')?.text).toMatch(/^Walk came back 3 times this month\./);
+  });
+
+  it('never asks for a plan a card already has, one Comeback, or when it can’t tell', () => {
+    const none = (over: Partial<HabitFacts>) => recommend({ ...calm, habits: [facts({ id: 'w', name: 'Walk', ...over })] }).some((r) => r.principle.key === 'obstacle');
+    expect(none({ comebacks30: 4, hasPlan: true })).toBe(false);
+    expect(none({ comebacks30: 1, hasPlan: false })).toBe(false);
+    expect(none({ comebacks30: 2 })).toBe(false);
+    expect(none({})).toBe(false);
+  });
+
   it('starts a new deck with identity and a lead card', () => {
     expect(recommend({ ...calm, habitCount: 0, keptRate30: null, ceilingShare30: null }).map((r) => r.principle.key).slice(0, 2)).toEqual(['identity', 'lead-card']);
   });
@@ -242,6 +265,24 @@ describe('ideaOfTheDay', () => {
     expect(a.reason).toBe('Today’s idea');
     expect(ideaOfTheDay(calm).principle.key).toBe(a.principle.key);
     expect(ideaOfTheDay({ ...calm, today: '2026-10-09' }).principle.key).not.toBe(a.principle.key);
+  });
+
+  it('never suggests a focus card to a deck with Focus block, or a lights-out card to a deck with one', () => {
+    const days = Array.from({ length: 22 }, (_, i) => `2026-10-${String(i + 1).padStart(2, '0')}`);
+    const shown = (habits: HabitFacts[]) => days.map((today) => ideaOfTheDay({ ...calm, today, habits }).principle.key);
+    // Without those cards, both ideas come round.
+    const plain = shown([facts({ id: 'r', name: 'Read' })]);
+    expect(plain).toContain('focus-block');
+    expect(plain).toContain('sleep');
+    const focus = shown([facts({ id: 'f', name: 'Focus block', recipeKey: 'deep-work' }), facts({ id: 'r', name: 'Read' })]);
+    expect(focus).not.toContain('focus-block');
+    expect(focus).toContain('sleep');
+    // Known by name too, for a card made by hand.
+    expect(shown([facts({ id: 'f', name: 'Morning focus' })])).not.toContain('focus-block');
+    expect(shown([facts({ id: 'l', name: 'Lights out', recipeKey: 'lights-out' })])).not.toContain('sleep');
+    expect(shown([facts({ id: 'l', name: 'Bedtime by 11' })])).not.toContain('sleep');
+    // Still one idea a day, and still the same idea all day.
+    expect(new Set(focus).size).toBeGreaterThan(5);
   });
 });
 

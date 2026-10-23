@@ -82,6 +82,19 @@ describe('cuesFor', () => {
     expect(onDay(plan(), WED).find((c) => c.kind === 'last-call')).toMatchObject({ title: 'Last call for today’s card', body: 'Walk: Walk to the corner still counts.', at: '20:30' });
   });
 
+  it('says the card’s own plan in the last call when it has one, and its Floor when it has none', () => {
+    const planned = { ...walk, plan: 'Late night? Open your last chat.' };
+    expect(onDay(plan({ habits: [planned, read] }), WED).find((c) => c.kind === 'last-call')).toMatchObject({ title: 'Last call for today’s card', body: 'Late night? Open your last chat. It keeps today.' });
+    expect(onDay(plan({ habits: [{ ...walk, plan: null }, read] }), WED).find((c) => c.kind === 'last-call')?.body).toBe('Walk: Walk to the corner still counts.');
+    // Something already kept today: the plan still leads.
+    const kept = plan({ habits: [{ ...read, keptToday: true }, { ...planned, part: 'evening' }] });
+    expect(onDay(kept, WED).find((c) => c.kind === 'last-call')).toMatchObject({ title: 'Last call for Walk', body: 'Late night? Open your last chat. It keeps today.' });
+    // Yesterday still to save: the plan follows the two cards line.
+    expect(onDay(plan({ habits: [planned, read], rescue: true }), WED).find((c) => c.kind === 'last-call')?.body).toBe('Keep anything tonight and yesterday gets its card too. Late night? Open your last chat. It keeps today.');
+    // A plan in the player's own words without a full stop still reads as a sentence.
+    expect(previewLastCall([{ ...walk, plan: 'Kids up early? Put on your shoes' }]).body).toBe('Kids up early? Put on your shoes. It keeps today.');
+  });
+
   it('says two cards are at stake when yesterday can still be saved', () => {
     expect(onDay(plan({ rescue: true }), WED).find((c) => c.kind === 'last-call')?.title).toBe('Last call for two cards');
   });

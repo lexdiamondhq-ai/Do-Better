@@ -3,11 +3,14 @@
  * Showdown, the Hall of Hands and the Court straight away, without an account or a database.
  * Nothing is saved; signing out of the demo throws it away.
  *
- * The deck opens on one Comeback: every card was kept yesterday except Reach out, and Hearts is one
- * kept day short of its Queen, so the first swipe shows the Comeback, earns the Queen and deals a Joker.
+ * The deck opens on one Comeback: every card was kept yesterday except Walk, so the first swipe turns
+ * Walk's dark card back over and deals an everyday card. Reach out sits one kept day short of the Queen of
+ * Hearts, so its keep later in the day earns the Queen and deals a Joker. Walk carries a plan made a few
+ * weeks ago (`demoPlans`), so its Comeback card leads with Your plan.
  * Its history is laid out by week, so every face card falls in a week of its own, and none in this one.
  */
 
+import type { Plan } from '@/engine/comeback';
 import { addDays, daysBetween, weekday, weekStart, type Day } from '@/engine/day';
 import { keptCards, unit, type DealHabit } from '@/engine/deal';
 import { callPrices, playPastWeeks, type CallPrice, type Week } from '@/engine/game';
@@ -20,29 +23,41 @@ import type { Backend, Loaded } from './backend';
 import { emptyDeck } from './play';
 import type { Habit, HabitDay } from './types';
 
-type Plan = { recipe: string; weeks: number; keep: number; ceiling: number };
+type CardHistory = { recipe: string; weeks: number; keep: number; ceiling: number };
 
 /** Each card, how many weeks before this one it started (on a Monday), and how often it was kept and reached. */
-const PLANS: Plan[] = [
+const PLANS: CardHistory[] = [
   { recipe: 'read', weeks: 10, keep: 0.86, ceiling: 0.45 },
   { recipe: 'walk', weeks: 10, keep: 0.8, ceiling: 0.35 },
   { recipe: 'deep-work', weeks: 9, keep: 0.72, ceiling: 0.4 },
   { recipe: 'reach-out', weeks: 7, keep: 0.62, ceiling: 0.25 },
 ];
 
-/** The card the demo's first swipe keeps. */
-const COMEBACK = 'reach-out';
+/** The card the demo's first swipe keeps: the only one whose yesterday got away. */
+const COMEBACK = 'walk';
+
+/** The card that earns the Queen of Hearts and a Joker when it is kept today. */
+const QUEEN = 'reach-out';
 
 /**
  * Whys the demo player wrote in their own words. Only a why of your own shows on a card (a recipe's stock
  * why is hidden), so the Comeback card has one to show.
  */
 const OWN_WHYS: Partial<Record<string, string>> = {
-  [COMEBACK]: 'I don’t want my sister to only hear from me on birthdays.',
+  [COMEBACK]: 'Ten minutes outside and the whole day goes better.',
+  [QUEEN]: 'I don’t want my sister to only hear from me on birthdays.',
 };
 
-/** Its suit's kept days before today: one short of the Queen. */
-const COMEBACK_DAYS = 29;
+/**
+ * Kept days before today for the cards the opening turns on, whatever the weekday: Walk's are worn in past
+ * Well played, and Reach out (the only Hearts card) sits one short of the Queen.
+ */
+const SETTLED: Partial<Record<string, { days: number; after: number }>> = {
+  // Moved days fall after its Queen (its 30th kept day), so every face card it earned stays where it was.
+  [COMEBACK]: { days: 48, after: 31 },
+  // Moved days fall after its Jack (its 10th kept day), so the Jack stays on the same day.
+  [QUEEN]: { days: 29, after: 11 },
+};
 
 /**
  * Whole days off, counted from this week's Monday, so the game has rescues to show: a Tuesday and a
@@ -106,29 +121,42 @@ function buildHistory(today: Day): { habits: Habit[]; days: HabitDay[] } {
       if (comeback && day === addDays(today, -2)) kept = true;
       if (kept) mine.push({ habitId: habits[i].id, day, level });
     }
-    if (comeback) settle(mine, habits[i].id, today, blanks);
+    const settled = SETTLED[plan.recipe];
+    if (settled) settle(mine, habits[i].id, today, blanks, settled);
     days.push(...mine);
   });
   return { habits, days };
 }
 
 /**
- * Brings the Comeback card to exactly COMEBACK_DAYS kept days, taking days away or adding them evenly
- * after its Jack and before its last two days, so its Jack stays on the same day whatever today is.
+ * Brings a card to exactly `to.days` kept days before today, taking days away or adding them evenly after
+ * its `to.after`-th kept day and before its last two days, so the face cards it earned before then stay on
+ * the same days whatever today is, and yesterday and the day before stay as they were.
  */
-function settle(mine: HabitDay[], habitId: string, today: Day, blanks: ReadonlySet<Day>): void {
-  const after = mine[11]?.day ?? today;
+function settle(mine: HabitDay[], habitId: string, today: Day, blanks: ReadonlySet<Day>, to: { days: number; after: number }): void {
+  const after = mine[to.after]?.day ?? today;
   const latest = addDays(today, -3);
   const kept = new Set(mine.map((d) => d.day));
-  if (mine.length > COMEBACK_DAYS) {
+  if (mine.length > to.days) {
     const movable = mine.filter((d) => d.day > after && d.day <= latest);
-    for (const d of spread(movable, mine.length - COMEBACK_DAYS)) mine.splice(mine.indexOf(d), 1);
-  } else if (mine.length < COMEBACK_DAYS) {
+    for (const d of spread(movable, mine.length - to.days)) mine.splice(mine.indexOf(d), 1);
+  } else if (mine.length < to.days) {
     const free: Day[] = [];
     for (let day = addDays(after, 1); day <= latest; day = addDays(day, 1)) if (!kept.has(day) && !blanks.has(day)) free.push(day);
-    for (const day of spread(free, COMEBACK_DAYS - mine.length)) mine.push({ habitId, day, level: 'floor' });
+    for (const day of spread(free, to.days - mine.length)) mine.push({ habitId, day, level: 'floor' });
     mine.sort((a, b) => a.day.localeCompare(b.day));
   }
+}
+
+/** How long ago the demo player made Walk's plan: long enough that the plan sheet offers a fresh one. */
+const PLAN_MADE_DAYS_AGO = 20;
+
+/**
+ * The demo player's plans, by habit id: Walk's, made 20 days ago, for when they're too tired (put on your
+ * shoes). Only shown in the demo, under any plan made on this phone.
+ */
+export function demoPlans(today: Day): Record<string, Plan> {
+  return { [`demo-${COMEBACK}`]: { when: 'tired', then: 'first', made: addDays(today, -PLAN_MADE_DAYS_AGO) } };
 }
 
 /** Finished weeks as a seed deals them, with no calls made. */

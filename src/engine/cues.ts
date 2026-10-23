@@ -29,6 +29,8 @@ export type CueHabit = {
   keptToday: boolean;
   /** The player's own reminder for this card, if they set one. */
   remindAt: Clock | null;
+  /** Your plan for this card, as one line ("Late night? Open your last chat."), when one is saved on this phone. */
+  plan?: string | null;
 };
 
 /** What the plan needs to know about the deck right now. */
@@ -176,6 +178,16 @@ function floorLine(h: CueHabit): string {
   return floor.toLowerCase() === h.name.trim().toLowerCase() ? `${floor} still counts.` : `${h.name}: ${floor} still counts.`;
 }
 
+/**
+ * What the last call says about the card it names: the player's own plan when the card has one ("Late
+ * night? Open your last chat. It keeps today."), otherwise that its Floor still counts.
+ */
+function lastCallLine(h: CueHabit, tonight = false): string {
+  const plan = h.plan?.trim();
+  if (plan) return `${stop(plan)} It keeps today.`;
+  return tonight ? `${(h.floor.trim() || 'The Floor').replace(/[.!?]+$/, '')} still counts tonight.` : floorLine(h);
+}
+
 type Draft = Omit<Cue, 'fireAt' | 'id'>;
 
 /**
@@ -277,18 +289,18 @@ function lastCall(day: Day, i: number, open: readonly CueHabit[], at: Clock, sna
   const base = { kind: 'last-call' as const, day, at, url: '/' as const };
   if (rescue) {
     const h = pick(open, i);
-    return { ...base, title: 'Last call for two cards', body: `Keep anything tonight and yesterday gets its card too. ${floorLine(h)}`, habitId: h.id };
+    return { ...base, title: 'Last call for two cards', body: `Keep anything tonight and yesterday gets its card too. ${lastCallLine(h)}`, habitId: h.id };
   }
   const face = i === 0 && snapshot.faceSoon ? open.find((h) => snapshot.faceSoon!.habitIds.includes(h.id)) : undefined;
-  if (face && snapshot.faceSoon) return { ...base, title: `${snapshot.faceSoon.name} is one day away`, body: floorLine(face), habitId: face.id };
+  if (face && snapshot.faceSoon) return { ...base, title: `${snapshot.faceSoon.name} is one day away`, body: lastCallLine(face), habitId: face.id };
   const h = pick(open, i);
-  if (keptAny) return { ...base, title: `Last call for ${h.name}`, body: `${(h.floor.trim() || 'The Floor').replace(/[.!?]+$/, '')} still counts tonight.`, habitId: h.id };
-  return { ...base, title: 'Last call for today’s card', body: floorLine(h), habitId: h.id };
+  if (keptAny) return { ...base, title: `Last call for ${h.name}`, body: lastCallLine(h, true), habitId: h.id };
+  return { ...base, title: 'Last call for today’s card', body: lastCallLine(h), habitId: h.id };
 }
 
 /** What tonight's last call would say with nothing kept yet, for showing the player before they say yes. */
 export function previewLastCall(habits: readonly CueHabit[]): { title: string; body: string } {
   if (!habits.length) return { title: 'Last call for today’s card', body: 'Your Floor still counts.' };
   const h = pick(habits, 0);
-  return { title: 'Last call for today’s card', body: floorLine(h) };
+  return { title: 'Last call for today’s card', body: lastCallLine(h) };
 }

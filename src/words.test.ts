@@ -11,6 +11,8 @@ const RETIRED = /\b(rescued|bounce-backs?|habit-days?|crowned)\b/i;
 /** Streaks are gone. The only place the word may appear is the promise that there are none. */
 const STREAK = /streak/i;
 const NO_STREAKS = /\bno streaks\b/gi;
+/** A plan looks ahead. Nothing on screen asks for an excuse or counts the days that got away. */
+const SHAME = /\b(excuses?|days? missed|missed \d+)\b/i;
 
 const ROOT = decodeURIComponent(new URL('.', import.meta.url).pathname);
 
@@ -46,6 +48,13 @@ describe('words on screen', () => {
 
   it('never use retired words', () => {
     expect(hits(RETIRED)).toEqual([]);
+  });
+
+  it('never ask for an excuse or count missed days', () => {
+    expect(hits(SHAME)).toEqual([]);
+    // The pattern itself catches what it is for.
+    for (const line of ['No excuses today', 'What was your excuse?', '3 days missed', 'You missed 2 days']) expect(line).toMatch(SHAME);
+    for (const line of ['What got in the way?', 'Yesterday got away', 'Missed a day? Keep the Floor.']) expect(line).not.toMatch(SHAME);
   });
 
   it('only mention streaks to say there are none', () => {

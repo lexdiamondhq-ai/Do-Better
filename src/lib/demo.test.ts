@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
+import { planLine, planOffered } from '@/engine/comeback';
 import { FACES, RUNGS, summarizeCourt } from '@/engine/court';
 import { addDays, weekday, weekStart, type Day } from '@/engine/day';
 import { lastShowdown, playGame } from '@/engine/game';
 import { indexCheckIns, neverTwiceDay, type Level } from '@/engine/kept';
+import { partOfDay } from '@/engine/playbook';
+import { buildQueue, partOfDayAt } from '@/engine/today';
 
 import type { Loaded } from './backend';
-import { createDemoBackend } from './demo';
+import { createDemoBackend, demoPlans } from './demo';
 import { courtHabits, gameInput, MILESTONES, momentsOf, newMemory } from './play';
 
 // Monday 12 to Sunday 18 October 2026: the demo is laid out by week, so every day of the week is checked.
 const WEEK: Day[] = Array.from({ length: 7 }, (_, i) => addDays('2026-10-12', i));
 
 const CALLABLE = ['pair', 'two-pair', 'three-of-a-kind', 'straight', 'full-house'];
+const WALK = 'demo-walk';
+const REACH_OUT = 'demo-reach-out';
 
 async function open(today: Day, typical = false) {
   const backend = createDemoBackend(today, { typical });
@@ -23,37 +28,68 @@ async function open(today: Day, typical = false) {
 const keep = (data: Loaded, habitId: string, day: Day, level: Level = 'floor'): Loaded => ({ ...data, days: [...data.days, { habitId, day, level }] });
 
 describe.each(WEEK)('the demo deck on %s', (today) => {
-  it('opens on a single Comeback, for Reach out', async () => {
-    const { data } = await open(today);
+  it('opens on a single Comeback, for Walk', async () => {
+    const { data, game } = await open(today);
     const checkIns = indexCheckIns(data.days);
     const comebacks = data.habits.filter((h) => neverTwiceDay(h.startedOn, today, checkIns.get(h.id) ?? new Map()));
-    expect(comebacks.map((h) => h.name)).toEqual(['Reach out']);
+    expect(comebacks.map((h) => h.name)).toEqual(['Walk']);
     expect(data.days.some((d) => d.day >= today)).toBe(false);
+    // Yesterday got away for Walk alone: Reach out was kept, so nothing is left to save and no card shows face up.
+    expect(data.days.some((d) => d.habitId === 'demo-reach-out' && d.day === addDays(today, -1))).toBe(true);
+    expect(game.rescue).toBeNull();
+    expect(game.rescueCard).toBeNull();
   });
 
-  it('earns the Queen of Hearts and a Joker with the first swipe', async () => {
+  it('keeps Walk’s Comeback as a plain deal: the first swipe turns it over and deals an everyday card', async () => {
     const { backend, data } = await open(today);
-    const moments = momentsOf(data, keep(data, 'demo-reach-out', today), today, backend.seed, { habitId: 'demo-reach-out', level: 'floor', day: today }, newMemory());
-    expect(moments).toEqual([expect.objectContaining({ kind: 'face', suit: 'hearts', face: expect.objectContaining({ face: 'queen' }), joker: true })]);
+    const moments = momentsOf(data, keep(data, WALK, today), today, backend.seed, { habitId: WALK, level: 'floor', day: today }, newMemory());
+    expect(moments.map((m) => m.kind)).toEqual(['deal']);
   });
 
-  it('keeps the Joker on today’s card when yesterday is then logged late', async () => {
+  it('earns the Queen of Hearts and a Joker when Reach out is kept, after Walk or first', async () => {
+    const { backend, data } = await open(today);
+    const memory = newMemory();
+    const walked = keep(data, WALK, today);
+    momentsOf(data, walked, today, backend.seed, { habitId: WALK, level: 'floor', day: today }, memory);
+    const queen = [expect.objectContaining({ kind: 'face', suit: 'hearts', face: expect.objectContaining({ face: 'queen' }), joker: true })];
+    expect(momentsOf(walked, keep(walked, REACH_OUT, today), today, backend.seed, { habitId: REACH_OUT, level: 'floor', day: today }, memory)).toEqual(queen);
+    expect(momentsOf(data, keep(data, REACH_OUT, today), today, backend.seed, { habitId: REACH_OUT, level: 'floor', day: today }, newMemory())).toEqual(queen);
+  });
+
+  it('at 09:00 lets an everyday card come before Reach out, so the Queen comes later in the day', async () => {
+    const { data } = await open(today);
+    const cards = data.habits.map((h) => ({ id: h.id, level: null, comeback: h.id === WALK, part: partOfDay(h) }));
+    const order = (hour: number) => buildQueue({ cards, deferred: [], now: partOfDayAt(hour) }).map((q) => q.id);
+    const morning = order(9);
+    expect(morning[0]).toBe(WALK);
+    expect(morning.indexOf(REACH_OUT)).toBeGreaterThanOrEqual(2);
+    expect(buildQueue({ cards, deferred: [], now: partOfDayAt(9) })[0].kind).toBe('comeback');
+    // After lunch it is next; in the evening it waits behind the evening card.
+    expect(order(13).indexOf(REACH_OUT)).toBe(1);
+    expect(order(20).indexOf(REACH_OUT)).toBeGreaterThan(1);
+  });
+
+  it('keeps the Joker on today’s card when Walk’s yesterday is then logged late', async () => {
     if (weekday(today) === 0) return;
     const { backend, data } = await open(today);
     const yesterday = addDays(today, -1);
-    const withToday = keep(data, 'demo-reach-out', today);
-    const late: Loaded = { ...withToday, days: [...withToday.days, { habitId: 'demo-reach-out', day: yesterday, level: 'floor', loggedOn: today }] };
+    const withToday = keep(keep(data, WALK, today), REACH_OUT, today);
+    const late: Loaded = { ...withToday, days: [...withToday.days, { habitId: WALK, day: yesterday, level: 'floor', loggedOn: today }] };
     const jokerDay = (d: Loaded) => playGame(gameInput(d, today, backend.seed)).current.slots.find((s) => s.card?.kind === 'joker')?.day;
     expect(jokerDay(withToday)).toBe(today);
     expect(jokerDay(late)).toBe(today);
   });
 
-  it('deals plain cards for every other swipe today', async () => {
+  it('deals plain cards for every swipe after the Queen', async () => {
     const { backend, data } = await open(today);
-    let state = keep(data, 'demo-reach-out', today);
     const memory = newMemory();
-    momentsOf(data, state, today, backend.seed, { habitId: 'demo-reach-out', level: 'floor', day: today }, memory);
-    for (const id of ['demo-read', 'demo-walk', 'demo-deep-work']) {
+    let state = data;
+    for (const id of [WALK, REACH_OUT]) {
+      const next = keep(state, id, today);
+      momentsOf(state, next, today, backend.seed, { habitId: id, level: 'floor', day: today }, memory);
+      state = next;
+    }
+    for (const id of ['demo-read', 'demo-deep-work']) {
       const next = keep(state, id, today, 'ceiling');
       const kinds = momentsOf(state, next, today, backend.seed, { habitId: id, level: 'ceiling', day: today }, memory).map((m) => m.kind);
       expect(kinds.every((k) => k === 'deal')).toBe(true);
@@ -100,6 +136,27 @@ describe.each(WEEK)('the demo deck on %s', (today) => {
 });
 
 describe('the demo deck', () => {
+  it('opens on Friday 23 October with Walk, 48 kept days in, as the only Comeback, and Reach out at 29 Hearts days', async () => {
+    const today = '2026-10-23';
+    const { data } = await open(today);
+    const checkIns = indexCheckIns(data.days);
+    const comebacks = data.habits.filter((h) => neverTwiceDay(h.startedOn, today, checkIns.get(h.id) ?? new Map()));
+    expect(comebacks.map((h) => h.id)).toEqual([WALK]);
+    expect(new Set(data.days.filter((d) => d.habitId === WALK).map((d) => d.day)).size).toBe(48);
+    const hearts = summarizeCourt(courtHabits(data.habits), checkIns, today).find((c) => c.suit === 'hearts');
+    expect(hearts).toMatchObject({ votes: 29, habitIds: [REACH_OUT] });
+    expect(data.habits.find((h) => h.id === WALK)?.why).toBe('Ten minutes outside and the whole day goes better.');
+  });
+
+  it('gives Walk a plan made 20 days ago, too tired then the first move, so the plan sheet can offer a new one', () => {
+    const today = '2026-10-23';
+    const plans = demoPlans(today);
+    expect(Object.keys(plans)).toEqual([WALK]);
+    expect(plans[WALK]).toEqual({ when: 'tired', then: 'first', made: '2026-10-03' });
+    expect(planLine(plans[WALK], { floorLabel: 'Walk to the corner', twoMinuteLabel: 'Put on your shoes' })).toBe('Too tired? Put on your shoes.');
+    expect(planOffered({ keptComebackToday: true, plan: plans[WALK], today })).toBe(true);
+  });
+
   it('has the same history every week', async () => {
     const [a, b] = await Promise.all([open('2026-10-14'), open('2026-10-21')]);
     expect(b.data.days.map((d) => ({ ...d, day: addDays(d.day, -7) }))).toEqual(a.data.days);
@@ -107,12 +164,12 @@ describe('the demo deck', () => {
 
   it('remembers a day logged late, so its Joker and face card stay where they were dealt', async () => {
     const backend = createDemoBackend('2026-10-16');
-    await backend.saveDay('demo-reach-out', '2026-10-15', 'floor', '2026-10-16');
-    await backend.saveDay('demo-reach-out', '2026-10-16', 'floor');
-    const days = (await backend.load('UTC')).days.filter((d) => d.habitId === 'demo-reach-out' && d.day >= '2026-10-15');
+    await backend.saveDay(WALK, '2026-10-15', 'floor', '2026-10-16');
+    await backend.saveDay(WALK, '2026-10-16', 'floor');
+    const days = (await backend.load('UTC')).days.filter((d) => d.habitId === WALK && d.day >= '2026-10-15');
     expect(days).toEqual([
-      { habitId: 'demo-reach-out', day: '2026-10-15', level: 'floor', loggedOn: '2026-10-16' },
-      { habitId: 'demo-reach-out', day: '2026-10-16', level: 'floor' },
+      { habitId: WALK, day: '2026-10-15', level: 'floor', loggedOn: '2026-10-16' },
+      { habitId: WALK, day: '2026-10-16', level: 'floor' },
     ]);
   });
 
