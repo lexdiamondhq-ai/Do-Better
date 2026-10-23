@@ -14,7 +14,9 @@ import { Body, Button, Display, Label, Page, PageTitle, raisedStyle, Section } f
 import { WeekStrip } from '@/components/WeekStrip';
 import { weekday } from '@/engine/day';
 import { lastShowdown, weekReview, weekTotal, type BackKey, type Game, type HallEntry, type Week } from '@/engine/game';
+import { lateIndex } from '@/engine/ledger';
 import { HANDS, makesCall } from '@/engine/poker';
+import { captionsFor, stampsFor, type CaptionFacts } from '@/engine/showdown';
 import { useData } from '@/lib/data';
 import { useDeck, useLook } from '@/lib/deck';
 import { shortDate, weekOf, weekRange } from '@/lib/format';
@@ -57,6 +59,13 @@ export default function Hands() {
   const weeks = finished.slice(0, count);
   const spotted = game.hall.filter((e) => e.count > 0).length;
   const lead = state.status === 'ready' && current.slots.some((s) => s.card) ? weekReview(current, gameInput(state, today, seed)).lead : null;
+  // What a held card's caption says about its day beyond the card: whose habits were kept, a Ceiling, a late log.
+  const late = state.status === 'ready' ? lateIndex(state.days) : null;
+  const facts: CaptionFacts = {
+    names: (day) => deck.cards.filter((c) => c.checkIns.has(day)).map((c) => c.habit.name),
+    ceiling: (day) => deck.cards.some((c) => c.checkIns.get(day) === 'ceiling'),
+    late: (day) => deck.cards.some((c) => (late?.get(c.habit.id)?.get(day) ?? day) > day),
+  };
 
   // Showdowns that happened while you were away: newer than the last one you saw, older than the latest.
   const seen = prefs.showdownSeen[seed];
@@ -72,7 +81,7 @@ export default function Hands() {
 
   return (
     <Page header={<PageTitle eyebrow={weekOf(current.start)} title="Your hand" right={<RulesButton topic="week" />} />} onRefresh={refresh}>
-      <ThisWeek game={game} back={back} felt={feltFor(t, lead)} today={today} />
+      <ThisWeek game={game} back={back} felt={feltFor(t, lead)} today={today} facts={facts} />
 
       <CallPanel game={game} onCall={() => router.push('/call')} />
 
@@ -83,7 +92,7 @@ export default function Hands() {
           </Body>
           <View style={{ gap: space.sm }}>
             {away.map((w) => (
-              <WeekRow key={w.start} week={w} onPress={() => replay(w)} onShare={() => setSharing(w)} />
+              <WeekRow key={w.start} week={w} facts={facts} onPress={() => replay(w)} onShare={() => setSharing(w)} />
             ))}
           </View>
         </Section>
@@ -115,7 +124,7 @@ export default function Hands() {
               {weeks.some((w) => w.hand && !w.warmup) ? 'Tap a week to replay its Showdown. Press and hold to share it.' : 'Tap your warm-up week to see its cards.'}
             </Body>
             {weeks.map((w) => (
-              <WeekRow key={w.start} week={w} onPress={() => replay(w)} onShare={w.hand && !w.warmup ? () => setSharing(w) : undefined} />
+              <WeekRow key={w.start} week={w} facts={facts} onPress={() => replay(w)} onShare={w.hand && !w.warmup ? () => setSharing(w) : undefined} />
             ))}
             {finished.length > weeks.length ? <Button label={`Show ${Math.min(PAGE, finished.length - weeks.length)} more`} variant="quiet" onPress={() => setCount((c) => c + PAGE)} /> : null}
           </View>
@@ -131,7 +140,7 @@ export default function Hands() {
  * This week on the felt: the hand as it stands, the river card it has earned (or how far off it is),
  * what it pays at the very least, and the seven days.
  */
-function ThisWeek({ game, back, felt, today }: { game: Game; back: BackKey; felt: Felt; today: string }) {
+function ThisWeek({ game, back, felt, today, facts }: { game: Game; back: BackKey; felt: Felt; today: string; facts: CaptionFacts }) {
   const { width } = useWindowDimensions();
   const id = useId().replace(/[^a-zA-Z0-9]/g, '');
   const { current } = game;
@@ -164,7 +173,18 @@ function ThisWeek({ game, back, felt, today }: { game: Game; back: BackKey; felt
             </View>
           ) : hand ? (
             <>
-              <HandFan faces={faces} size="lg" width={cardW} spread={0.55} tilt={9} accessibilityLabel={`Your hand so far: ${hand.title}`} style={{ marginTop: space.sm }} />
+              <HandFan
+                faces={faces}
+                days={hand.cards.map((c) => c.day)}
+                stamps={stampsFor(current)}
+                captions={captionsFor(current, facts)}
+                size="lg"
+                width={cardW}
+                spread={0.55}
+                tilt={9}
+                accessibilityLabel={`Your hand so far: ${hand.title}`}
+                style={{ marginTop: space.sm }}
+              />
               <View style={{ alignItems: 'center', gap: 2 }}>
                 <Display size={36} style={{ textAlign: 'center' }} header>
                   {lines!.name}
@@ -392,7 +412,7 @@ function SuitedRow({ weeks }: { weeks: number }) {
 }
 
 /** A finished week: its dates and what it paid, then its hand, then the call. Tap to replay, hold to share. */
-function WeekRow({ week, onPress, onShare }: { week: Week; onPress: () => void; onShare?: () => void }) {
+function WeekRow({ week, facts, onPress, onShare }: { week: Week; facts: CaptionFacts; onPress: () => void; onShare?: () => void }) {
   const t = useTheme();
   const total = weekTotal(week);
   const call = week.call ? `Called ${HANDS[week.call].name}${week.madeCall ? `${NBSP}✓` : ''}` : null;
@@ -415,7 +435,17 @@ function WeekRow({ week, onPress, onShare }: { week: Week; onPress: () => void; 
         {total ? <Chips value={total} size={14} sign /> : null}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-        {week.hand ? <HandRow faces={playedFaces(week.hand.cards)} size="xs" overlap={0.4} highlight={week.madeCall ? 'called' : undefined} /> : null}
+        {week.hand ? (
+          <HandRow
+            faces={playedFaces(week.hand.cards)}
+            days={week.hand.cards.map((c) => c.day)}
+            stamps={stampsFor(week)}
+            captions={captionsFor(week, facts)}
+            size="xs"
+            overlap={0.4}
+            highlight={week.madeCall ? 'called' : undefined}
+          />
+        ) : null}
         <View style={{ flex: 1, gap: 2 }}>
           <Body size={15} weight="heavy" numberOfLines={2}>
             {title}

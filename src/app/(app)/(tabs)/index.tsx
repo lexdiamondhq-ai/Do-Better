@@ -14,9 +14,11 @@ import { faceLabel, faceOfDay, PlayingCard } from '@/components/PlayingCard';
 import { ReminderPrompt, useReminderPromptDue } from '@/components/ReminderPrompt';
 import { RulesSheet } from '@/components/RulesSheet';
 import { SuitGlyph } from '@/components/Suit';
-import { DeckCard, LIFT, SwipeCard, type SwipeDirection, type SwipeHandle } from '@/components/SwipeCard';
+import { DeckCard, LIFT, SwipeCard, type CommitInfo, type SwipeDirection, type SwipeHandle } from '@/components/SwipeCard';
 import { Body, Button, Display, Label, raisedStyle, TableSurface } from '@/components/ui';
 import { WeekStrip } from '@/components/WeekStrip';
+import { dayChord, keepSound, strum, type ToneStep } from '@/engine/chord';
+import { planLine, type Point } from '@/engine/comeback';
 import { addDays, canBackfill, weekday } from '@/engine/day';
 import { lastShowdown, type Game, type TipTone } from '@/engine/game';
 import type { Level } from '@/engine/kept';
@@ -50,8 +52,9 @@ import { useData, useEvents } from '@/lib/data';
 import { useDeck, useKeep, useLook, type Deck, type HabitView } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { shortDay } from '@/lib/format';
+import { usePlans } from '@/lib/plans';
 import { hasSeen, usePrefs } from '@/lib/prefs';
-import { playSound } from '@/lib/sound';
+import { playSound, playTones } from '@/lib/sound';
 import { withAlpha } from '@/theme/color';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
 import { cardColors, fontScale, radius, space, suitColors, TAP, themeOn, type Theme } from '@/theme/tokens';
@@ -89,7 +92,8 @@ function Table({ deck }: { deck: Deck }) {
   const { checkIn, undoCheckIn, recordPrompt, seed } = useData();
   const keepCard = useKeep();
   const { events } = useEvents();
-  const { prefs, ready, markSeen } = usePrefs();
+  const { prefs, ready, markSeen, noteGrip } = usePrefs();
+  const plans = usePlans();
   const { game } = deck;
 
   // Session state only: none of it is stored.
@@ -109,6 +113,8 @@ function Table({ deck }: { deck: Deck }) {
   const [screenReader, setScreenReader] = useState(false);
   const [visitKept, setVisitKept] = useState(() => deck.totals.kept > 0);
   const [coachClosed, setCoachClosed] = useState(false);
+  // The day's chord as it strums, for the pills to ring in time. Set from the keep that finishes the day.
+  const [ringing, setRinging] = useState<readonly ToneStep[]>([]);
   const swipe = useRef<SwipeHandle>(null);
   const prompted = useRef(new Set<string>());
   const keptSoFar = useRef(deck.totals.kept);
@@ -264,7 +270,7 @@ function Table({ deck }: { deck: Deck }) {
 
   // Actions ---------------------------------------------------------------------------------------------
   const fail = (e: unknown) => ask('That didn’t save', e instanceof Error ? e.message : 'Check your connection and try again.');
-  const fling = (dir: SwipeDirection, opts: { note?: string; tag?: string } = { tag: 'button' }) => swipe.current?.fling(dir, opts);
+  const fling = (dir: SwipeDirection, opts: { note?: string; tag?: string; turnover?: Point } = { tag: 'button' }) => swipe.current?.fling(dir, opts);
   /** The next card comes to the front fresh, turning over into place. */
   const bringForward = (id: string | null) => {
     setFocused(id);
@@ -295,9 +301,17 @@ function Table({ deck }: { deck: Deck }) {
    */
   function keep(view: HabitView, level: Level, firstMove = false) {
     const id = view.habit.id;
-    playSound(level);
-    if (level === 'ceiling') feel.ceiling();
+    playSound(keepSound(view.habit.suit, level, { comeback: !!view.neverTwice }));
+    if (view.neverTwice) feel.turnover();
+    else if (level === 'ceiling') feel.ceiling();
     else feel.floor();
+    // The keep that finishes the day strums today's notes as one chord, and the pills ring in time.
+    if (!view.today && pending.every((c) => c.habit.id === id)) {
+      const cardsAfter = deck.cards.map((c) => ({ suit: c.habit.suit, level: c.habit.id === id ? level : c.today }));
+      const steps = strum(dayChord(cardsAfter).notes);
+      playTones(steps, 380);
+      setRinging(steps);
+    }
     setBurst((b) => ({ n: (b?.n ?? 0) + 1, kind: level, color: cardColors[view.habit.color].bg }));
     setFocused(null);
     setMove((m) => ({ habitId: id, name: view.habit.name, level, was: view.today, n: (m?.n ?? 0) + 1 }));
@@ -308,12 +322,14 @@ function Table({ deck }: { deck: Deck }) {
   }
 
   /** The front card has gone one way: it plays out as a ghost while the deck moves on under it. */
-  function commit(play: Play, dir: SwipeDirection, tag?: string) {
+  function commit(play: Play, dir: SwipeDirection, tag?: string, info?: CommitInfo) {
     setPromoted(pull.get());
     setDeals((d) => d + 1);
     setFlipIn(null);
     setLeaving((l) => [...l.slice(-2), play]);
     const { item, view } = play;
+    // Where the thumb took the card on a real swipe: the card wears in there (saved on this phone).
+    if (info?.grip && play.view) noteGrip(seed, play.view.habit.id, info.grip);
     if (item.kind === 'welcome') {
       setWelcome(false);
       playSound('flip');
@@ -453,7 +469,7 @@ function Table({ deck }: { deck: Deck }) {
   }, [keyKind, keyUp, keyDown, keySide, keyFirst]);
 
   // Card faces ------------------------------------------------------------------------------------------
-  function face(item: QueueItem, view: HabitView | null, live: boolean): ReactNode {
+  function face(item: QueueItem, view: HabitView | null, live: boolean, depth = 0): ReactNode {
     if (item.kind === 'welcome') {
       const w = deck.welcome ?? { kept: deck.totals.kept, faces: game.faces.length, chips: game.stack };
       return <WelcomeCard kept={w.kept} faces={w.faces} chips={w.chips} compact={compact} onOpen={live ? () => fling('up') : undefined} />;
@@ -468,6 +484,8 @@ function Table({ deck }: { deck: Deck }) {
         <ComebackCard
           habit={habit}
           kept={view.allTime.kept}
+          wearDepth={depth}
+          plan={plans[habit.id] ? planLine(plans[habit.id], habit) : null}
           gap={comebackGap(habit.startedOn, deck.today, view.checkIns)}
           saving={!!game.rescue}
           compact={folded}
@@ -476,7 +494,7 @@ function Table({ deck }: { deck: Deck }) {
           tiny={density.tinyComeback}
           roomy={density.roomyComeback}
           onOpen={onOpen}
-          onFirstMove={live ? () => fling('down', { note: FIRST_MOVE_NOTE, tag: 'first' }) : undefined}
+          onFirstMove={live ? (at) => fling('down', { note: FIRST_MOVE_NOTE, tag: 'first', turnover: at }) : undefined}
           onFloor={live ? () => fling('down') : undefined}
           onCeiling={live ? () => fling('up') : undefined}
           onLogYesterday={live && density.logOnComeback && lateCards.some((c) => c.habit.id === habit.id) ? () => logYesterday(view) : undefined}
@@ -487,6 +505,8 @@ function Table({ deck }: { deck: Deck }) {
       <HabitCard
         habit={habit}
         level={view.today}
+        kept={view.allTime.kept}
+        wearDepth={depth}
         tag={laterTag(view.partOfDay, now)}
         compact={compact}
         onOpen={onOpen}
@@ -518,6 +538,9 @@ function Table({ deck }: { deck: Deck }) {
 
   function card(play: Play, live: boolean) {
     const words = swipeProps(play);
+    // The bright side a kept Comeback card turns to. It stays on the card once it is played (a ghost under
+    // the same key), since the turn runs as it leaves.
+    const turned = play.item.kind === 'comeback' ? play.view : null;
     return (
       <SwipeCard
         key={play.key}
@@ -533,8 +556,9 @@ function Table({ deck }: { deck: Deck }) {
         label={words.label}
         from={play.from}
         appear={play.appear}
-        onCommit={(dir, tag) => commit(play, dir, tag)}
+        onCommit={(dir, tag, info) => commit(play, dir, tag, info)}
         onGone={() => gone(play.key)}
+        backFace={turned ? (dir) => <HabitCard habit={turned.habit} level={dir === 'up' ? 'ceiling' : 'floor'} kept={turned.allTime.kept + 1} /> : undefined}
       >
         {face(play.item, play.view, live)}
       </SwipeCard>
@@ -564,7 +588,9 @@ function Table({ deck }: { deck: Deck }) {
     />
   ) : null;
   const banner = hasCards && !density.mergeTip && tip ? <TipBanner tip={tip} veiled={tipVeiled} count={tips.length} turn={tipTurn} onNext={() => setTipTurn((n) => n + 1)} /> : null;
-  const pills = hasCards ? <Pills cards={deck.cards} frontId={front?.item.kind === 'welcome' ? null : (front?.item.id ?? null)} onPill={onPill} onOpen={(id) => router.push(`/habit/${id}`)} onNew={() => router.push('/habit/edit')} /> : null;
+  const pills = hasCards ? (
+    <Pills cards={deck.cards} frontId={front?.item.kind === 'welcome' ? null : (front?.item.id ?? null)} ringing={ringing} onPill={onPill} onOpen={(id) => router.push(`/habit/${id}`)} onNew={() => router.push('/habit/edit')} />
+  ) : null;
 
   if (density.mode === 'list') {
     // The same order as the cards: a Comeback first, then by time of day, then what's kept.
@@ -641,7 +667,7 @@ function Table({ deck }: { deck: Deck }) {
                         .reverse()
                         .map(({ item, depth }) => (
                           <DeckCard key={`deck:${item.kind}:${item.id}`} depth={depth} pull={pull}>
-                            {face(item, views.get(item.id) ?? null, false)}
+                            {face(item, views.get(item.id) ?? null, false, depth)}
                           </DeckCard>
                         ))
                     : []),
@@ -942,7 +968,21 @@ function TipBanner({ tip, veiled, count, turn, onNext }: { tip: { tone: TipTone;
  * Every card in the deck as a pill: kept ones in their colour, waiting ones as outlines. The row scrolls
  * by itself, just enough to keep the front card's pill in view as the front card changes.
  */
-function Pills({ cards, frontId, onPill, onOpen, onNew }: { cards: HabitView[]; frontId: string | null; onPill: (view: HabitView) => void; onOpen: (id: string) => void; onNew: () => void }) {
+function Pills({
+  cards,
+  frontId,
+  onPill,
+  onOpen,
+  onNew,
+}: {
+  cards: HabitView[];
+  frontId: string | null;
+  /** The day's chord as it strums: each pill rings on its suit's note (stream 1 draws it). */
+  ringing?: readonly ToneStep[];
+  onPill: (view: HabitView) => void;
+  onOpen: (id: string) => void;
+  onNew: () => void;
+}) {
   const t = useTheme();
   const scroll = useRef<ScrollView>(null);
   const room = useRef({ x: 0, width: 0, spots: new Map<string, { x: number; w: number }>() });

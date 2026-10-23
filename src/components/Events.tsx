@@ -251,7 +251,7 @@ function ReceiptBanner({ moment, back, onDone }: { moment: Moment<GameEvent>; ba
     copy = receiptCopy({ kind: 'rung', suit: info.name, part: info.part, days: main.days });
     sound = 'cardUp';
   } else {
-    copy = { eyebrow: '', title: '', lead: null, line: '', notes: [] };
+    copy = { eyebrow: '', title: '', lead: null, line: '', notes: [], next: null };
   }
   if (main.kind === 'deal' || main.kind === 'backfill') {
     const name = nameOf(main.habitId);

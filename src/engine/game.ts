@@ -20,7 +20,7 @@
 import { SUIT_INFO, SUITS, type Rank, type Suit } from './cards';
 import { faceDays, knownOn, nextFace, suitDays, type FaceInfo, type LoggedLate } from './court';
 import { addDays, weekday, weekStart, type Day } from './day';
-import { canKeep, dayRank, dealWeek, inDeck, keptCards, loOf, rescueWaiting, RIVER_DAYS, riverCard, tallyDay, TOP_LO, type DayCard, type DealHabit, type Slot } from './deal';
+import { canKeep, dayRank, dealWeek, inDeck, keptCards, loOf, rescueWaiting, RIVER_DAYS, riverCard, savedCard, tallyDay, TOP_LO, type DayCard, type DealHabit, type Slot } from './deal';
 import type { CheckIns } from './kept';
 import { atLeast, bestHand, HAND_LADDER, handsIn, HANDS, JOKER_LINE, makesCall, SUITED_BONUS, SUITED_DAYS, type Hand, type HandKind } from './poker';
 
@@ -166,6 +166,8 @@ export type Game = {
   callOdds: Partial<Record<HandKind, CallPrice>>;
   /** Yesterday, when keeping anything today would save it. */
   rescue: Day | null;
+  /** The card yesterday would be saved as: fixed by the day and the seed, whatever today keeps. */
+  rescueCard: DayCard | null;
   /** Face cards earned, oldest first. Each one deals a Joker. */
   faces: FaceEarned[];
   /** The suit of the oldest face card whose Joker hasn't been dealt yet: it waits for a week without one. */
@@ -423,6 +425,7 @@ export function playGame(input: GameInput, pastWeeks?: readonly Week[]): Game {
     callOpen,
     callOdds: prices,
     rescue,
+    rescueCard: rescue ? savedCard(rescue, input.seed) : null,
     faces,
     pendingJoker: waiting[0]?.suit ?? null,
     tips: tipsFor(current, input, { rescue, callOpen, faces, waiting }),

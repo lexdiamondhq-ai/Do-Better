@@ -1,7 +1,9 @@
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 
+import type { Day } from '@/engine/day';
 import type { BackKey } from '@/engine/game';
 import type { HandKind, PlayedCard } from '@/engine/poker';
+import type { Stamp } from '@/engine/showdown';
 
 import { CardBack } from './CardBack';
 import { CARD_SIZES, faceOfPlayed, PlayingCard, type CardFace, type CardHighlight, type CardSize } from './PlayingCard';
@@ -31,6 +33,13 @@ export function playedFaces(cards: readonly PlayedCard[]): CardFace[] {
 
 /** A card in a fan: a face, or a card still face down (the river before the Showdown). */
 export type FanItem = CardFace | { kind: 'back'; back: BackKey };
+
+/**
+ * What a fan of played cards can say about each card, by the day it came from: `days` lists each face's
+ * day in order, `stamps` the ↓ or ↑ at its foot and `captions` the line read when it is held. Accepted
+ * and not yet drawn: stream 3 builds them.
+ */
+export type FanNotes = { days?: readonly Day[]; stamps?: Readonly<Record<Day, Stamp>>; captions?: Readonly<Record<Day, string>> };
 
 export type FanSpot = { left: number; top: number; rotate: number };
 
@@ -78,7 +87,7 @@ export function HandFan({
   highlight?: CardHighlight;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
-}) {
+} & FanNotes) {
   const base = CARD_SIZES[size];
   const w = width ?? base.w;
   const h = (w * base.h) / base.w;
@@ -117,7 +126,7 @@ export function HandRow({
   overlap?: number;
   highlight?: boolean | CardHighlight;
   accessibilityLabel?: string;
-}) {
+} & FanNotes) {
   const s = CARD_SIZES[size];
   // A called hand wears one check, on its last card, rather than five.
   const mark = (i: number) => (highlight === 'called' ? (i === faces.length - 1 ? 'called' : undefined) : highlight);

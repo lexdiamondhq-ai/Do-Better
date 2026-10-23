@@ -84,6 +84,15 @@ function Screens() {
           name="call"
           options={{ presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: t.bg } }}
         />
+        {/* Your plan (stream 2) and Leave it where it plays (stream 4): sheets like the call's. */}
+        <Stack.Screen
+          name="plan"
+          options={{ presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: t.bg } }}
+        />
+        <Stack.Screen
+          name="leave"
+          options={{ presentation: 'formSheet', sheetAllowedDetents: [1], sheetGrabberVisible: true, sheetCornerRadius: 28, contentStyle: { backgroundColor: t.bg } }}
+        />
         <Stack.Screen name="showdown" options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }} />
         <Stack.Screen name="onboarding" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
       </Stack>

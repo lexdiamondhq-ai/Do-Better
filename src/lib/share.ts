@@ -24,7 +24,9 @@ import { longDate, weekOf } from './format';
 
 export type ShareTarget =
   | { kind: 'hand'; week: Week; names?: boolean }
-  | { kind: 'face'; suit: Suit; face: FaceInfo; identities: string[]; days: number };
+  | { kind: 'face'; suit: Suit; face: FaceInfo; identities: string[]; days: number }
+  /** One card, to print or to set as a lock screen. Its name leaves the phone only from an explicit Save. */
+  | { kind: 'card'; habitId: string; name: string; format: 'print' | 'lock' };
 
 /** One habit's week, for a shared hand that shows habit names: "Read 6/7". */
 export type HabitLine = { name: string; kept: number; days: number };
@@ -245,13 +247,15 @@ export function habitLine(h: HabitLine): string {
 }
 
 /**
- * The words that go with a shared hand or face card, and all that is shared from a browser. Habit names
- * appear only when the player asked for them and `habits` is given; the call line only for a made call;
- * the Suited line only for a Suited week.
+ * The words that go with a shared hand, face card or card, and all that is shared from a browser. Habit
+ * names appear only when the player asked for them and `habits` is given (a card is its name, shared only
+ * from an explicit Save); the call line only for a made call; the Suited line only for a Suited week.
  */
 export function shareCaption(target: ShareTarget, habits?: readonly HabitLine[]): string {
   const lines: string[] = [];
-  if (target.kind === 'face') {
+  if (target.kind === 'card') {
+    lines.push(target.name);
+  } else if (target.kind === 'face') {
     const { name, part } = SUIT_INFO[target.suit];
     lines.push(`${target.face.name} of ${name}: ${target.face.title}.`);
     const who = identityPhrase(target.identities, 'me', 1);
@@ -320,19 +324,21 @@ export function feltFor(base: Theme, lead: Suit | null = null): Felt {
 export type ShareOutcome = 'image' | 'text' | 'copied' | 'cancelled' | 'failed';
 
 /**
- * Shares a hand or a face card. On a phone, with the share card's `view` on screen, it shares the card
- * as a 1080 × 1920 picture; anywhere else (a browser, or a phone that can't make the picture) it shares
+ * Shares a hand, a face card or one card of the deck. On a phone, with the share card's `view` on screen,
+ * it shares the card as a picture (1080 × 1920 unless `size` says otherwise); anywhere else (a browser, or a phone that can't make the picture) it shares
  * the caption as text, and copies it when the browser can't share.
  */
-export async function share(target: ShareTarget, opts: { view?: RefObject<View | null>; habits?: readonly HabitLine[] } = {}): Promise<ShareOutcome> {
+export async function share(target: ShareTarget, opts: { view?: RefObject<View | null>; habits?: readonly HabitLine[]; size?: { w: number; h: number } } = {}): Promise<ShareOutcome> {
   const message = shareCaption(target, opts.habits);
   const view = opts.view;
+  // The picture's size in pixels: a phone story unless the target asks for its own (a printed card, a lock screen).
+  const size = opts.size ?? SHARE_SIZE;
   if (Platform.OS !== 'web' && view?.current) {
     try {
       if (await Sharing.isAvailableAsync()) {
         // iOS sizes the picture in points and draws it at the screen's scale; Android sizes it in pixels.
         const scale = Platform.OS === 'ios' ? PixelRatio.get() : 1;
-        const uri = await captureRef(view, { format: 'png', quality: 1, result: 'tmpfile', width: SHARE_SIZE.w / scale, height: SHARE_SIZE.h / scale });
+        const uri = await captureRef(view, { format: 'png', quality: 1, result: 'tmpfile', width: size.w / scale, height: size.h / scale });
         await Sharing.shareAsync(uri.startsWith('file://') ? uri : `file://${uri}`, { mimeType: 'image/png', UTI: 'public.png', dialogTitle: target.kind === 'hand' ? 'Share this hand' : 'Share this card' });
         return 'image';
       }

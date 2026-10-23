@@ -408,4 +408,13 @@ describe('sharing', () => {
     await share({ ...target, names: true }, { habits });
     expect(asked[1]).toContain('Read 6/7');
   });
+
+  it('captures one card at the size it asks for, and says only its name in words', async () => {
+    const card = { kind: 'card', habitId: 'read', name: 'Read', format: 'print' } as const;
+    expect(shareCaption(card)).toBe(`Read\n${FOOTER}`);
+    os = 'ios';
+    expect(await share(card, { view, size: { w: 1500, h: 1050 } })).toBe('image');
+    // At 3x, 1500 by 1050 pixels is 500 by 350 points.
+    expect(asked).toEqual(['capture:png:500x350', 'file:file:///tmp/hand.png:image/png']);
+  });
 });

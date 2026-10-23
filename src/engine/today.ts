@@ -13,6 +13,7 @@ import type { Tip, TipTone } from './game';
 import { dayStatus, type CheckIns, type Level } from './kept';
 import { playsLine } from './playbook';
 import { handPhrase, JOKER_LINE, type Hand } from './poker';
+import type { WearStage } from './wear';
 
 // Time of day -------------------------------------------------------------------------------------------
 
@@ -298,15 +299,16 @@ export function keptLine(kept: number): string {
 }
 
 /**
- * The tips worth a place on Today: a Joker, a face card within reach, yesterday's card still to save, the
- * call, and what the week is playing for (the warm-up, a river card a day or two away, Sunday's Showdown).
- * The rest (the next band, a draw) live on the hand and in the rules, so the screen above the card stays quiet.
+ * The tips worth a place on Today: a Joker, a face card within reach, yesterday's card still to save, a draw
+ * worth chasing, the call, and what the week is playing for (the warm-up, a river card a day or two away,
+ * Sunday's Showdown). The next band lives on the hand and in the rules, so the screen above the card stays
+ * quiet. A draw tip only exists while it is worth chasing (stream 5 sets the rule).
  *
  * In the warm-up week the line that explains it leads. On a player's very first look, while the swipe hint
  * is showing, only one line may join it, and only the warm-up explanation: the call waits for the next look
  * (its chip is still there), so the first screen asks one thing at a time.
  */
-const TODAY_TONES: ReadonlySet<TipTone> = new Set(['joker', 'face', 'rescue', 'call', 'showdown']);
+const TODAY_TONES: ReadonlySet<TipTone> = new Set(['joker', 'face', 'rescue', 'draw', 'call', 'showdown']);
 
 export function todayTips(tips: readonly Tip[], { warmup = false, firstLook = false }: { warmup?: boolean; firstLook?: boolean } = {}): Tip[] {
   const shown = tips.filter((tip) => TODAY_TONES.has(tip.tone));
@@ -318,9 +320,10 @@ export function todayTips(tips: readonly Tip[], { warmup = false, firstLook = fa
 
 /**
  * The hand line over the deck: what to call the hand, its name, and what it pays. On Sunday it names the
- * stake ("Showdown tonight"); in the warm-up week the hand plays for fun and pays nothing.
+ * stake ("Showdown tonight"); in the warm-up week the hand plays for fun and pays nothing. `fresh` is a
+ * Monday before any card (stream 1 gives it its "New week" words; until then it reads as today).
  */
-export function handLineCopy({ warmup, hand, chips, sunday }: { warmup: boolean; hand: Pick<Hand, 'title'> | null; chips: number; sunday: boolean }): {
+export function handLineCopy({ warmup, hand, chips, sunday }: { warmup: boolean; hand: Pick<Hand, 'title'> | null; chips: number; sunday: boolean; fresh?: boolean }): {
   label: string;
   title: string;
   pays: number | null;
@@ -437,6 +440,16 @@ export type Receipt =
       handWas: HandLike | null;
       saved: boolean;
       rung?: RungNote | null;
+      /** A Floor kept on a Comeback card: the eyebrow says "Floor held". */
+      held?: boolean;
+      /** The receipt's last line: what would lift today's card next. */
+      next?: string | null;
+      /** Explain the Joker's rule on this receipt (only until the player has seen it once). */
+      explainJoker?: boolean;
+      /** The habit id to offer "Plan for next time" for, after a kept Comeback. */
+      plan?: string | null;
+      /** This keep took the card's own kept days exactly onto a wear stage: its line replaces `next`. */
+      wore?: WearStage;
     }
   | {
       kind: 'backfill';
@@ -461,7 +474,7 @@ export type Receipt =
  * The receipt's words. `lead` is the news that must never be cut (yesterday saved too, a Joker that moved),
  * shown first; `line` is the card and the hand; `notes` follow (the Joker's rule, a rung reached).
  */
-export type ReceiptCopy = { eyebrow: string; title: string; lead: string | null; line: string; notes: string[] };
+export type ReceiptCopy = { eyebrow: string; title: string; lead: string | null; line: string; notes: string[]; next: string | null };
 
 /**
  * The hand, in words, after a change: a broken match said plainly, a better kicker named as just that.
@@ -489,7 +502,7 @@ const rungNote = (r: RungNote | null | undefined) => (r ? [`And ${grouped(r.days
  * saved day of the rules, which a late log never makes.
  */
 export function receiptCopy(r: Receipt): ReceiptCopy {
-  if (r.kind === 'rung') return { eyebrow: `The Court · ${r.suit}`, title: `${grouped(r.days)} days of ${r.part}`, lead: null, line: 'Still climbing toward the Ace.', notes: [] };
+  if (r.kind === 'rung') return { eyebrow: `The Court · ${r.suit}`, title: `${grouped(r.days)} days of ${r.part}`, lead: null, line: 'Still climbing toward the Ace.', notes: [], next: null };
   const eyebrow = r.level === 'ceiling' ? 'Ceiling reached' : 'Floor kept';
   const hand = handLine(r.hand, r.handWas, !!r.dropped, !!r.wentUp);
   const line = (r.joker ? hand : `${r.card}. ${hand}`).trim();
@@ -504,10 +517,26 @@ export function receiptCopy(r: Receipt): ReceiptCopy {
           ? `The week’s Joker moved to ${r.moved.day}, your first kept day.${today}`
           : `Your waiting Joker landed on ${r.moved.day}.`;
     }
-    return { eyebrow, title: r.blank ? 'Yesterday counts' : 'Yesterday logged', lead, line, notes };
+    return { eyebrow, title: r.blank ? 'Yesterday counts' : 'Yesterday logged', lead, line, notes, next: null };
   }
   const title = r.joker ? 'A Joker!' : r.dropped ? 'Today’s card changed' : r.wentUp && !r.first ? 'Today’s card went up' : 'Today’s card';
-  return { eyebrow, title, lead: r.saved ? 'Yesterday’s card was saved too.' : null, line, notes };
+  return { eyebrow, title, lead: r.saved ? 'Yesterday’s card was saved too.' : null, line, notes, next: r.next ?? null };
+}
+
+/** How long today's moment waits before the night comes down, today: the card leaves, its stamp is read. */
+const MOMENT_DELAY_MS = 520;
+
+/**
+ * The deal arc: today's card flies from the kept card into its slot in the week, turns over there and
+ * settles. Stream 1 builds the arc; until then there is none.
+ */
+export function dealArc(o: { reduced: boolean }): { flyMs: number; flipMs: number; settleMs: number; totalMs: number } {
+  return { flyMs: 0, flipMs: 0, settleMs: 0, totalMs: 0 };
+}
+
+/** How long a receipt or a big moment waits after a keep. Until stream 1 times it from the exit and the arc, today's 520 ms. */
+export function momentDelay(o: { comeback: boolean; reduced: boolean }): number {
+  return MOMENT_DELAY_MS;
 }
 
 /** Something that interrupts Today: a moment from a check-in, the first-swipe coach mark or the reminder question. */

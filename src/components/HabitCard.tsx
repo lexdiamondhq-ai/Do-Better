@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 
 import { SUIT_INFO } from '@/engine/cards';
+import type { Point } from '@/engine/comeback';
 import type { Level } from '@/engine/kept';
 import { ownWhy } from '@/engine/playbook';
 import { comebackCopy, grouped, identityLine, whenLine, type ComebackGap } from '@/engine/today';
@@ -10,6 +11,7 @@ import { withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardColors, chip, fontScale, fonts, INK, on, radius, space, TAP, type Theme } from '@/theme/tokens';
 
+import { CardWear } from './CardWear';
 import { SuitGlyph } from './Suit';
 import { CardButton } from './SwipeCard';
 import { Body, Label } from './ui';
@@ -119,6 +121,8 @@ function nameSize(name: string, compact: boolean): number {
 export function HabitCard({
   habit,
   level,
+  kept = 0,
+  wearDepth = 0,
   subtitle,
   tag,
   compact = false,
@@ -129,6 +133,10 @@ export function HabitCard({
 }: {
   habit: Habit;
   level?: Level | null;
+  /** Kept days on this card so far, for its wear. */
+  kept?: number;
+  /** Where the card sits in the deck (0 is the front), so cards further back draw lighter wear. */
+  wearDepth?: number;
   subtitle?: string;
   /** A small note on the card, such as "Plays tonight". */
   tag?: string | null;
@@ -149,6 +157,7 @@ export function HabitCard({
       <SuitGlyph suit={habit.suit} size={compact ? 180 : 250} color={ink} />
     </View>
   );
+  const wear = <CardWear habitId={habit.id} kept={kept} depth={wearDepth} />;
 
   const middle = (
     <View style={{ gap: compact ? 4 : space.sm }}>
@@ -211,6 +220,7 @@ export function HabitCard({
     return (
       <View style={[{ flex: 1, backgroundColor: c.bg, borderRadius: radius.card, padding: space.lg, paddingTop: space.xl, justifyContent: 'space-between', overflow: 'hidden', ...cardShadow(edge) }, style]}>
         {watermark}
+        {wear}
         {middle}
         {floorKept ? (
           <View style={{ gap: space.sm }}>
@@ -249,6 +259,7 @@ export function HabitCard({
   return (
     <View style={[{ flex: 1, backgroundColor: c.bg, borderRadius: radius.card, padding: space.lg, justifyContent: 'space-between', gap: space.md, overflow: 'hidden', ...cardShadow(edge) }, style]}>
       {watermark}
+      {wear}
       {row('↑', floorKept ? 'Still in reach · Ceiling' : 'Ceiling', habit.ceilingLabel, ceilingLabel, onCeiling, 'card-ceiling')}
       <View style={{ paddingHorizontal: space.sm }}>{middle}</View>
       {floorKept ? <View style={{ paddingHorizontal: space.sm }}>{floorDone}</View> : row('↓', 'Floor', habit.floorLabel, floorLabel, onFloor, 'card-floor')}
@@ -280,6 +291,7 @@ function darkCard(t: Theme): ViewStyle {
 export function ComebackCard({
   habit,
   kept,
+  wearDepth = 0,
   gap,
   saving,
   compact = false,
@@ -297,6 +309,8 @@ export function ComebackCard({
   habit: Habit;
   /** Kept days on this card so far. */
   kept: number;
+  /** Where the card sits in the deck (0 is the front), so cards further back draw lighter wear. */
+  wearDepth?: number;
   gap: ComebackGap;
   /** Keeping anything today also saves yesterday's card. */
   saving?: boolean;
@@ -309,7 +323,10 @@ export function ComebackCard({
   tiny?: boolean;
   /** Folded, but with room to spare: the words get it (a bigger headline, "Yesterday got away", more of the why). */
   roomy?: boolean;
-  onFirstMove?: () => void;
+  /** Your plan for this card, as one line ("Too tired? Put on your shoes."). Stream 2 shows it in place of the First move. */
+  plan?: string | null;
+  /** Done it. `at` is the button's centre in window coordinates, where the turnover's light starts. */
+  onFirstMove?: (at?: Point) => void;
   onFloor?: () => void;
   onCeiling?: () => void;
   /** Yesterday can still be logged, for "Did it, forgot to log". Left out where there's no room; the week strip has it too. */
@@ -423,6 +440,7 @@ export function ComebackCard({
       <SuitGlyph suit={habit.suit} size={compact ? 200 : 260} color={accent} />
     </View>
   );
+  const wear = <CardWear habitId={habit.id} kept={kept} depth={wearDepth} dark />;
 
   if (compact) {
     // Folded: who you are, the first move and Done it, then the Floor. Yesterday is logged from the week strip.
@@ -436,6 +454,7 @@ export function ComebackCard({
     return (
       <View style={[darkCard(t), { padding: 14, paddingHorizontal: space.lg, gap: space.sm }, style]}>
         {tight ? null : watermark}
+        {wear}
         {/* If a long name ever needs more room than the card has, these lines give way, never the way in below them. */}
         <View style={{ flex: 1, minHeight: 0, overflow: 'hidden', gap: tight ? 2 : space.xs }}>
           {eyebrow}
@@ -483,6 +502,7 @@ export function ComebackCard({
   return (
     <View style={[darkCard(t), { padding: space.xl, paddingTop: space.lg, paddingBottom: space.lg, justifyContent: 'space-between', gap: space.md }, style]}>
       {watermark}
+      {wear}
       <View style={{ gap: space.sm, flexShrink: 1, minHeight: 0, overflow: 'hidden' }}>
         {eyebrow}
         <Body size={14} weight="heavy" color={quiet} maxFontSizeMultiplier={fontScale.chrome}>

@@ -262,9 +262,9 @@ describe('the chrome', () => {
     expect(keptLine(1860)).toBe('1,860 kept days');
   });
 
-  it('keeps only the tips that matter today, Sunday’s Showdown and a near river card among them', () => {
+  it('keeps only the tips that matter today, Sunday’s Showdown, a near river card and a draw among them', () => {
     const tips = (['climb', 'joker', 'draw', 'rescue', 'showdown', 'call', 'face', 'deal', 'done'] as const).map((tone) => ({ tone, text: tone }));
-    expect(todayTips(tips).map((t) => t.tone)).toEqual(['joker', 'rescue', 'showdown', 'call', 'face']);
+    expect(todayTips(tips).map((t) => t.tone)).toEqual(['joker', 'draw', 'rescue', 'showdown', 'call', 'face']);
   });
 
   it('leads the warm-up week with the line that explains it', () => {
@@ -399,7 +399,7 @@ describe('receipts', () => {
   const deal = { kind: 'deal' as const, level: 'floor' as const, card: 'Eight of Spades', joker: false, wentUp: true, first: false, dropped: false, hand: pair, handWas: high, saved: false };
 
   it('names the card, the level and what the hand became', () => {
-    expect(receiptCopy(deal)).toEqual({ eyebrow: 'Floor kept', title: 'Today’s card went up', lead: null, line: 'Eight of Spades. Your hand is now a Pair of Eights.', notes: [] });
+    expect(receiptCopy(deal)).toEqual({ eyebrow: 'Floor kept', title: 'Today’s card went up', lead: null, line: 'Eight of Spades. Your hand is now a Pair of Eights.', notes: [], next: null });
     expect(receiptCopy({ ...deal, level: 'ceiling', first: true }).title).toBe('Today’s card');
   });
 
@@ -447,7 +447,7 @@ describe('receipts', () => {
 
     it('says yesterday counts when it had no card, and never calls it saved', () => {
       const r = receiptCopy(late);
-      expect(r).toEqual({ eyebrow: 'Ceiling reached', title: 'Yesterday counts', lead: null, line: 'Seven of Spades. Your hand is now a Pair of Eights.', notes: [] });
+      expect(r).toEqual({ eyebrow: 'Ceiling reached', title: 'Yesterday counts', lead: null, line: 'Seven of Spades. Your hand is now a Pair of Eights.', notes: [], next: null });
       expect(Object.values(receiptCopy({ ...late, blank: false })).join(' ')).not.toMatch(/saved/i);
     });
 

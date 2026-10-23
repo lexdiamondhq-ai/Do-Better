@@ -48,7 +48,8 @@ export function ShareCard({ target, habits, back, lead = null, cardRef }: { targ
           <Rect x={0} y={0} width="100%" height="100%" fill={`url(#share${id})`} />
         </Svg>
         <ThemeScope theme={felt.theme}>
-          <View style={{ flex: 1, padding: PAD }}>{target.kind === 'hand' ? <HandSide target={target} habits={habits} /> : <FaceSide target={target} />}</View>
+          {/* A single card ('card') is drawn by its own preview (CardOut), not on this share card. */}
+          <View style={{ flex: 1, padding: PAD }}>{target.kind === 'hand' ? <HandSide target={target} habits={habits} /> : target.kind === 'face' ? <FaceSide target={target} /> : null}</View>
         </ThemeScope>
       </View>
     </View>

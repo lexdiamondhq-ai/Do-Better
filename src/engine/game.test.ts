@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { addDays, weekDays, type Day } from './day';
-import { dealDay, type DayCard, type DealHabit, type Slot } from './deal';
+import { dealDay, savedCard, type DayCard, type DealHabit, type Slot } from './deal';
 import {
   BACKS,
   CALL_BASELINE,
@@ -732,6 +732,18 @@ describe('tips', () => {
     const game = playGame(input({ days: { read: { ...keep(W2), [W3]: 'floor' } } }));
     expect(game.rescue).toBe('2026-10-06');
     expect(game.tips.some((t) => t.tone === 'rescue')).toBe(true);
+  });
+
+  it('knows the card yesterday would be saved as, the same card whatever today keeps', () => {
+    const game = playGame(input({ days: { read: { ...keep(W2), [W3]: 'floor' } } }));
+    expect(game.rescueCard).toEqual(savedCard('2026-10-06', 'test-user'));
+    expect(game.rescueCard).toMatchObject({ suits: [], rescued: true });
+    // Keeping today saves yesterday as exactly that card.
+    const kept = playGame(input({ days: { read: { ...keep(W2), [W3]: 'floor', '2026-10-07': 'ceiling' } } }));
+    expect(kept.rescue).toBeNull();
+    expect(kept.rescueCard).toBeNull();
+    expect(kept.current.slots[1].card).toEqual(game.rescueCard);
+    expect(playGame(input({ days: { read: keep(W3, 'floor', 2) } })).rescueCard).toBeNull();
   });
 
   it('points at a face card one day away, with its Joker, and deals the Joker when it lands', () => {

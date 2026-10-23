@@ -1,6 +1,8 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { Platform } from 'react-native';
 
+import type { ToneStep } from '@/engine/chord';
+
 /**
  * The table's music and one sound for each thing you do. Every sound is made by
  * scripts/make-sounds.py, so it can be tuned there and regenerated.
@@ -20,6 +22,8 @@ const SOURCES = {
   chips: require('../../assets/sounds/chips.mp3'),
   call: require('../../assets/sounds/call.mp3'),
   tap: require('../../assets/sounds/tap.mp3'),
+  /** A card landing in its slot in the week. The flip for now; stream 6 makes its own brush on the felt. */
+  deal: require('../../assets/sounds/flip.mp3'),
 } as const;
 
 export type SoundName = keyof typeof SOURCES;
@@ -30,7 +34,7 @@ export type SoundName = keyof typeof SOURCES;
  */
 const MUSIC = Platform.OS === 'web' ? require('../../assets/sounds/music.mp3') : require('../../assets/sounds/music.m4a');
 
-const VOLUME: Record<SoundName, number> = { floor: 0.8, ceiling: 0.75, later: 0.6, flip: 0.7, cardUp: 0.7, joker: 0.8, face: 0.85, chips: 0.8, call: 0.6, tap: 0.4 };
+const VOLUME: Record<SoundName, number> = { floor: 0.8, ceiling: 0.75, later: 0.6, flip: 0.7, cardUp: 0.7, joker: 0.8, face: 0.85, chips: 0.8, call: 0.6, tap: 0.4, deal: 0.7 };
 /** Sounds that can fire again before the last one ends get a second player, so the first isn't cut short. */
 const VOICES: Partial<Record<SoundName, number>> = { ceiling: 2, chips: 2, flip: 2 };
 const MUSIC_VOLUME = 0.32;
@@ -122,6 +126,9 @@ export function playSound(name: SoundName, delayMs = 0) {
   if (delayMs > 0) setTimeout(go, delayMs);
   else go();
 }
+
+/** Plays a strum or a hand's chord, each note `delayMs` after `startMs`. Nothing rings until stream 6 adds the notes. */
+export function playTones(steps: readonly ToneStep[], startMs = 0) {}
 
 /** Moves the music's volume to `to` over `ms`, then runs `done`. */
 function ramp(to: number, ms: number, done?: () => void) {

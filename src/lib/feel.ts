@@ -1,6 +1,8 @@
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
 
+import type { Beat } from '@/engine/rhythm';
+
 /**
  * What the app feels like in the hand: one tap you can feel for each thing that happens, named for the
  * moment rather than the motor pattern, so every screen feels the same.
@@ -76,4 +78,14 @@ export function tick() {
 export function chips() {
   play(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
   later(90, () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+}
+
+/** The dark Comeback card turning back over in your hand. Until stream 6 gives it its own pattern, a Floor's thud. */
+export function turnover() {
+  floor();
+}
+
+/** The Showdown result's rhythm, one tap per beat. Until stream 6 plays the beats, the Ceiling's success. */
+export function rhythm(beats: readonly Beat[]) {
+  ceiling();
 }

@@ -16,12 +16,14 @@ import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Label, raisedStyle } from '@/components/ui';
 import { WeekStrip } from '@/components/WeekStrip';
 import { SUIT_INFO, type Suit } from '@/engine/cards';
+import { handChord } from '@/engine/chord';
 import { nextFace, suitDays } from '@/engine/court';
 import { addDays, weekday, type Day } from '@/engine/day';
 import { inDeck, type DayCard } from '@/engine/deal';
 import { BACKS, chapterRecap, lastShowdown, TABLES, unlocksFor, weekReview, weekTotal, type BackKey, type Game, type TableKey, type Week, type WeekReview } from '@/engine/game';
 import { indexCheckIns } from '@/engine/kept';
 import { HANDS, type Hand, type PlayedCard } from '@/engine/poker';
+import { handRhythm } from '@/engine/rhythm';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
 import { useDeck, useLook } from '@/lib/deck';
@@ -31,7 +33,7 @@ import { courtHabits, dealHabits, gameInput } from '@/lib/play';
 import { usePrefs } from '@/lib/prefs';
 import { useReviewAsk } from '@/lib/review';
 import { callLine, feltFor, handLines, stampSize, suitedLine, weekLine, weekSuit, type Felt } from '@/lib/share';
-import { playSound } from '@/lib/sound';
+import { playSound, playTones } from '@/lib/sound';
 import type { Habit } from '@/lib/types';
 import { mix, withAlpha } from '@/theme/color';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
@@ -257,11 +259,18 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs again on every turn, which is the point
   }, [phase, turned]);
 
+  // The hand the result plays, held for this Showdown, so a refresh that re-deals the week never plays it twice.
+  const [resultHand] = useState(() => week.hand);
+
   // The result lands in beats: the hand stamps down, the chips count up, then the call and the rest.
   useEffect(() => {
     if (phase !== 'result' || instant) return;
     playSound('ceiling');
-    feel.ceiling();
+    // The hand taps out its own shape and rings as its chord (stream 6); with no hand, the plain success.
+    if (resultHand) {
+      feel.rhythm(handRhythm(resultHand.kind));
+      playTones(handChord(resultHand));
+    } else feel.ceiling();
     const timers = [
       setTimeout(() => {
         setStep(1);
@@ -275,7 +284,7 @@ function Table({ week, game, replay, sample }: { week: Week; game: Game; replay:
       setTimeout(() => setStep(3), 2050),
     ];
     return () => timers.forEach(clearTimeout);
-  }, [phase, instant, week.bonus]);
+  }, [phase, instant, week.bonus, resultHand]);
 
   // Straight to the result: Skip, or a screen reader, which hears it said instead.
   const jump = (announce: boolean) => {

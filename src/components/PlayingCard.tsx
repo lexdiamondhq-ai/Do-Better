@@ -6,6 +6,7 @@ import { rankLabel, rankName, SUIT_INFO, type Rank, type Suit } from '@/engine/c
 import type { FaceInfo } from '@/engine/court';
 import type { DayCard } from '@/engine/deal';
 import type { PlayedCard } from '@/engine/poker';
+import type { Stamp } from '@/engine/showdown';
 import { mix } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cardFace, chip, fontScale, fonts, INK, suitColors } from '@/theme/tokens';
@@ -141,6 +142,13 @@ type Props = {
   width?: number;
   highlight?: boolean | CardHighlight;
   dim?: boolean;
+  /** ↓ for a Floor day or ↑ for a Ceiling day, at the card's foot. Accepted and not yet drawn (stream 3). */
+  stamp?: Stamp;
+  /**
+   * A card that isn't in the hand yet: a dashed edge and no shadow. Yesterday's card waiting to be saved
+   * in the week strip, or an out the hand is drawing to on Hands. Callers set its opacity with `style`.
+   */
+  dashed?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -149,7 +157,7 @@ type Props = {
  * Ace a ringed pip, and a saved day a pale face with a turning arrow and no suit. A Joker is ink with
  * a gold star. The card is a picture: its text never grows with the phone's text size.
  */
-export function PlayingCard({ face, size = 'md', width, highlight, dim, style }: Props) {
+export function PlayingCard({ face, size = 'md', width, highlight, dim, dashed = false, style }: Props) {
   const t = useTheme();
   const g = geometry(size, width ?? CARD_SIZES[size].w);
   const mark: CardHighlight | null = highlight === true ? 'held' : highlight || null;
@@ -173,9 +181,10 @@ export function PlayingCard({ face, size = 'md', width, highlight, dim, style }:
             borderRadius: g.radius,
             overflow: 'hidden',
             backgroundColor: joker ? JOKER_INK : saved ? cardFace.saved : cardFace.bg,
-            borderWidth: 1,
-            borderColor: joker ? JOKER_EDGE : cardFace.edge,
-            boxShadow: size === 'xs' && !lift ? undefined : `0px ${Math.round(g.w / 22) + lift / 2}px ${Math.round(g.w / 7) + lift}px rgba(0, 0, 0, ${lift ? 0.3 : 0.22})`,
+            borderWidth: dashed ? Math.max(1.5, Math.round(g.w / 40)) : 1,
+            borderStyle: dashed ? 'dashed' : 'solid',
+            borderColor: joker ? JOKER_EDGE : dashed ? cardFace.faint : cardFace.edge,
+            boxShadow: dashed || (size === 'xs' && !lift) ? undefined : `0px ${Math.round(g.w / 22) + lift / 2}px ${Math.round(g.w / 7) + lift}px rgba(0, 0, 0, ${lift ? 0.3 : 0.22})`,
           }}
         >
           {face.kind === 'joker' ? <JokerFace g={g} size={size} as={face.as} /> : <NumberFace face={face} size={size} g={g} />}

@@ -16,13 +16,24 @@ import Animated, {
 } from 'react-native-reanimated';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
+import type { Point } from '@/engine/comeback';
+import type { Grip } from '@/engine/wear';
 import * as feel from '@/lib/feel';
 import { fontScale, fonts, INK, radius } from '@/theme/tokens';
 
 export type SwipeDirection = 'up' | 'down' | 'left' | 'right';
 
-/** Sends the card on its way from a button or a key: the same exit, sound and haptics as a swipe. */
-export type Fling = (dir: SwipeDirection, opts?: { note?: string; tag?: string }) => void;
+/**
+ * What a commit knows about the hand that made it: `grip`, where the thumb took the card (0..1 across and
+ * down its face, on swipes only), and `at`, the card's centre in window coordinates as it went.
+ */
+export type CommitInfo = { grip?: Grip; at?: Point };
+
+/**
+ * Sends the card on its way from a button or a key: the same exit, sound and haptics as a swipe.
+ * `turnover` is where a Comeback card's warm light starts (Done it's centre), for a card with a `backFace`.
+ */
+export type Fling = (dir: SwipeDirection, opts?: { note?: string; tag?: string; turnover?: Point }) => void;
 export type SwipeHandle = { fling: Fling };
 
 /** How far a card has to travel before letting go counts. */
@@ -89,7 +100,8 @@ export function SwipeCard({
   testID,
 }: PropsWithChildren<{
   ref?: Ref<SwipeHandle>;
-  onCommit?: (dir: SwipeDirection, tag?: string) => void;
+  /** Fires at the first frame of the exit. `info` is filled in by stream 2 (grip and centre). */
+  onCommit?: (dir: SwipeDirection, tag?: string, info?: CommitInfo) => void;
   onGone?: (dir: SwipeDirection) => void;
   onSwipe?: (dir: SwipeDirection) => void;
   allow?: Allow;
@@ -107,6 +119,11 @@ export function SwipeCard({
   /** What the card is, read out with its actions. */
   label?: string;
   testID?: string;
+  /**
+   * The bright side a Comeback card turns to as it leaves, for the way it went. Mounted only during the
+   * exit. Accepted and not yet drawn: stream 2 builds the turnover.
+   */
+  backFace?: (dir: SwipeDirection) => ReactNode;
 }>) {
   const { width, height } = useWindowDimensions();
   const reduced = useReducedMotion();

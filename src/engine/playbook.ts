@@ -412,6 +412,10 @@ export type HabitFacts = {
   mastered: boolean;
   /** Brought back from the archive this session. The coach never asks to rest a card the player just chose to keep. */
   justBack?: boolean;
+  /** A plan for its next Comeback is saved on this phone (`prefs.plans`). */
+  hasPlan?: boolean;
+  /** Comebacks kept on this card in the last 30 days. */
+  comebacks30?: number;
 };
 
 export type RecommendationContext = {
