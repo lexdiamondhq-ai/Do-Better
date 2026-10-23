@@ -23,6 +23,7 @@ import {
   interruptionFor,
   JOKER_LINE,
   jokerResult,
+  keepWore,
   keptLine,
   keyMove,
   laterTag,
@@ -31,6 +32,7 @@ import {
   partOfDayAt,
   pillMenu,
   receiptCopy,
+  receiptOffersPlan,
   wearNote,
   weekDealDue,
   weekDealSlot,
@@ -541,6 +543,14 @@ describe('receipts', () => {
     for (const kept of [0, 1, 9, 11, 29, 31, 99, 101, 364, 366]) expect(woreAt(kept)).toBeNull();
   });
 
+  it('wears a card only on its first keep of the day, never again on a raise to the Ceiling', () => {
+    // The keep that takes Read to its 30th kept day wears it in; raising the same day to the Ceiling adds no kept day.
+    expect(keepWore(30, null)).toBe('played');
+    expect(keepWore(30, 'floor')).toBeNull();
+    expect(keepWore(10, null)).toBe('worn');
+    expect(keepWore(31, null)).toBeNull();
+  });
+
   it('tells a rung reached on the same keep', () => {
     expect(receiptCopy({ ...deal, rung: { part: 'Mind', days: 150 } }).notes).toEqual(['And 150 days of Mind in the Court.']);
     expect(receiptCopy({ kind: 'rung', suit: 'Clubs', part: 'Mind', days: 150 })).toMatchObject({ title: '150 days of Mind', line: 'Still climbing toward the Ace.' });
@@ -580,6 +590,31 @@ describe('receipts', () => {
     expect(aCard('Eight of Clubs')).toBe('an Eight of Clubs');
     expect(aCard('Ace of Spades')).toBe('an Ace of Spades');
     expect(aCard('Ten of Hearts')).toBe('a Ten of Hearts');
+  });
+});
+
+describe('Plan for next time on the receipt', () => {
+  const today = '2026-10-23';
+  const base = { keptComebackToday: true, onComebackCard: true, plan: null, today };
+
+  it('is offered after a Floor held, Done it included, and after a Ceiling kept on the Comeback card', () => {
+    expect(receiptOffersPlan({ ...base, level: 'floor' })).toBe(true);
+    // Done it records the Floor from the Comeback card; a Floor kept later from the card's own page still answers it.
+    expect(receiptOffersPlan({ ...base, level: 'floor', onComebackCard: false })).toBe(true);
+    expect(receiptOffersPlan({ ...base, level: 'ceiling' })).toBe(true);
+  });
+
+  it('is never offered for a Ceiling raised later, or a keep that answered no Comeback', () => {
+    expect(receiptOffersPlan({ ...base, level: 'ceiling', onComebackCard: false })).toBe(false);
+    expect(receiptOffersPlan({ ...base, level: 'floor', keptComebackToday: false })).toBe(false);
+    expect(receiptOffersPlan({ ...base, level: 'ceiling', keptComebackToday: false })).toBe(false);
+  });
+
+  it('rests for 14 days after the card’s last plan, then is offered again', () => {
+    const plan = (made: string) => ({ when: 'tired', then: 'first' as const, made });
+    expect(receiptOffersPlan({ ...base, level: 'floor', plan: plan('2026-10-20') })).toBe(false);
+    expect(receiptOffersPlan({ ...base, level: 'floor', plan: plan('2026-10-10') })).toBe(false);
+    expect(receiptOffersPlan({ ...base, level: 'floor', plan: plan('2026-10-09') })).toBe(true);
   });
 });
 

@@ -9,7 +9,7 @@
 import { contrast, mix } from '@/theme/color';
 
 import { rankName } from './cards';
-import { comebackExit } from './comeback';
+import { comebackExit, planOffered, type Plan } from './comeback';
 import { addDays, type Day } from './day';
 import type { Tip, TipTone } from './game';
 import { dayStatus, type CheckIns, type Level } from './kept';
@@ -549,6 +549,26 @@ export function woreAt(kept: number): WearStage | null {
   if (kept <= 0) return null;
   const hit = (Object.keys(WEAR_AT) as WearStage[]).find((s) => WEAR_AT[s] === kept);
   return hit ?? null;
+}
+
+/**
+ * The wear stage a keep wore its card into, from the card's own kept days after the keep and what today
+ * was before it (`was`). Only a card's first keep today adds a kept day, so a raise from the Floor to the
+ * Ceiling never wears it again.
+ */
+export function keepWore(kept: number, was: Level | null): WearStage | null {
+  return was === null ? woreAt(kept) : null;
+}
+
+/**
+ * Whether a receipt offers "Plan for next time": after a Floor held (a Floor kept once the card's Comeback
+ * was answered today, Done it included), or a Ceiling kept on the Comeback card itself, and only while
+ * `planOffered` allows it (no plan yet, or one made 14 or more days ago). A Ceiling raised later, from a
+ * pill or the card's page, never offers one.
+ */
+export function receiptOffersPlan(o: { level: Level; keptComebackToday: boolean; onComebackCard: boolean; plan: Plan | null; today: Day }): boolean {
+  const kept = o.level === 'floor' ? o.keptComebackToday : o.keptComebackToday && o.onComebackCard;
+  return kept && planOffered({ keptComebackToday: o.keptComebackToday, plan: o.plan, today: o.today });
 }
 
 /**

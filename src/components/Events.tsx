@@ -8,13 +8,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { SUIT_INFO, type Suit } from '@/engine/cards';
-import { comebackKeptToday, planOffered } from '@/engine/comeback';
+import { comebackKeptToday } from '@/engine/comeback';
 import { weekday } from '@/engine/day';
 import type { BackKey } from '@/engine/game';
 import { improves } from '@/engine/game';
 import type { Level } from '@/engine/kept';
 import { HANDS, type Hand } from '@/engine/poker';
-import { eventStale, grouped, JOKER_LINE, jokerResult, momentDelay, momentOf, receiptCopy, woreAt, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
+import { eventStale, grouped, JOKER_LINE, jokerResult, keepWore, momentDelay, momentOf, receiptCopy, receiptOffersPlan, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
 import { useData, useEvents, type GameEvent } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
@@ -178,11 +178,12 @@ export function GameEvents({ back }: { back: BackKey }) {
   const ownKeep = keep && [main, ...moment.also].some((e) => fromKeep(e, keep)) ? keep : null;
   const fromComeback = !!ownKeep?.comeback;
   const wait = momentDelay({ comeback: fromComeback, reduced });
-  const deal = moment.also.find((e): e is Deal => e.kind === 'deal') ?? null;
   if (main.kind === 'face')
     return (
       <Later key={main.id} ms={wait}>
-        <FaceEarned event={main} deal={deal} handWas={deal ? deal.deal.handWas : ownKeep ? ownKeep.handWas : undefined} also={alsoLine} onUndoLate={undoLate} onDone={done} />
+        {/* A face card that brings a Joker never has a deal of its own (play.ts leaves it out): any deal folded into
+            this moment is an earlier keep's, so the hand from before comes from the keep that earned the face. */}
+        <FaceEarned event={main} handWas={ownKeep ? ownKeep.handWas : undefined} also={alsoLine} onUndoLate={undoLate} onDone={done} />
       </Later>
     );
   if (main.kind === 'first')
@@ -286,16 +287,16 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
     const view = deck?.cards.find((c) => c.habit.id === habitId);
     // This keep was made on the card's Comeback side (Done it, the Floor or the Ceiling), not a raise later on.
     const keptComeback = !!deck && comebackKeptToday(deck.prompts, habitId, deck.today);
-    const onComeback = !!keep && keep.habitId === habitId && keep.level === main.level && keep.comeback;
+    const ownKeep = !!keep && keep.habitId === habitId && keep.level === main.level;
+    const onComeback = ownKeep && keep.comeback;
     const held = main.level === 'floor' && keptComeback;
     // A keep that took the card's own kept days exactly onto a wear stage: only a first keep today adds a kept day.
-    const firstToday = keep && keep.habitId === habitId && keep.level === main.level ? keep.was === null : true;
-    const wore = view && firstToday ? woreAt(view.allTime.kept) : null;
+    const wore = view ? keepWore(view.allTime.kept, ownKeep ? keep.was : null) : null;
     // What would lift today's card next: the climb tip the game already gives, as the receipt's last line.
     const tip = deck?.game.tips.find((x) => x.tone === 'climb' || x.tone === 'done') ?? null;
     const next = tip?.text ?? null;
     nextMark = wore ? '✦' : tip?.tone === 'done' ? '✓' : '↑';
-    if (deck && (held || (main.level === 'ceiling' && onComeback && keptComeback)) && planOffered({ keptComebackToday: keptComeback, plan: plans[habitId] ?? null, today: deck.today })) planFor = habitId;
+    if (deck && receiptOffersPlan({ level: main.level, keptComebackToday: keptComeback, onComebackCard: onComeback, plan: plans[habitId] ?? null, today: deck.today })) planFor = habitId;
     copy = receiptCopy({
       kind: 'deal',
       level: main.level,
@@ -382,9 +383,13 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
   useEffect(() => {
     const end = () => finish();
     y.set(withSpring(0, { mass: 1, damping: 16, stiffness: 180, reduceMotion: ReduceMotion.System }));
-    playSound(sound, 200);
-    if (joker) feel.joker();
-    else feel.flip();
+    // On Today the keep has had its haptic and its sound, and the card dealt into the week its tick: the
+    // receipt adds no haptic (one per beat) and only a sound that carries news (a card up, a Joker).
+    if (!anchored || sound !== 'flip') playSound(sound, 200);
+    if (!anchored) {
+      if (joker) feel.joker();
+      else feel.flip();
+    }
     AccessibilityInfo.announceForAccessibility(spoken);
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -405,7 +410,7 @@ function ReceiptBanner({ moment, back, keep, onDone }: { moment: Moment<GameEven
       alive = false;
       clearTimeout(timer);
     };
-  }, [y, sound, joker, spoken, away, offersPlan]);
+  }, [y, sound, joker, spoken, away, offersPlan, anchored]);
 
   const close = () => onDone();
   const plan = planFor
@@ -662,15 +667,12 @@ function MomentButton({ label, ready, onPress }: { label: string; ready: boolean
 
 function FaceEarned({
   event,
-  deal,
   handWas,
   also,
   onUndoLate,
   onDone,
 }: {
   event: Extract<GameEvent, { kind: 'face' }>;
-  /** Today's card from the same keep, when it dealt one: what the Joker did for the hand. */
-  deal: Deal | null;
   /** The week's hand before the keep that earned this, when it is known (null: there was none yet). */
   handWas: Hand | null | undefined;
   also: string | null;
@@ -718,7 +720,7 @@ function FaceEarned({
   const days = who ? `${grouped(event.face.votes)} kept days. ${who}.` : `${grouped(event.face.votes)} kept days of ${info.part}.`;
   // A Joker always lands on a day kept on the day itself, so it is today's card when it comes now: say what it
   // did for the hand. Otherwise, where it will land.
-  const hand = deal?.deal.hand ?? deck?.game.current.hand ?? null;
+  const hand = deck?.game.current.hand ?? null;
   const chips = hand ? HANDS[hand.kind].chips : 0;
   const result = withJoker ? jokerResult(hand, { chips, chipsWas: handWas ? HANDS[handWas.kind].chips : chips, warmup: !!deck?.game.current.warmup }) : null;
   const jokerLine = withJoker
