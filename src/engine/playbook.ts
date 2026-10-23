@@ -614,6 +614,8 @@ const EVERGREEN: readonly PrincipleKey[] = ['celebrate', 'pile', 'swap', 'pair-u
 const SUGGESTS: Partial<Record<PrincipleKey, { recipes: readonly string[]; name: RegExp }>> = {
   'focus-block': { recipes: ['deep-work'], name: /\bfocus/i },
   sleep: { recipes: ['lights-out'], name: /\blights?[\s-]?out\b|\bbedtime\b|\bsleep/i },
+  // "Make your first card a walk or lights out": a deck already leading with either has its strong card.
+  'lead-card': { recipes: ['walk', 'lights-out'], name: /\bwalk|\blights?[\s-]?out\b|\bbedtime\b|\bsleep/i },
 };
 
 /** Whether the deck already has the card an idea would suggest making. */
@@ -624,7 +626,7 @@ function suggestsCardHeld(key: PrincipleKey, habits: readonly HabitFacts[]): boo
 
 /**
  * One idea for today: the most useful recommendation, or a rotating favourite when nothing needs fixing.
- * The favourite never suggests a card the deck already has (a focus card, a lights-out card).
+ * The favourite never suggests a card the deck already has (a focus card, a lights-out card, a walk).
  */
 export function ideaOfTheDay(ctx: RecommendationContext): Recommendation {
   const [top] = recommend(ctx);

@@ -281,6 +281,11 @@ describe('ideaOfTheDay', () => {
     expect(shown([facts({ id: 'f', name: 'Morning focus' })])).not.toContain('focus-block');
     expect(shown([facts({ id: 'l', name: 'Lights out', recipeKey: 'lights-out' })])).not.toContain('sleep');
     expect(shown([facts({ id: 'l', name: 'Bedtime by 11' })])).not.toContain('sleep');
+    // "Make your first card a walk or lights out" never goes to a deck that already has one.
+    expect(plain).toContain('lead-card');
+    expect(shown([facts({ id: 'w', name: 'Walk', recipeKey: 'walk' }), facts({ id: 'r', name: 'Read' })])).not.toContain('lead-card');
+    expect(shown([facts({ id: 'w', name: 'Evening walk' })])).not.toContain('lead-card');
+    expect(shown([facts({ id: 'l', name: 'Lights out', recipeKey: 'lights-out' })])).not.toContain('lead-card');
     // Still one idea a day, and still the same idea all day.
     expect(new Set(focus).size).toBeGreaterThan(5);
   });
