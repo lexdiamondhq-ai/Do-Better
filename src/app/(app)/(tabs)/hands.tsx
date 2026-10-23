@@ -481,7 +481,7 @@ function WeekRow({ week, facts, best, onPress, onShare }: { week: Week; facts: C
           <Label>{weekRange(week.start)}</Label>
           {best ? (
             <View style={{ backgroundColor: t.text, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: 2 }}>
-              <Text allowFontScaling={false} style={{ fontFamily: fonts.bodyHeavy, fontSize: 11, letterSpacing: 0.9, textTransform: 'uppercase', color: t.bg }}>
+              <Text maxFontSizeMultiplier={fontScale.chrome} style={{ fontFamily: fonts.bodyHeavy, fontSize: 11, letterSpacing: 0.9, textTransform: 'uppercase', color: t.bg }}>
                 Best week
               </Text>
             </View>
@@ -622,7 +622,7 @@ function GhostGroup({ group, from, count, w, h, lift, reduced, secretKnown }: { 
       </View>
       <Animated.View style={[{ alignSelf: 'stretch', alignItems: 'center', gap: 3 }, label]}>
         <View style={{ alignSelf: 'stretch', height: 5, marginHorizontal: 2, borderLeftWidth: 1.5, borderRightWidth: 1.5, borderBottomWidth: 1.5, borderColor: t.textSecondary, borderBottomLeftRadius: 4, borderBottomRightRadius: 4 }} />
-        <Text allowFontScaling={false} numberOfLines={1} style={{ fontFamily: fonts.bodyHeavy, fontSize: 11, letterSpacing: 0.9, textTransform: 'uppercase', color: t.text }}>
+        <Text maxFontSizeMultiplier={fontScale.chrome} numberOfLines={1} style={{ fontFamily: fonts.bodyHeavy, fontSize: 11, letterSpacing: 0.9, textTransform: 'uppercase', color: t.text }}>
           {name}
         </Text>
       </Animated.View>
