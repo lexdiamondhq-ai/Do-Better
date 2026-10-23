@@ -172,7 +172,7 @@ export function bounceBacks(startedOn: Day, upTo: Day, checkIns: CheckIns): numb
 
 /**
  * Comebacks made on a card in the last `days` days, today included: kept days that came straight after a
- * day it missed. The same count as `bounceBacks`, over a window, for the coach's "came back twice this month".
+ * day it missed. The same count as `bounceBacks`, over a window, for the coach, which never says the count (each comeback follows a missed day).
  */
 export function comebacksWithin(startedOn: Day, today: Day, checkIns: CheckIns, days = 30): number {
   let count = 0;

@@ -516,12 +516,11 @@ export function recommend(ctx: RecommendationContext): Recommendation[] {
   }
 
   // A card that came back twice or more this month with no plan saved: a plan makes its next Comeback easier.
+  // Never says how often: every comeback follows a missed day, so a count of them is a count of misses.
   const again = habits.find((h) => (h.comebacks30 ?? 0) >= 2 && h.hasPlan === false);
   if (again) {
-    const n = again.comebacks30 ?? 2;
-    // Said as what the card did (came back), never as a miss to come: it can show on a day with every card kept.
-    add('obstacle', `${again.name} keeps coming back`, {
-      text: `${again.name} came back ${n === 2 ? 'twice' : `${n} times`} this month. A plan for next time makes the next Comeback easier.`,
+    add('obstacle', `${again.name} has no plan for next time yet`, {
+      text: `A plan for next time makes ${again.name}’s next Comeback easier.`,
       cta: `Make a plan for ${again.name}`,
       habitId: again.id,
       href: `/plan?habit=${again.id}`,

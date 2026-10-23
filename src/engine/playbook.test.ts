@@ -235,15 +235,23 @@ describe('recommend', () => {
     const habits = [facts({ id: 'r', name: 'Read', comebacks30: 1, hasPlan: false }), facts({ id: 'w', name: 'Walk', comebacks30: 2, hasPlan: false })];
     const rec = recommend({ ...calm, habits }).find((r) => r.principle.key === 'obstacle');
     expect(rec).toMatchObject({
-      reason: 'Walk keeps coming back',
-      text: 'Walk came back twice this month. A plan for next time makes the next Comeback easier.',
+      reason: 'Walk has no plan for next time yet',
+      text: 'A plan for next time makes Walk’s next Comeback easier.',
       cta: 'Make a plan for Walk',
       habitId: 'w',
       href: '/plan?habit=w',
     });
     expect(rec?.principle.title).toBe('Plan for the thing that stops you');
     expect(rec?.field).toBeUndefined();
-    expect(recommend({ ...calm, habits: [facts({ id: 'w', name: 'Walk', comebacks30: 3, hasPlan: false })] }).find((r) => r.principle.key === 'obstacle')?.text).toMatch(/^Walk came back 3 times this month\./);
+  });
+
+  it('never counts how often a card came back, because each comeback follows a missed day', () => {
+    for (const n of [2, 3, 7, 12]) {
+      const rec = recommend({ ...calm, habits: [facts({ id: 'w', name: 'Walk', comebacks30: n, hasPlan: false })] }).find((r) => r.principle.key === 'obstacle');
+      expect(rec).toBeDefined();
+      const said = `${rec?.reason} ${rec?.text} ${rec?.cta}`;
+      expect(said).not.toMatch(/\d|twice|times|again|keeps coming back|missed/i);
+    }
   });
 
   it('never asks for a plan a card already has, one Comeback, or when it can’t tell', () => {
