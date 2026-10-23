@@ -122,6 +122,8 @@ function useComputedDeck(back: readonly string[]): Deck | null {
       facts.push({
         id: c.habit.id,
         name: c.habit.name,
+        // The idea of the day knows a held recipe by its key, even after the card is renamed.
+        recipeKey: c.habit.recipeKey,
         kept30: w.keptDays,
         ceilings30: w.ceilingDays,
         days30: w.daysInWindow,
