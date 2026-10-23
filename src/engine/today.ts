@@ -8,12 +8,14 @@
 
 import { contrast, mix } from '@/theme/color';
 
+import { rankName } from './cards';
+import { comebackExit } from './comeback';
 import { addDays, type Day } from './day';
 import type { Tip, TipTone } from './game';
 import { dayStatus, type CheckIns, type Level } from './kept';
 import { playsLine } from './playbook';
 import { handPhrase, JOKER_LINE, type Hand } from './poker';
-import type { WearStage } from './wear';
+import { WEAR_AT, type WearStage } from './wear';
 
 // Time of day -------------------------------------------------------------------------------------------
 
@@ -321,19 +323,43 @@ export function todayTips(tips: readonly Tip[], { warmup = false, firstLook = fa
 /**
  * The hand line over the deck: what to call the hand, its name, and what it pays. On Sunday it names the
  * stake ("Showdown tonight"); in the warm-up week the hand plays for fun and pays nothing. `fresh` is a
- * Monday before any card (stream 1 gives it its "New week" words; until then it reads as today).
+ * Monday before any card: the week is dealt and waiting, so the line says "New week" instead of "No cards yet".
  */
-export function handLineCopy({ warmup, hand, chips, sunday }: { warmup: boolean; hand: Pick<Hand, 'title'> | null; chips: number; sunday: boolean; fresh?: boolean }): {
+export function handLineCopy({ warmup, hand, chips, sunday, fresh = false }: { warmup: boolean; hand: Pick<Hand, 'title'> | null; chips: number; sunday: boolean; fresh?: boolean }): {
   label: string;
   title: string;
   pays: number | null;
   spoken: string;
 } {
+  if (fresh && !warmup && !(sunday && hand)) return { label: 'New week', title: 'Seven cards to play for', pays: null, spoken: 'New week. Seven days, seven cards to play for.' };
   const label = warmup ? 'Warm-up hand' : sunday && hand ? 'Showdown tonight' : 'Your hand';
   const title = hand?.title ?? 'No cards yet';
   const pays = !warmup && hand ? chips : null;
   const worth = pays === null ? '' : `. Pays ${grouped(pays)} chips ${sunday ? 'at midnight' : 'if the week ended now'}`;
   return { label, title, pays, spoken: `${label}: ${title}${worth}` };
+}
+
+/** The seen key for a week's backs dealt into the strip, once per week (on this phone). */
+export const weekDealtKey = (monday: Day) => `week-dealt:${monday}`;
+
+/**
+ * Whether this week's face-down backs deal into the strip now: once per week, on the first look at Today
+ * that week, only while Today is the screen in front, never with Reduce Motion or in the list, and only when
+ * there are backs to deal. It is never an interruption: any touch finishes it.
+ */
+export function weekDealDue(o: { seen: boolean; reduced: boolean; inFront: boolean; list: boolean; cards: number }): boolean {
+  return !o.seen && !o.reduced && o.inFront && !o.list && o.cards > 0;
+}
+
+/** The backs dealing into the strip: one every 70 ms, each landing in 240 ms, so six take 590 ms. */
+export const WEEK_DEAL = { gapMs: 70, flightMs: 240, maxMs: 600 } as const;
+
+/** When the back at `index` (0 first) starts and lands, scaled so the whole deal of `count` stays within 600 ms. */
+export function weekDealSlot(index: number, count: number): { startMs: number; endMs: number } {
+  const total = count <= 0 ? 0 : (count - 1) * WEEK_DEAL.gapMs + WEEK_DEAL.flightMs;
+  const k = total > WEEK_DEAL.maxMs ? WEEK_DEAL.maxMs / total : 1;
+  const startMs = index * WEEK_DEAL.gapMs * k;
+  return { startMs, endMs: startMs + WEEK_DEAL.flightMs * k };
 }
 
 /** The eyebrow on today's idea: "Today's idea", with the reason it was picked when there is one. */
@@ -343,15 +369,19 @@ export function ideaLabel(reason: string): string {
   return !why || why.replace(/'/g, '’').toLowerCase() === base.toLowerCase() ? base : `${base} · ${why}`;
 }
 
-/** What the screen says once every card is kept: a title and a line about the week's hand. */
+/**
+ * What the screen says once every card is kept: the eyebrow, a title, and the week's hand with what it
+ * pays ("Pair of Queens · 30 chips"). The hand line always shows when there is a hand, a Joker day too:
+ * the Joker's rule is never repeated here.
+ */
 export function allKeptCopy({ count, hand, warmup, chips }: { count: number; hand: Pick<Hand, 'kind' | 'title'> | null; warmup: boolean; chips: number }): {
+  eyebrow: string;
   title: string;
   hand: string;
 } {
   const title = count === 1 ? 'Kept.' : `All ${count} kept.`;
-  if (!hand) return { title, hand: 'Today’s card is in your hand.' };
-  if (warmup) return { title, hand: `Your hand: ${handPhrase(hand)}. A warm-up week, so it plays for fun.` };
-  return { title, hand: `Your hand: ${handPhrase(hand)}, worth ${grouped(chips)} chips if the week ended now.` };
+  if (!hand) return { eyebrow: 'Today', title, hand: 'Today’s card is in your hand.' };
+  return { eyebrow: 'Today', title, hand: `${hand.title} · ${warmup ? 'warm-up week' : `${grouped(chips)} chips`}` };
 }
 
 // The table's colour ------------------------------------------------------------------------------------
@@ -467,6 +497,8 @@ export type Receipt =
       wentUp?: boolean;
       moved?: JokerMove | null;
       rung?: RungNote | null;
+      /** Explain the Joker's rule on this receipt (only until the player has seen it once). */
+      explainJoker?: boolean;
     }
   | { kind: 'rung'; suit: string; part: string; days: number };
 
@@ -477,14 +509,15 @@ export type Receipt =
 export type ReceiptCopy = { eyebrow: string; title: string; lead: string | null; line: string; notes: string[]; next: string | null };
 
 /**
- * The hand, in words, after a change: a broken match said plainly, a better kicker named as just that.
+ * The hand, in words, after a change: a broken match said plainly, a better kicker said in plain words
+ * ("Same hand, a little stronger"), never as a "side card".
  * `rose` says the changed card went up, so it can be named as what broke the hand. Otherwise (a Joker,
  * which has no suit, taking the place of a card that made a straight flush) the hand is just named, then and now.
  */
 function handLine(hand: HandLike | null, handWas: HandLike | null, dropped: boolean, rose: boolean): string {
   if (!hand) return '';
   if (dropped && handWas) return rose ? `A higher card broke your ${handWas.title}. Your hand is now ${handPhrase(hand)}.` : `Your hand is now ${handPhrase(hand)}. It was ${handPhrase(handWas)}.`;
-  if (handWas && hand.score > handWas.score) return hand.title === handWas.title ? `Still ${handPhrase(hand)}, now with a higher side card.` : `Your hand is now ${handPhrase(hand)}.`;
+  if (handWas && hand.score > handWas.score) return hand.title === handWas.title ? `Same hand, a little stronger: ${handPhrase(hand)}.` : `Your hand is now ${handPhrase(hand)}.`;
   return `Your hand: ${handPhrase(hand)}.`;
 }
 
@@ -495,18 +528,47 @@ export function aCard(name: string): string {
 
 const rungNote = (r: RungNote | null | undefined) => (r ? [`And ${grouped(r.days)} days of ${r.part} in the Court.`] : []);
 
+/** The line a receipt ends on when a keep wears a card into its next stage (amendment B2). */
+export function wearNote(stage: WearStage): string | null {
+  switch (stage) {
+    case 'worn':
+      return 'Worn in · 10 kept days on this card.';
+    case 'played':
+      return 'Well played · 30 kept days. It holds your thumb mark now.';
+    case 'gilt':
+      return 'Gilt edge · 100 kept days on this card.';
+    case 'heirloom':
+      return 'Heirloom · a year of kept days on this card.';
+    default:
+      return null;
+  }
+}
+
+/** The wear stage a card reaches at exactly `kept` kept days, or null between stages. */
+export function woreAt(kept: number): WearStage | null {
+  if (kept <= 0) return null;
+  const hit = (Object.keys(WEAR_AT) as WearStage[]).find((s) => WEAR_AT[s] === kept);
+  return hit ?? null;
+}
+
 /**
  * The words on the receipt that drops in after a check-in. When a higher card breaks a pair, it says so
  * plainly instead of cheering: the card went up but the hand went down. A late log says "Yesterday counts"
  * when yesterday had no card, and "Yesterday logged" when it already had one: "saved" is kept for the
  * saved day of the rules, which a late log never makes.
+ *
+ * A Floor kept on a Comeback card is "Floor held". The receipt ends on what would lift today's card next
+ * (`next`), or, when this keep wore the card into a new stage, on that instead: still one receipt. The
+ * Joker's rule rides along only while `explainJoker` isn't false (the player hasn't seen it yet).
  */
 export function receiptCopy(r: Receipt): ReceiptCopy {
   if (r.kind === 'rung') return { eyebrow: `The Court · ${r.suit}`, title: `${grouped(r.days)} days of ${r.part}`, lead: null, line: 'Still climbing toward the Ace.', notes: [], next: null };
-  const eyebrow = r.level === 'ceiling' ? 'Ceiling reached' : 'Floor kept';
+  const held = r.kind === 'deal' && r.level === 'floor' && !!r.held;
+  const eyebrow = r.level === 'ceiling' ? 'Ceiling reached' : held ? 'Floor held' : 'Floor kept';
   const hand = handLine(r.hand, r.handWas, !!r.dropped, !!r.wentUp);
   const line = (r.joker ? hand : `${r.card}. ${hand}`).trim();
-  const notes = [...(r.joker ? [JOKER_LINE] : []), ...rungNote(r.rung)];
+  const explain = r.explainJoker !== false;
+  const notes = [...(r.joker && explain ? [JOKER_LINE] : []), ...rungNote(r.rung)];
   if (r.kind === 'backfill') {
     let lead: string | null = null;
     if (r.moved) {
@@ -520,23 +582,73 @@ export function receiptCopy(r: Receipt): ReceiptCopy {
     return { eyebrow, title: r.blank ? 'Yesterday counts' : 'Yesterday logged', lead, line, notes, next: null };
   }
   const title = r.joker ? 'A Joker!' : r.dropped ? 'Today’s card changed' : r.wentUp && !r.first ? 'Today’s card went up' : 'Today’s card';
-  return { eyebrow, title, lead: r.saved ? 'Yesterday’s card was saved too.' : null, line, notes, next: r.next ?? null };
+  const next = (r.wore ? wearNote(r.wore) : null) ?? r.next?.trim() ?? null;
+  return { eyebrow, title, lead: r.saved ? 'Yesterday’s card was saved too.' : null, line, notes, next: next || null };
 }
-
-/** How long today's moment waits before the night comes down, today: the card leaves, its stamp is read. */
-const MOMENT_DELAY_MS = 520;
 
 /**
- * The deal arc: today's card flies from the kept card into its slot in the week, turns over there and
- * settles. Stream 1 builds the arc; until then there is none.
+ * What a Joker just did for the hand, for the face-card moment: "Your Joker plays as a Queen: Pair of
+ * Queens, 10 → 30 chips." The chips show only when they changed, and never in a warm-up week, which pays
+ * nothing. Null when the hand has no Joker in it.
  */
-export function dealArc(o: { reduced: boolean }): { flyMs: number; flipMs: number; settleMs: number; totalMs: number } {
-  return { flyMs: 0, flipMs: 0, settleMs: 0, totalMs: 0 };
+export function jokerResult(hand: Pick<Hand, 'kind' | 'title' | 'cards'> | null, o: { chips: number; chipsWas: number; warmup: boolean }): string | null {
+  const joker = hand?.cards.find((c) => c.joker);
+  if (!hand || !joker) return null;
+  const chips = !o.warmup && o.chips !== o.chipsWas ? `, ${grouped(o.chipsWas)} → ${grouped(o.chips)} chips` : '';
+  return `Your Joker plays as ${aCard(rankName(joker.rank))}: ${hand.title}${chips}.`;
 }
 
-/** How long a receipt or a big moment waits after a keep. Until stream 1 times it from the exit and the arc, today's 520 ms. */
+/**
+ * The sheet a kept card's pill opens, in order. A Floor-kept card leads with reaching its Ceiling; Undo
+ * sits quietly near the end, and Cancel is always last.
+ */
+export function pillMenu(level: Level): ('ceiling' | 'open' | 'undo' | 'cancel')[] {
+  return level === 'floor' ? ['ceiling', 'open', 'undo', 'cancel'] : ['open', 'undo', 'cancel'];
+}
+
+/**
+ * The deal arc: today's card flies from the kept card into its slot in the week (360 ms), turns over there
+ * (200 ms) and settles (120 ms): 680 ms in all. With Reduce Motion there is no flight, only a 180 ms
+ * crossfade in the slot.
+ */
+export function dealArc(o: { reduced: boolean }): { flyMs: number; flipMs: number; settleMs: number; totalMs: number } {
+  if (o.reduced) return { flyMs: 0, flipMs: 0, settleMs: 180, totalMs: 180 };
+  const flyMs = 360;
+  const flipMs = 200;
+  const settleMs = 120;
+  return { flyMs, flipMs, settleMs, totalMs: flyMs + flipMs + settleMs };
+}
+
+/**
+ * How long a receipt or a big moment waits after a keep: a Comeback card's turnover (it plays first), the
+ * deal arc, then a beat to read the card in its slot. 1750 ms after a Comeback, 800 ms otherwise, and about
+ * 500 ms or less with Reduce Motion.
+ */
 export function momentDelay(o: { comeback: boolean; reduced: boolean }): number {
-  return MOMENT_DELAY_MS;
+  const exit = o.comeback ? comebackExit({ firstMove: false, reduced: o.reduced }).totalMs : 0;
+  return exit + dealArc({ reduced: o.reduced }).totalMs + 120;
+}
+
+/**
+ * Where the flying card is `t` (0 to 1) of the way along its arc from `from` to `to`, both in the same
+ * coordinates: a quadratic curve that rises over the slot and drops into it, growing from 0.6 of the slot's
+ * size to full size with a lift toward you on the way, and turning from a toss back to square.
+ */
+export function arcAt(t: number, from: { x: number; y: number }, to: { x: number; y: number }): { x: number; y: number; scale: number; rotate: number } {
+  'worklet';
+  const u = Math.min(1, Math.max(0, t));
+  const cx = from.x + (to.x - from.x) * 0.2;
+  const cy = Math.min(from.y, to.y) - 64;
+  const a = (1 - u) * (1 - u);
+  const b = 2 * u * (1 - u);
+  const c = u * u;
+  const side = to.x >= from.x ? 1 : -1;
+  return {
+    x: a * from.x + b * cx + c * to.x,
+    y: a * from.y + b * cy + c * to.y,
+    scale: 0.6 + 0.4 * u + 0.55 * Math.sin(Math.PI * u),
+    rotate: -18 * side * (1 - u) * (1 - u),
+  };
 }
 
 /** Something that interrupts Today: a moment from a check-in, the first-swipe coach mark or the reminder question. */
