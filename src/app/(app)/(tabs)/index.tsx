@@ -24,6 +24,7 @@ import { comebackExit, planLine, type Point } from '@/engine/comeback';
 import { addDays, canBackfill, weekday } from '@/engine/day';
 import { lastShowdown, type Game, type TipTone } from '@/engine/game';
 import type { Level } from '@/engine/kept';
+import type { Recommendation } from '@/engine/playbook';
 import { HANDS, makesCall } from '@/engine/poker';
 import {
   allKeptCopy,
@@ -741,7 +742,7 @@ function Table({ deck }: { deck: Deck }) {
             {handLine}
             {banner}
             <View style={{ paddingHorizontal: space.lg, gap: space.md }}>
-              {pending.length === 0 && hasCards ? <AllKept deck={deck} keptCount={keptCount} onReach={null} onIdea={() => router.push('/playbook')} /> : null}
+              {pending.length === 0 && hasCards ? <AllKept deck={deck} keptCount={keptCount} onReach={null} onIdea={() => followIdea(router, deck.idea)} /> : null}
               {!hasCards ? <EmptyDeck onCreate={() => router.push('/habit/edit')} /> : null}
               {listRows.map((view) => (
                 <ListRow
@@ -807,7 +808,7 @@ function Table({ deck }: { deck: Deck }) {
                   under={bottomPad}
                   undo={move ? <UndoChip move={move} onUndo={() => takeBack(move)} /> : null}
                   onReach={floorKept.some((c) => !reach?.skipped.includes(c.habit.id)) ? startReach : null}
-                  onIdea={() => router.push('/playbook')}
+                  onIdea={() => followIdea(router, deck.idea)}
                 />
               ) : (
                 <EmptyDeck onCreate={() => router.push('/habit/edit')} />
@@ -1513,6 +1514,8 @@ function AllKept({
   const climb = deck.game.tips.find((tip) => tip.tone === 'climb');
   const north = deck.profile.northStar?.trim();
   const joker = card?.kind === 'joker';
+  // An idea about one card (a plan for it, its Floor) says so and goes straight there, as it does on the Playbook.
+  const ideaActs = ideaGoes(deck.idea);
   return (
     // `under` lets the page run on under the floating tab bar, so nothing looks cut off where it stops; at
     // its end the last line sits above the fade over the tab bar, never inside it.
@@ -1575,7 +1578,7 @@ function AllKept({
       <Animated.View layout={LinearTransition.duration(220)}>
         <Pressable
           accessibilityRole="button"
-          accessibilityHint="Opens the Playbook"
+          accessibilityHint={ideaActs ? deck.idea.cta : 'Opens the Playbook'}
           onPress={onIdea}
           style={({ pressed }) => [{ borderRadius: radius.lg, padding: space.lg, paddingHorizontal: space.xl, gap: space.xs, opacity: pressed ? 0.9 : 1 }, raisedStyle(t)]}
         >
@@ -1586,12 +1589,29 @@ function AllKept({
             {deck.idea.principle.title}
           </Display>
           <Body size={15} color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome}>
-            {deck.idea.principle.tryThis}
+            {deck.idea.text ?? deck.idea.principle.tryThis}
           </Body>
+          {ideaActs ? (
+            <Body size={15} weight="heavy" color={t.onRaised} maxFontSizeMultiplier={fontScale.chrome} style={{ marginTop: space.xs }}>
+              {`${deck.idea.cta}\u00A0→`}
+            </Body>
+          ) : null}
         </Pressable>
       </Animated.View>
     </ScrollView>
   );
+}
+
+/** Whether today's idea is one to act on (it names where to go), not just one to read. */
+function ideaGoes(rec: Recommendation): boolean {
+  return !!rec.cta && (!!(rec.habitId && rec.field) || !!rec.href);
+}
+
+/** Goes where today's idea points, as the Playbook's advice card does; an idea with nowhere to go opens the Playbook. */
+function followIdea(router: ReturnType<typeof useRouter>, rec: Recommendation) {
+  if (rec.cta && rec.habitId && rec.field) router.push({ pathname: '/habit/edit', params: { id: rec.habitId, focus: rec.field } });
+  else if (rec.cta && rec.href) router.push(rec.href);
+  else router.push('/playbook');
 }
 
 function EmptyDeck({ onCreate }: { onCreate: () => void }) {
