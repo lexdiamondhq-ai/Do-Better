@@ -261,16 +261,20 @@ export async function confirmSavedEmail(email: string, code: string): Promise<vo
  * Leaves this guest deck for the deck that Apple ID already has. The guest deck is deleted once the
  * switch has worked, so a failed switch never costs anything.
  */
-export async function switchToApple(token: string): Promise<{ cancelled: boolean }> {
+/**
+ * Moves the phone to the deck an Apple ID already has and deletes this guest deck. `left` is the deleted
+ * guest deck's deal seed, so the caller can drop what this phone kept for it (thumb marks, plans, seen keys).
+ */
+export async function switchToApple(token: string): Promise<{ cancelled: boolean; left: string | null }> {
   const guest = await currentGuest();
   const first = await supabase.auth.signInWithIdToken({ provider: 'apple', token }).catch((e: unknown) => ({ error: e }));
   if (first.error) {
     // The token from a moment ago can be refused the second time; ask Apple again.
     const again = await signInWithApple();
-    if (again.cancelled) return { cancelled: true };
+    if (again.cancelled) return { cancelled: true, left: null };
   }
   if (guest) await forgetGuest(guest);
-  return { cancelled: false };
+  return { cancelled: false, left: guest?.userId ?? null };
 }
 
 /** Step one of leaving this guest deck for the deck an email already has: send that address a code. */
@@ -278,11 +282,15 @@ export async function switchToEmail(email: string): Promise<void> {
   await sendEmailCode(email, { create: false });
 }
 
-/** Step two: the code checks out, the phone moves to that deck, and the guest deck is deleted. */
-export async function confirmSwitchEmail(email: string, code: string): Promise<void> {
+/**
+ * Step two: the code checks out, the phone moves to that deck, and the guest deck is deleted. `left` is the
+ * deleted guest deck's deal seed, as for `switchToApple`.
+ */
+export async function confirmSwitchEmail(email: string, code: string): Promise<{ left: string | null }> {
   const guest = await currentGuest();
   await verifyEmailCode(email, code);
   if (guest) await forgetGuest(guest);
+  return { left: guest?.userId ?? null };
 }
 
 /**

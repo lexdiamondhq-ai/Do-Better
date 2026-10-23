@@ -207,7 +207,8 @@ describe('saving a guest deck', () => {
 describe('switching to a deck that already exists', () => {
   it('deletes the guest deck with the guest’s own sign-in, once the switch has worked', async () => {
     session = guestSession;
-    await signIn.confirmSwitchEmail('me@example.com', '123456');
+    // It names the deck it deleted, so the phone can drop what it kept for it.
+    expect(await signIn.confirmSwitchEmail('me@example.com', '123456')).toEqual({ left: 'guest-1' });
     expect(calls).toEqual(['verifyOtp {"email":"me@example.com","token":"123456","type":"email"}']);
     expect(tidied).toEqual([
       'delete habits owner_id=guest-1 as Bearer guest-token',
@@ -223,6 +224,12 @@ describe('switching to a deck that already exists', () => {
     expect(tidied).toEqual([]);
   });
 
+  it('names the guest deck it deleted after an Apple switch, so the phone drops its notes', async () => {
+    session = guestSession;
+    expect(await signIn.switchToApple('apple-token')).toEqual({ cancelled: false, left: 'guest-1' });
+    expect(tidied[0]).toBe('delete habits owner_id=guest-1 as Bearer guest-token');
+  });
+
   it('only sends a switch code to an address that already has a deck', async () => {
     await signIn.switchToEmail('me@example.com');
     expect(calls).toEqual(['signInWithOtp {"email":"me@example.com","options":{"shouldCreateUser":false}}']);
@@ -232,13 +239,13 @@ describe('switching to a deck that already exists', () => {
     session = guestSession;
     queued.signInWithIdToken = [{ error: { message: 'Token already used' } }];
     appleAnswer = () => Promise.reject(Object.assign(new Error('cancelled'), { code: 'ERR_REQUEST_CANCELED' }));
-    expect(await signIn.switchToApple('apple-token')).toEqual({ cancelled: true });
+    expect(await signIn.switchToApple('apple-token')).toEqual({ cancelled: true, left: null });
     expect(tidied).toEqual([]);
   });
 
   it('never deletes anything for a player who isn’t a guest', async () => {
     session = { access_token: 'real', user: { id: 'u1', is_anonymous: false } };
-    expect(await signIn.switchToApple('apple-token')).toEqual({ cancelled: false });
+    expect(await signIn.switchToApple('apple-token')).toEqual({ cancelled: false, left: null });
     expect(tidied).toEqual([]);
   });
 });

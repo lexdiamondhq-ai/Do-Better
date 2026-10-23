@@ -129,6 +129,7 @@ const SWITCH_WARNING = 'Switch to it? This guest deck will be deleted. Its cards
 function SaveBody({ onClose }: { onClose: () => void }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
+  const { forgetDeckNotes } = usePrefs();
   const [step, setStep] = useState<Step>({ kind: 'choose' });
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -160,7 +161,16 @@ function SaveBody({ onClose }: { onClose: () => void }) {
         const token = result.token;
         ask('That Apple ID already has a deck', SWITCH_WARNING, [
           { text: 'Keep this deck', style: 'cancel' },
-          { text: 'Switch and delete this deck', style: 'destructive', onPress: () => void run('apple', async () => void (await switchToApple(token))) },
+          {
+            text: 'Switch and delete this deck',
+            style: 'destructive',
+            onPress: () =>
+              void run('apple', async () => {
+                const { left } = await switchToApple(token);
+                // The deleted deck's thumb marks, plans and seen moments go with it, as Delete my deck does.
+                if (left) forgetDeckNotes(left);
+              }),
+          },
         ]);
       }
     });
@@ -198,8 +208,10 @@ function SaveBody({ onClose }: { onClose: () => void }) {
         await confirmSavedEmail(step.email, code.trim());
         saved('email');
       } else {
-        // The phone moves to the other deck; this sheet closes with the guest deck it belonged to.
-        await confirmSwitchEmail(step.email, code.trim());
+        // The phone moves to the other deck; this sheet closes with the guest deck it belonged to, and what
+        // this phone kept for that deck goes with it.
+        const { left } = await confirmSwitchEmail(step.email, code.trim());
+        if (left) forgetDeckNotes(left);
       }
     });
 
