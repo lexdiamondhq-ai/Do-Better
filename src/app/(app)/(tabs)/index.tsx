@@ -1205,8 +1205,10 @@ function TipBanner({ tip, veiled, count, turn, onNext }: { tip: { tone: TipTone;
   );
 }
 
-/** How wide the soft edge is where the pill row runs on past the screen. */
+/** How wide the soft edge is where the pill row runs on past the screen, at most. */
 const PILL_FADE = 28;
+/** The room beside "+ New" where the arrow sits when more pills wait past the right edge. */
+const PILL_ARROW = 12;
 /** The keep that finishes the day starts its strum this long after the keep. */
 const STRUM_AT_MS = 380;
 /** How long a ring note sounds, so the pills are let go once the strum has rung out. */
@@ -1246,17 +1248,28 @@ function Pills({
   const t = useTheme();
   const scroll = useRef<ScrollView>(null);
   const room = useRef({ x: 0, width: 0, content: 0, spots: new Map<string, { x: number; w: number }>(), shown: undefined as string | null | undefined });
-  const [edges, setEdges] = useState({ left: false, right: false });
+  // How wide each soft edge is (0 for none): it only ever covers a pill cut off by the edge, never one in full view.
+  const [edges, setEdges] = useState({ left: 0, right: 0 });
   const [snaps, setSnaps] = useState<number[]>([]);
+  // More pills wait past the right edge.
+  const [more, setMore] = useState(false);
 
-  /** Which ends have more to scroll to, and where a whole pill sits at the left edge. */
+  /** Which ends have more to scroll to, how far in each soft edge can reach, and where a whole pill sits at the left edge. */
   const measure = () => {
     const r = room.current;
     if (!r.width) return;
     const max = Math.max(0, r.content - r.width);
-    const left = r.x > 2;
-    const right = r.x < max - 2;
+    const spots = [...r.spots.values()];
+    const end = r.x + r.width;
+    // The soft edge runs in from the screen's edge to the nearest pill in full view, and no further.
+    const reach = (gap: number) => Math.max(0, Math.min(PILL_FADE, Math.floor(gap / 2) * 2));
+    const firstWhole = Math.min(end, ...spots.filter((p) => p.x >= r.x - 0.5).map((p) => p.x));
+    const lastWhole = Math.max(r.x, ...spots.filter((p) => p.x + p.w <= end + 0.5).map((p) => p.x + p.w));
+    const left = r.x > 2 ? reach(firstWhole - r.x) : 0;
+    const right = r.x < max - 2 ? reach(end - lastWhole) : 0;
+    const more = r.x < max - 2;
     setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
+    setMore((m) => (m === more ? m : more));
     const at = [...new Set([...r.spots.values()].map((spot) => Math.round(Math.min(max, Math.max(0, spot.x - space.lg)))).concat(Math.round(max)))].sort((a, b) => a - b);
     setSnaps((was) => (was.length === at.length && was.every((v, i) => v === at[i]) ? was : at));
   };
@@ -1368,8 +1381,14 @@ function Pills({
             );
           })}
         </ScrollView>
-        {edges.left ? <EdgeFade side="left" felt={felt} /> : null}
-        {edges.right ? <EdgeFade side="right" felt={felt} /> : null}
+        {edges.left ? <EdgeFade side="left" width={edges.left} felt={felt} arrow={edges.left >= space.lg} /> : null}
+        {edges.right ? <EdgeFade side="right" width={edges.right} felt={felt} /> : null}
+        {/* More pills wait past the right edge: the arrow sits in its own room, never on a pill's name. */}
+        {more ? (
+          <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(160)} pointerEvents="none" aria-hidden style={{ position: 'absolute', top: 0, bottom: 0, right: -PILL_ARROW, width: PILL_ARROW, alignItems: 'center', justifyContent: 'center' }}>
+            <EdgeArrow />
+          </Animated.View>
+        ) : null}
       </View>
       <Pressable
         accessibilityRole="button"
@@ -1381,7 +1400,7 @@ function Pills({
           justifyContent: 'center',
           borderRadius: radius.pill,
           paddingHorizontal: 12,
-          marginLeft: 2,
+          marginLeft: PILL_ARROW,
           marginRight: space.lg,
           borderWidth: 1.5,
           borderStyle: 'dashed',
@@ -1409,29 +1428,39 @@ const FADE_BANDS = (() => {
 })();
 
 /**
- * The pill row running on under the felt at one end: drawn in the table's own colour, taking no touches.
- * A small chevron sits in it, pointing the way the row goes on, so a card hidden past the edge is never a
- * secret even when no part of its pill shows.
+ * The pill row running on under the felt at one end: drawn in the table's own colour, taking no touches,
+ * `width` wide (the bands squeeze to fit). On the left a small chevron sits in it when there is room,
+ * pointing the way the row goes on; on the right the arrow has a room of its own beside "+ New".
  */
-function EdgeFade({ side, felt }: { side: 'left' | 'right'; felt: React.ComponentProps<typeof Animated.View>['style'] }) {
-  const t = useTheme();
+function EdgeFade({ side, width, felt, arrow = false }: { side: 'left' | 'right'; width: number; felt: React.ComponentProps<typeof Animated.View>['style']; arrow?: boolean }) {
+  const scale = width / PILL_FADE;
   return (
     <Animated.View
       entering={FadeIn.duration(160)}
       exiting={FadeOut.duration(160)}
       pointerEvents="none"
       aria-hidden
-      style={{ position: 'absolute', top: 0, bottom: 0, width: PILL_FADE, [side]: 0, transform: side === 'left' ? [{ scaleX: -1 }] : undefined }}
+      style={{ position: 'absolute', top: 0, bottom: 0, width, [side]: 0, transform: side === 'left' ? [{ scaleX: -1 }] : undefined }}
     >
       {FADE_BANDS.map((band) => (
-        <Animated.View key={band.left} style={[{ position: 'absolute', top: 0, bottom: 0, left: band.left, right: 0, opacity: band.opacity }, felt]} />
+        <Animated.View key={band.left} style={[{ position: 'absolute', top: 0, bottom: 0, left: band.left * scale, right: 0, opacity: band.opacity }, felt]} />
       ))}
-      <View style={{ position: 'absolute', right: 3, top: 0, bottom: 0, justifyContent: 'center' }}>
-        <Svg width={9} height={14} viewBox="0 0 9 14">
-          <Path d="M2 2 L7 7 L2 12" stroke={withAlpha(t.text, 0.6)} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </Svg>
-      </View>
+      {arrow ? (
+        <View style={{ position: 'absolute', right: 3, top: 0, bottom: 0, justifyContent: 'center' }}>
+          <EdgeArrow />
+        </View>
+      ) : null}
     </Animated.View>
+  );
+}
+
+/** The small chevron that says more pills wait past the edge, pointing right (mirrored for the left). */
+function EdgeArrow() {
+  const t = useTheme();
+  return (
+    <Svg width={9} height={14} viewBox="0 0 9 14">
+      <Path d="M2 2 L7 7 L2 12" stroke={withAlpha(t.text, 0.6)} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </Svg>
   );
 }
 
