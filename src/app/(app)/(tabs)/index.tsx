@@ -827,9 +827,13 @@ function Table({ deck }: { deck: Deck }) {
             <View
               ref={deckBox}
               collapsable={false}
-              style={{ flex: 1 }}
+              // Unmeasured, the deck waits unseen: Today mounts hidden under the Showdown, and its first frame back
+              // would otherwise lay out the card for a guessed height and then jump to the real one.
+              style={{ flex: 1, opacity: deckHeight === null ? 0 : 1 }}
               onLayout={(e) => {
-                setDeckHeight(Math.round(e.nativeEvent.layout.height));
+                // A screen hidden under a full-screen moment measures 0 by 0. Keep the last real height instead.
+                const { width, height } = e.nativeEvent.layout;
+                if (width > 0) setDeckHeight(Math.round(height));
                 deckBox.current?.measureInWindow((x, y, width, height) => {
                   if (width > 0) setDeckMiddle({ x: x + width / 2, y: y + height / 2 });
                 });
