@@ -274,6 +274,10 @@ describe('the rules sheet', () => {
     const none = friday();
     none.slots[1] = { ...none.slots[1], card: dealt(days[1], 4, ['spades']) };
     expect(miniSlots(none, 'saved').slice(0, 4).map((s) => s.focus)).toEqual([true, true, true, true]);
+    // And a sample saved card closes the row, so the ↺ it talks about is there to see.
+    expect(miniSlots(none, 'saved').at(-1)).toMatchObject({ key: 'saved-sample', under: '↺', face: { rescued: true, suit: null } });
+    expect(miniCaption(none, 'saved')).toBe('None saved this week. The last card shows how one looks.');
+    expect(miniSlots(week, 'saved').some((s) => s.key === 'saved-sample')).toBe(false);
 
     const court = miniSlots(week, 'court').slice(0, 4);
     expect(court.map((s) => s.under)).toEqual(['♥', null, '♣♠', '♦']);
@@ -315,7 +319,7 @@ describe('the rules sheet', () => {
   it('gives each card the note its leading suit plays, an octave up for a Ceiling, the low F for none', () => {
     const notes = miniSlots(friday(), 'notes');
     expect(notes.slice(0, 4).map((s) => s.tone)).toEqual(['ring-a5', 'ring-low', 'ring-d5', 'ring-low']);
-    expect(notes.slice(0, 4).map((s) => s.under)).toEqual(['A', 'low F', 'D', 'low F']);
+    expect(notes.slice(0, 4).map((s) => s.under)).toEqual(['♪ A', '♪ low F', '♪ D', '♪ low F']);
     expect(notes.slice(4).every((s) => s.tone === null)).toBe(true);
     expect(cardTone(dealt(days[0], 7, ['spades']))).toBe('ring-f4');
     expect(cardTone(dealt(days[0], 7, ['spades', 'clubs'], { ceilingSuits: ['clubs'] }))).toBe('ring-f4');

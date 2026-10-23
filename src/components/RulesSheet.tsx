@@ -390,12 +390,15 @@ export function miniSlots(week: Week, mode: MiniMode, rescue: { day: Day; card: 
         const tone = card.kind === 'joker' ? 'ring-low' : cardTone(card);
         const suit = card.kind === 'card' ? card.suits[0] : undefined;
         const note = suit ? SUIT_NOTE[suit] : 'low F';
-        return { ...base, face, tone, under: note, said: `its note ${note}` };
+        // Marked as a note, so "F" under a card never reads as Friday under the day letters.
+        return { ...base, face, tone, under: `♪ ${note}`, said: `its note ${note}` };
       }
       default:
         return { ...base, face };
     }
   });
+  // A week with nothing saved still shows what a saved day looks like: a sample card at the end of the row.
+  if (mode === 'saved' && !anySaved) slots.push(SAVED_SAMPLE);
   if (mode === 'river' && !week.warmup) {
     const { earned, need } = week.river;
     slots.push({
@@ -416,6 +419,26 @@ export function miniSlots(week: Week, mode: MiniMode, rescue: { day: Day; card: 
   }
   return slots;
 }
+
+/** What a saved day looks like, shown after the week when none of its days is saved: a low card with no suit. */
+export const SAVED_SAMPLE: MiniSlot = {
+  key: 'saved-sample',
+  letter: 'Saved',
+  day: 'A saved day looks like this',
+  face: { kind: 'card', rank: 4, suit: null, also: [], rescued: true },
+  back: false,
+  open: false,
+  dashed: false,
+  focus: true,
+  held: false,
+  under: '↺',
+  said: null,
+  tone: null,
+  center: null,
+};
+
+/** Whether any day of the week has been saved. */
+const anySavedIn = (week: Week) => week.slots.some((s) => s.card?.kind === 'card' && s.card.rescued);
 
 /** Whether any day of the week has dealt a card yet. */
 const anyCards = (week: Week) => week.slots.some((s) => s.card);
@@ -443,7 +466,8 @@ export function miniCaption(week: Week, mode: MiniMode, o: { rescue?: boolean; c
       if (!week.call) return o.callOpen ? 'No call yet this week.' : 'No call this week.';
       return `Your call: ${HANDS[week.call].name} ×${week.callMultiplier}${week.madeCall ? ', made' : ''}`;
     case 'saved':
-      return o.rescue ? 'Yesterday’s card can still be saved.' : 'A saved day shows ↺.';
+      if (o.rescue) return 'Yesterday’s card can still be saved.';
+      return anySavedIn(week) ? 'A saved day shows ↺.' : 'None saved this week. The last card shows how one looks.';
     case 'court': {
       if (!anyCards(week)) return 'No cards yet this week.';
       const counts = SUITS.map((s) => `${SUIT_INFO[s].glyph} ${week.slots.filter((slot) => slot.card?.suits.includes(s)).length}`);
@@ -463,7 +487,7 @@ export function miniCaption(week: Week, mode: MiniMode, o: { rescue?: boolean; c
 export function miniCaptionSaid(week: Week, mode: MiniMode, o: { rescue?: boolean; callOpen?: boolean } = {}): string | null {
   const caption = miniCaption(week, mode, o);
   if (mode === 'stamps' && caption?.startsWith('↓')) return week.hand?.title ?? null;
-  if (mode === 'saved' && !o.rescue) return null;
+  if (mode === 'saved' && !o.rescue && anySavedIn(week)) return null;
   if (mode === 'court' && anyCards(week)) return `Days this week: ${SUITS.map((s) => `${SUIT_INFO[s].name} ${week.slots.filter((slot) => slot.card?.suits.includes(s)).length}`).join(', ')}`;
   return caption;
 }
@@ -897,7 +921,7 @@ function MiniCard({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${slot.day}, ${slotWhat(slot)}. Its note: ${slot.under ?? ''}.`}
+      accessibilityLabel={`${slot.day}, ${slotWhat(slot)}${slot.said ? `, ${slot.said}` : ''}.`}
       accessibilityHint="Plays its note."
       onPress={() => {
         tick();
