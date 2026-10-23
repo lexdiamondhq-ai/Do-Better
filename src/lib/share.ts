@@ -224,6 +224,8 @@ const STAMP_WIDTHS: Record<string, number> = {
   A: 711, B: 609, C: 631, D: 655, E: 603, F: 613, G: 719, H: 650, I: 239, J: 531, K: 597, L: 569, M: 809,
   N: 670, O: 721, P: 595, Q: 782, R: 604, S: 542, T: 640, U: 675, V: 728, W: 947, X: 689, Y: 638, Z: 598,
   ' ': 235, '’': 220, "'": 193, '-': 403,
+  // Figures and the signs of a sum, so a chip count is measured as itself and not as a row of Ws.
+  '0': 565, '1': 379, '2': 566, '3': 565, '4': 551, '5': 493, '6': 521, '7': 522, '8': 541, '9': 521, '+': 490, '=': 445, ',': 223,
 };
 /** Display type is set 1% tight: a hundredth of the size taken off after every letter. */
 const TRACKING = 0.01;
@@ -244,6 +246,17 @@ export function stampSize(text: string, width: number, max: number, min = Math.r
   const per = stampWidth(text, 1);
   if (per <= 0) return max;
   return Math.max(min, Math.min(max, Math.floor((width * 0.96) / per)));
+}
+
+/**
+ * The size the Showdown's payout is set at so the sum stays on one line beside its counting total:
+ * "Five of a kind 800 + Call 140 =" then the chip and "940", in a row `room` points wide. Up to `max`,
+ * down to 13. The total takes its room first (a chip 1.25 times its size, a gap, its digits), and the sum
+ * is set in a semi-bold a little wider than the bold the widths were measured from.
+ */
+export function payoutSize(said: string, total: number, room: number, o: { max: number; chips: number }): number {
+  const totalW = o.chips * 1.6 + stampWidth(chipText(total), o.chips) * 1.03;
+  return stampSize(said, Math.max(0, room - totalW) / 1.02, o.max, 13);
 }
 
 /** A habit's week: "Read 6/7". */

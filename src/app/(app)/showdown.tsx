@@ -33,7 +33,7 @@ import { weekOf, weekRange } from '@/lib/format';
 import { courtHabits, dealHabits, gameInput } from '@/lib/play';
 import { hasSeen, usePrefs } from '@/lib/prefs';
 import { useReviewAsk } from '@/lib/review';
-import { callLine, captionFacts, feltFor, handLines, stampSize, suitedLine, weekLine, weekSuit, type Felt } from '@/lib/share';
+import { callLine, captionFacts, feltFor, handLines, payoutSize, stampSize, suitedLine, weekLine, weekSuit, type Felt } from '@/lib/share';
 import { playSound, playTones } from '@/lib/sound';
 import type { Habit } from '@/lib/types';
 import { mix, withAlpha } from '@/theme/color';
@@ -1065,8 +1065,14 @@ function Payout({ week, call, step, instant, short }: { week: Week; call: Return
   const callShown = !hasCall || step >= 2 || instant;
   const first = pieces.filter((p) => p.label !== 'Call').reduce((sum, p) => sum + p.chips, 0);
   const value = useTally(callShown ? total : first, step >= 1, instant);
-  const size = short ? 17 : 19;
+  const { width } = useWindowDimensions();
   const hidden = (p: { label: string }) => p.label === 'Call' && !callShown;
+  // One piece is said by its label and the counting total alone ("Straight ●100"), never its number twice.
+  const sum = pieces.length > 1;
+  const chipsSize = short ? 30 : 36;
+  // Sized to stay on one line beside the total, so a long hand never breaks the sum ("… + Call / 140 =").
+  const said = sum ? `${pieces.map((p) => `${p.label} ${formatChips(p.chips)}`).join(' + ')} =` : (pieces[0]?.label ?? '');
+  const size = payoutSize(said, total, width - space.xl * 2 - space.sm, { max: short ? 17 : 19, chips: chipsSize });
   return (
     <View style={{ gap: short ? space.sm : space.md, alignItems: 'center' }}>
       <View accessible accessibilityLabel={`${payoutLine(week) ?? ''} chips`} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, alignSelf: 'stretch' }}>
@@ -1078,14 +1084,15 @@ function Payout({ week, call, step, instant, short }: { week: Week; call: Return
             {pieces.map((p, i) => (
               <Text key={p.label} style={hidden(p) ? { color: 'transparent' } : null}>
                 {i ? ' + ' : ''}
-                {`${p.label} `}
-                <Text style={{ color: hidden(p) ? 'transparent' : t.text }}>{formatChips(p.chips)}</Text>
+                {sum ? `${p.label} ` : p.label}
+                {sum ? <Text style={{ color: hidden(p) ? 'transparent' : t.text }}>{formatChips(p.chips)}</Text> : null}
               </Text>
             ))}
-            {pieces.length > 1 ? ' =' : ''}
+            {/* The sign waits with the call it adds, so the row never reads "Straight 100 =" with nothing after the plus. */}
+            {sum ? <Text style={callShown ? null : { color: 'transparent' }}> =</Text> : null}
           </Text>
         ) : null}
-        <Chips value={value} size={short ? 30 : 36} />
+        <Chips value={value} size={chipsSize} />
       </View>
       {call && (step >= 2 || instant) ? <CallPanel call={call} instant={instant} /> : null}
     </View>

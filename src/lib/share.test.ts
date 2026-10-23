@@ -52,6 +52,7 @@ const {
   hallLine,
   handLines,
   identityPhrase,
+  payoutSize,
   riverLine,
   share,
   SHARE_TEXT_WIDTH,
@@ -215,6 +216,43 @@ describe('the stamp', () => {
     }
     for (const face of ['Queen of Diamonds', 'Jack of Spades', 'King of Hearts']) {
       expect(stampWidth(face, stampSize(face, SHARE_TEXT_WIDTH, 34))).toBeLessThanOrEqual(SHARE_TEXT_WIDTH);
+    }
+  });
+});
+
+describe('the payout sum', () => {
+  // The Showdown's row at 390 and 375 points: the screen less its 20-point gutters and the gap before the total.
+  const rows = [390 - 48, 375 - 48];
+  const said = (hand: HandKind, chips: number, call: number) => `${HANDS[hand].name} ${chipText(chips)} + Call ${chipText(call)} =`;
+
+  it('measures figures as figures, not as the widest letter', () => {
+    expect(stampWidth('100', 10)).toBeCloseTo(15.09 - 0.3, 1);
+    expect(stampWidth('1,500', 10)).toBeLessThan(stampWidth('WWWWW', 10) * 0.6);
+  });
+
+  it('keeps an everyday sum at full size', () => {
+    expect(payoutSize(said('straight', 100, 100), 200, rows[0], { max: 19, chips: 36 })).toBe(19);
+    // A short 375-point phone sets it at 17 beside a 30-point total.
+    expect(payoutSize(said('straight', 100, 100), 200, rows[1], { max: 17, chips: 30 })).toBe(17);
+    expect(payoutSize('Pair', 30, rows[1], { max: 17, chips: 30 })).toBe(17);
+  });
+
+  it('fits the longest sum on one line beside its total, never below 13 points', () => {
+    for (const room of rows) {
+      for (const [hand, chips, call] of [
+        ['five-of-a-kind', 800, 1500],
+        ['five-of-a-kind', 800, 140],
+        ['four-of-a-kind', 250, 750],
+        ['straight-flush', 350, 1050],
+      ] as const) {
+        const text = said(hand, chips, call);
+        const size = payoutSize(text, chips + call, room, { max: 19, chips: 36 });
+        expect(size).toBeGreaterThanOrEqual(13);
+        // The sum, set a little wide, and the total's chip and digits share the row. Only the rarest sum of
+        // all (a Five of a kind and a made Long shot on a Royal flush) can reach the floor and wrap on a 375.
+        const fits = stampWidth(text, size) * 1.02 + 36 * 1.6 + stampWidth(chipText(chips + call), 36) * 1.03 <= room;
+        expect(fits || (size === 13 && call === 1500 && room === rows[1])).toBe(true);
+      }
     }
   });
 });
