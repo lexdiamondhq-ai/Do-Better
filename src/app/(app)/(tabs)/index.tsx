@@ -1213,6 +1213,8 @@ const STRUM_AT_MS = 380;
 const RING_MS = 500;
 /** A pill that comes to ring more than this long after its note (drawn again later) stays still instead. */
 const RING_LATE_MS = 100;
+/** One frame at 60 a second. */
+const FRAME_MS = 16;
 /** The day's chord as it strums: its notes, and when the keep that started it happened (Date.now()). */
 type Ring = { steps: readonly ToneStep[]; at: number };
 
@@ -1443,7 +1445,8 @@ function RingChip({ start, at, color, edge, children }: { start: number | null; 
   const scale = useSharedValue(1);
   useEffect(() => {
     if (start === null || at === null) return;
-    const wait = start + at - Date.now();
+    // One frame early: a lift starts drawing on the frame after it begins, so this way its first frame meets the note.
+    const wait = start + at - Date.now() - FRAME_MS;
     if (wait < -RING_LATE_MS) return;
     scale.set(withDelay(Math.max(0, wait), withSequence(withTiming(1.15, { duration: 90, easing: Easing.out(Easing.quad) }), withTiming(1, { duration: 300, easing: Easing.out(Easing.cubic) }))));
   }, [start, at, scale]);
