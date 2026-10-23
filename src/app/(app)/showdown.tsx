@@ -842,11 +842,12 @@ function StageCard({
         style={{ flex: 1 }}
       >
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius.md, boxShadow: `0px 0px 36px 10px ${withAlpha(felt.theme.text, 0.55)}` }, glow]} />
-        <Animated.View style={[StyleSheet.absoluteFill, { backfaceVisibility: 'hidden' }, backFace]}>
+        {/* The button says what shows; the faces inside never speak for themselves, so a face-down card can't give its face away. */}
+        <Animated.View aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, { backfaceVisibility: 'hidden' }, backFace]}>
           <CardBack back={back} size="lg" width={w} />
           {river ? <RiverMark w={w} h={h} /> : null}
         </Animated.View>
-        <Animated.View style={[StyleSheet.absoluteFill, { backfaceVisibility: 'hidden' }, frontFace]}>
+        <Animated.View aria-hidden accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[StyleSheet.absoluteFill, { backfaceVisibility: 'hidden' }, frontFace]}>
           <PlayingCard face={item.face} size="lg" width={w} peek={peek} />
         </Animated.View>
       </Pressable>
