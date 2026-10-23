@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { Easing, interpolate, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, interpolate, useAnimatedStyle, useSharedValue, withDelay, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
@@ -313,7 +313,8 @@ function Called({ offer }: { offer: Offer }) {
   const check = useSharedValue(0);
   useEffect(() => {
     show.set(withSpring(1, { damping: 13, stiffness: 210 }));
-    check.set(withDelay(160, withSpring(1, { damping: 9, stiffness: 260 })));
+    // The check pops a little past full size and settles, never so far that it reaches the card's edge.
+    check.set(withDelay(160, withSequence(withTiming(1.16, { duration: 170, easing: Easing.out(Easing.cubic) }), withSpring(1, { damping: 14, stiffness: 320 }))));
   }, [show, check]);
   const ticket = useAnimatedStyle(() => ({ opacity: Math.min(1, show.get() * 1.6), transform: [{ translateY: (1 - show.get()) * 60 }, { scale: 0.86 + 0.14 * show.get() }, { rotate: `${(1 - show.get()) * -6}deg` }] }));
   const badge = useAnimatedStyle(() => ({ transform: [{ scale: check.get() }] }));
