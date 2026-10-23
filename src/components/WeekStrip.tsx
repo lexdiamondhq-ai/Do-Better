@@ -174,7 +174,8 @@ function FutureBack({ back, size, dealt, index, count }: { back: BackKey; size: 
  *
  * `onTodayLayout` reports today's place in window coordinates, so a kept card can arc into it; `arc` says
  * where that deal is. `dealt` deals the week's backs in (0 to 1). `turnToday` turns today's card over once
- * each time it changes.
+ * each time it changes. `todayDown` keeps today's card face down: a Joker a face card has just brought,
+ * waiting for that face card's night to close before it turns over.
  */
 export function WeekStrip({
   week,
@@ -185,6 +186,7 @@ export function WeekStrip({
   arc = null,
   dealt,
   turnToday = 0,
+  todayDown = false,
   onPress,
   onYesterday,
   onTodayLayout,
@@ -198,6 +200,7 @@ export function WeekStrip({
   arc?: StripArc | null;
   dealt?: SharedValue<number>;
   turnToday?: number;
+  todayDown?: boolean;
   onPress?: () => void;
   onYesterday?: () => void;
   onTodayLayout?: (rect: Rect) => void;
@@ -227,6 +230,7 @@ export function WeekStrip({
     const savingNow = !!slot.card && arc?.savedDay === slot.day;
     let card: ReactNode;
     if (slot.isToday && flying) card = <TodaySlot size={size} waiting />;
+    else if (slot.isToday && slot.card && todayDown) card = <CardBack back={back} size={size} />;
     else if (slot.card) {
       const face = <PlayingCard face={faceOfDay(slot.card, played.get(slot.day))} size={size} highlight={held} dashed={savingNow && flying} style={savingNow && flying ? { opacity: SAVED_OPACITY } : undefined} />;
       if (savingNow && arc?.phase === 'landed') card = <Snap key={`snap:${arc.n}`}>{face}</Snap>;

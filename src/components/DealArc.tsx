@@ -27,16 +27,22 @@ const SIZE: CardSize = 'xs';
  * With Reduce Motion there is no flight: the card fades in where it lands.
  *
  * It draws over the whole table and takes no touches. `face` is today's card as the deck now has it (the
- * keep has already counted by the time it lands). `onLanded` fires once the card has settled, so the strip
- * can show its own card in that place again.
+ * keep has already counted by the time it lands). `down` lands it face down instead: a Joker a face card
+ * has just brought, which turns over once, in the strip, when the face card's night closes. It is read as
+ * the card arrives, so it can follow the keep's moments in by then. `onLanded` fires once the card has
+ * settled, so the strip can show its own card in that place again.
  */
-export function DealArc({ flight, face, back, onLanded }: { flight: Flight | null; face: CardFace | null; back: BackKey; onLanded: (id: number) => void }) {
+export function DealArc({ flight, face, down = false, back, onLanded }: { flight: Flight | null; face: CardFace | null; down?: boolean; back: BackKey; onLanded: (id: number) => void }) {
   const box = useRef<View>(null);
   const [origin, setOrigin] = useState<Point>({ x: 0, y: 0 });
   const t = useSharedValue(0);
   const turn = useSharedValue(1);
   const seat = useSharedValue(1);
   const shown = useSharedValue(0);
+  const stayDown = useSharedValue(down);
+  useEffect(() => {
+    stayDown.set(down);
+  }, [down, stayDown]);
   const id = flight?.id ?? null;
   const reduced = !!flight?.reduced;
   const delayMs = flight?.delayMs ?? 0;
@@ -50,9 +56,10 @@ export function DealArc({ flight, face, back, onLanded }: { flight: Flight | nul
       playSound('deal');
     };
     const landed = () => land(id);
+    const seated = () => feel.tick();
     const never = { reduceMotion: ReduceMotion.Never };
     if (reduced) {
-      // Nothing flies: the card simply fades in, face up, in its place.
+      // Nothing flies: the card simply fades in, face up (or face down, for a face card's Joker), in its place.
       t.set(1);
       turn.set(0);
       seat.set(1);
@@ -70,6 +77,18 @@ export function DealArc({ flight, face, back, onLanded }: { flight: Flight | nul
       );
       return;
     }
+    const settle = () => {
+      'worklet';
+      seat.set(
+        withSequence(
+          withTiming(1.14, { duration: 45, easing: Easing.out(Easing.quad), ...never }),
+          withTiming(1, { duration: timing.settleMs - 45, easing: Easing.out(Easing.back(2)), ...never }, (fin) => {
+            'worklet';
+            if (fin) scheduleOnRN(landed);
+          }),
+        ),
+      );
+    };
     t.set(0);
     turn.set(1);
     seat.set(1);
@@ -81,26 +100,24 @@ export function DealArc({ flight, face, back, onLanded }: { flight: Flight | nul
         withTiming(1, { duration: timing.flyMs, easing: Easing.bezier(0.3, 0.1, 0.25, 1), ...never }, (ok) => {
           'worklet';
           if (!ok) return;
+          // A face card's Joker seats face down, with the tick but no deal yet: its turn comes after the night.
+          if (stayDown.get()) {
+            scheduleOnRN(seated);
+            settle();
+            return;
+          }
           turn.set(
             withTiming(0, { duration: timing.flipMs, easing: Easing.out(Easing.cubic), ...never }, (done) => {
               'worklet';
               if (!done) return;
               scheduleOnRN(turned);
-              seat.set(
-                withSequence(
-                  withTiming(1.14, { duration: 45, easing: Easing.out(Easing.quad), ...never }),
-                  withTiming(1, { duration: timing.settleMs - 45, easing: Easing.out(Easing.back(2)), ...never }, (fin) => {
-                    'worklet';
-                    if (fin) scheduleOnRN(landed);
-                  }),
-                ),
-              );
+              settle();
             }),
           );
         }),
       ),
     );
-  }, [id, reduced, delayMs, t, turn, seat, shown]);
+  }, [id, reduced, delayMs, t, turn, seat, shown, stayDown]);
 
   const s = CARD_SIZES[SIZE];
   const from = flight ? { x: flight.from.x - origin.x, y: flight.from.y - origin.y } : { x: 0, y: 0 };
@@ -115,8 +132,9 @@ export function DealArc({ flight, face, back, onLanded }: { flight: Flight | nul
       transform: [{ translateX: p.x - s.w / 2 }, { translateY: p.y - s.h / 2 }, { rotate: `${p.rotate}deg` }, { scale: p.scale * fit * seat.get() }],
     };
   });
-  const faceUp = useAnimatedStyle(() => ({ transform: [{ perspective: 420 }, { rotateY: `${turn.get() * 180}deg` }] }));
-  const faceDown = useAnimatedStyle(() => ({ transform: [{ perspective: 420 }, { rotateY: `${turn.get() * 180 - 180}deg` }] }));
+  // With Reduce Motion nothing turns, so a card that stays down simply shows its back.
+  const faceUp = useAnimatedStyle(() => ({ transform: [{ perspective: 420 }, { rotateY: `${(reduced && stayDown.get() ? 1 : turn.get()) * 180}deg` }] }));
+  const faceDown = useAnimatedStyle(() => ({ transform: [{ perspective: 420 }, { rotateY: `${(reduced && stayDown.get() ? 1 : turn.get()) * 180 - 180}deg` }] }));
 
   return (
     <View

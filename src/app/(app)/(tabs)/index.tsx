@@ -217,6 +217,8 @@ function Table({ deck }: { deck: Deck }) {
   // When a face card's night closes, the hand line rolls to the new hand and, when the night brought it, today's
   // Joker turns over in the strip.
   const faceNow = moment?.main.kind === 'face' ? (moment.main.joker ? 'joker' : 'plain') : null;
+  // Until then, the Joker that night brought stays face down: the arc seats it on its back and the strip keeps it there.
+  const jokerDown = faceNow === 'joker' && deck.todayCard?.kind === 'joker';
   if (faceNow !== faceUp) {
     setFaceUp(faceNow);
     if (!faceNow && faceUp === 'joker' && deck.todayCard?.kind === 'joker') setTurnToday((n) => n + 1);
@@ -695,6 +697,7 @@ function Table({ deck }: { deck: Deck }) {
           arc={measure ? stripArc : null}
           dealt={dealt}
           turnToday={turnToday}
+          todayDown={jokerDown}
           onPress={() => router.push('/hands')}
           onYesterday={lateCards.length ? () => logYesterday() : undefined}
           onTodayLayout={measure ? (rect) => setTodaySlot((r) => (r && r.x === rect.x && r.y === rect.y && r.width === rect.width ? r : rect)) : undefined}
@@ -857,7 +860,7 @@ function Table({ deck }: { deck: Deck }) {
         </View>
         {!front && hasCards ? <BottomFade height={fadeHeight(bottomPad)} /> : null}
       </ThemeScope>
-      <DealArc flight={flight} face={deck.todayCard ? faceOfDay(deck.todayCard, game.current.hand?.cards.find((c) => c.day === deck.today)?.suit) : null} back={back} onLanded={landed} />
+      <DealArc flight={flight} face={deck.todayCard ? faceOfDay(deck.todayCard, game.current.hand?.cards.find((c) => c.day === deck.today)?.suit) : null} down={jokerDown} back={back} onLanded={landed} />
       {interruption === 'reminder' ? <ReminderPrompt /> : null}
     </View>
   );
