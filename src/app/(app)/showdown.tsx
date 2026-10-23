@@ -1098,7 +1098,10 @@ function Payout({ week, call, step, instant, short }: { week: Week; call: Return
   const hasCall = pieces.some((p) => p.label === 'Call');
   const callShown = !hasCall || step >= 2 || instant;
   const first = pieces.filter((p) => p.label !== 'Call').reduce((sum, p) => sum + p.chips, 0);
-  const value = useTally(callShown ? total : first, step >= 1, instant);
+  const target = callShown ? total : first;
+  const value = useTally(target, step >= 1, instant);
+  // The total shows from its first counted chip (or at once when there is nothing to count), so the row never reads "… = 0".
+  const counted = instant || value > 0 || (step >= 1 && target === 0);
   const { width } = useWindowDimensions();
   const hidden = (p: { label: string }) => p.label === 'Call' && !callShown;
   // The call piece before it lands: there, but faint.
@@ -1128,8 +1131,8 @@ function Payout({ week, call, step, instant, short }: { week: Week; call: Return
             {sum ? <Text style={callShown ? null : { color: waiting }}> =</Text> : null}
           </Text>
         ) : null}
-        {/* The total keeps its place but shows only once it starts to count, so the row never reads "… = 0". */}
-        <View style={{ opacity: step >= 1 || instant ? 1 : 0 }}>
+        {/* The total keeps its place, unseen until it has counted past 0. */}
+        <View style={{ opacity: counted ? 1 : 0 }}>
           <Chips value={value} size={chipsSize} />
         </View>
       </View>
