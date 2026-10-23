@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import Svg, { Defs, Ellipse, G, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import type { Suit } from '@/engine/cards';
+import { COMPACT_BELOW } from '@/engine/today';
 import { creasePath, defaultGrip, ridgePath, scuffPath, thumbOval, wearArt, wearOf, type Grip, type Size, type Wear } from '@/engine/wear';
 import { useDeck, useGrips } from '@/lib/deck';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -44,8 +45,14 @@ export function wearShown(wear: Wear, o: { dark?: boolean; depth?: number } = {}
   return { corners: wear.corners > 0, crease: face && wear.crease > 0, thumb: face && wear.thumb > 0, gilt: full && wear.gilt > 0, foil: face && wear.foil };
 }
 
-/** Under this height a habit card is drawn compact, with its smaller suit watermark lower down (as HabitCard draws it). */
-const COMPACT_BELOW = 360;
+/**
+ * Whether a card face `h` points tall is drawn compact, with its smaller suit watermark lower down, as
+ * HabitCard draws it: what the card says when it says, otherwise Today's own rule (its card height, rounded
+ * the way Today measures it, under `COMPACT_BELOW`).
+ */
+export function drawnCompact(h: number, compact?: boolean): boolean {
+  return compact ?? Math.round(h) < COMPACT_BELOW;
+}
 
 /**
  * The wear on a card face: soft corners, a crease, the thumb mark, a gilt edge, an Heirloom's foil suit.
@@ -55,7 +62,8 @@ const COMPACT_BELOW = 360;
  *
  * The thumb mark sits where this player's thumb holds the card (`prefs.grips`, on this phone), or at the
  * card's seeded place before any swipe is saved. The card's colour and suit come from the deck unless
- * given; `grip` and `radius` are for pictures of a card drawn outside the deck.
+ * given; `grip` and `radius` are for pictures of a card drawn outside the deck. `compact` says which
+ * layout the card face uses, so the Heirloom's foil lands on its watermark; without it, the height decides.
  */
 export function CardWear({
   habitId,
@@ -66,6 +74,7 @@ export function CardWear({
   suit,
   grip,
   radius = radii.card,
+  compact,
 }: {
   habitId: string;
   kept: number;
@@ -75,6 +84,7 @@ export function CardWear({
   suit?: Suit;
   grip?: Grip;
   radius?: number;
+  compact?: boolean;
 }): ReactNode {
   const t = useTheme();
   const deck = useDeck();
@@ -141,7 +151,7 @@ export function CardWear({
           </Defs>
 
           {/* The Heirloom's foil lies over the suit watermark, in the same place and turn. */}
-          {shown.foil && known && cardSuit ? <Foil suit={cardSuit} size={size} fill={`url(#${uid}f)`} /> : null}
+          {shown.foil && known && cardSuit ? <Foil suit={cardSuit} size={size} compact={drawnCompact(size.h, compact)} fill={`url(#${uid}f)`} /> : null}
 
           {/* Softened corners: the colour rubbed thin along each rounded edge, with a looser line just inside it. */}
           {shown.corners ? (
@@ -192,8 +202,7 @@ function Thumb({ art, size, ink, fill, opacity }: { art: NonNullable<ReturnType<
 }
 
 /** The Heirloom's foil suit, laid exactly over the card's watermark (HabitCard draws it at the lower right, turned -12°). */
-function Foil({ suit, size, fill }: { suit: Suit; size: Size; fill: string }) {
-  const compact = size.h < COMPACT_BELOW;
+function Foil({ suit, size, compact, fill }: { suit: Suit; size: Size; compact: boolean; fill: string }) {
   const box = compact ? 180 : 250;
   const cx = size.w + 30 - box / 2;
   const cy = size.h + (compact ? 46 : 34) - box / 2;

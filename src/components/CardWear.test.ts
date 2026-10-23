@@ -9,7 +9,8 @@ vi.mock('react-native', () => ({ StyleSheet: { absoluteFill: {} }, View: () => n
 vi.mock('react-native-svg', () => ({ default: () => null, Circle: () => null, Defs: () => null, Ellipse: () => null, G: () => null, LinearGradient: () => null, Path: () => null, RadialGradient: () => null, Rect: () => null, Stop: () => null }));
 vi.mock('@/lib/deck', () => ({ useDeck: () => null, useGrips: () => ({}) }));
 
-const { FOIL_ALPHA, wearInks, wearShown } = await import('./CardWear');
+const { drawnCompact, FOIL_ALPHA, wearInks, wearShown } = await import('./CardWear');
+const { densityFor } = await import('@/engine/today');
 
 /** What sits on a habit card's face: its ink, its quieter ink, and the tinted tile under the Floor and Ceiling rows. */
 const face = (c: (typeof CARD_COLORS)[number]) => ({ bg: cardColors[c].bg, ink: cardColors[c].ink, quiet: on(cardColors[c].bg).secondary, tile: withAlpha(INK, 0.1) });
@@ -100,5 +101,20 @@ describe('wear deeper in the deck', () => {
   it('draws soft corners only at 29 kept days, and the crease and thumb from 30', () => {
     expect(wearShown(wearOf(29))).toEqual({ corners: true, crease: false, thumb: false, gilt: false, foil: false });
     expect(wearShown(wearOf(30))).toMatchObject({ corners: true, crease: true, thumb: true, gilt: false });
+  });
+});
+
+describe('the Heirloom foil’s place', () => {
+  it('follows the card’s own layout when the card says it', () => {
+    expect(drawnCompact(420, true)).toBe(true);
+    expect(drawnCompact(300, false)).toBe(false);
+  });
+
+  it('otherwise picks the layout Today deals the card in, even half a point either side of the line', () => {
+    for (const h of [300, 359.4, 359.6, 360, 360.4, 420, 600]) {
+      // Today rounds the deck's height before it decides, so the wear rounds the card's height the same way.
+      const today = densityFor({ cardHeight: Math.round(h), windowHeight: 844, fontScale: 1, screenReader: false }).mode === 'compact';
+      expect(drawnCompact(h)).toBe(today);
+    }
   });
 });
