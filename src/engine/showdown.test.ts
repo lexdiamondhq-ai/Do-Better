@@ -146,6 +146,12 @@ describe('what the Floor days made', () => {
     expect(madeThisLine(kicker)).toBeNull();
   });
 
+  it('says nothing for a warm-up week, which has no Showdown', () => {
+    const w = { ...weekOf([floor(9), up(13), floor(9), up(4)]), warmup: true };
+    expect(floorCredit(w).made).toBe(true);
+    expect(madeThisLine(w)).toBeNull();
+  });
+
   it('says no hand when every card is a Floor day', () => {
     const w = weekOf([floor(9), floor(9), floor(4)]);
     expect(floorCredit(w)).toMatchObject({ inHand: 3, of: 3, without: null, made: true });
@@ -203,6 +209,17 @@ describe('what a comeback made', () => {
     const w = weekOf([{ rank: 7, saved: true }, up(13), up(13), up(4)]);
     expect(w.hand?.cards.some((c) => c.day === days[0])).toBe(true);
     expect(comebackCredit(w)).toBeNull();
+  });
+
+  it('credits saved cards that only made the hand together, naming the comeback of the one in the hand', () => {
+    // Monday and Wednesday were both saved as Sevens. Either one fills the straight's gap, so neither alone
+    // changed the kind; without both the week is Nine high.
+    const w = weekOf([{ rank: 7, saved: true }, up(5), { rank: 7, saved: true }, up(6), up(8), up(9)]);
+    expect(w.hand?.kind).toBe('straight');
+    const back = comebackCredit(w)!;
+    expect(back).toMatchObject({ lifted: 'straight', without: 'high-card' });
+    expect(w.hand!.cards.find((c) => c.day === back.day)?.rank).toBe(7);
+    expect(madeThisLine(w)).toBe(`↺ ${back.day === days[0] ? 'Tuesday' : 'Thursday'}’s comeback made this Straight.`);
   });
 
   it('comes first, before the Floor days', () => {
