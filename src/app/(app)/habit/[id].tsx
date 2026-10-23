@@ -191,6 +191,7 @@ export default function HabitDetail() {
                   value={planLine(plan, habit)}
                   empty=""
                   hint="Opens your plan for this card’s next Comeback"
+                  note="Saved on this phone"
                   onPress={() => router.push({ pathname: '/plan', params: { habit: habit.id } })}
                   last
                 />
@@ -747,12 +748,13 @@ function Prompt({ title, body, onPress }: { title: string; body: string; onPress
   );
 }
 
-function Row({ label, value, empty, onPress, last, hint = 'Opens the card to change it' }: { label: string; value: string | null; empty: string; onPress: () => void; last?: boolean; hint?: string }) {
+/** One line of the card's details. `note` is a quiet line under the value, such as where it is kept. */
+function Row({ label, value, empty, onPress, last, hint = 'Opens the card to change it', note }: { label: string; value: string | null; empty: string; onPress: () => void; last?: boolean; hint?: string; note?: string }) {
   const t = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={value ? `${label}: ${value}` : `${label}: ${empty}`}
+      accessibilityLabel={`${value ? `${label}: ${value}` : `${label}: ${empty}`}${value && note ? `. ${note}` : ''}`}
       accessibilityHint={hint}
       onPress={onPress}
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 56, paddingHorizontal: space.lg, paddingVertical: space.md, borderBottomWidth: last ? 0 : 1, borderBottomColor: t.border, opacity: pressed ? 0.6 : 1 })}
@@ -762,6 +764,11 @@ function Row({ label, value, empty, onPress, last, hint = 'Opens the card to cha
         <Body weight={value ? 'bold' : 'semi'} size={typeScale.text.md} color={value ? t.text : t.textSecondary}>
           {value ?? empty}
         </Body>
+        {value && note ? (
+          <Body size={typeScale.text.sm} color={t.textSecondary}>
+            {note}
+          </Body>
+        ) : null}
       </View>
       <Body weight="heavy" size={typeScale.text.lg} color={t.textSecondary} aria-hidden>
         {value ? '›' : '+'}

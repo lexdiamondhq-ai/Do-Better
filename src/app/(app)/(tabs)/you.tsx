@@ -17,11 +17,13 @@ import { Body, Button, Display, Label, Page, PageTitle, raisedStyle, Section, Ta
 import { SUIT_INFO } from '@/engine/cards';
 import { FACES, RUNGS, type CourtSuit } from '@/engine/court';
 import { BACKS, TABLES, type TableKey } from '@/engine/game';
+import { wearOf } from '@/engine/wear';
 import { useAuth } from '@/lib/auth';
 import { useData } from '@/lib/data';
 import { useAdded, useDeck, useLook, type HabitView } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { sendInvite } from '@/lib/invite';
+import { usePlans } from '@/lib/plans';
 import { usePrefs } from '@/lib/prefs';
 import { playSound, setSoundSettings } from '@/lib/sound';
 import { supabase } from '@/lib/supabase';
@@ -117,6 +119,7 @@ export default function You() {
             }
           />
         ) : null}
+        <PhoneNotes cards={deck.cards} />
         {deck.cards.length > 1 ? (
           <Button
             label="Arrange your deck"
@@ -547,6 +550,21 @@ function MiniDeck({ cards, onOpen, onArrange }: { cards: HabitView[]; onOpen: (i
   );
 }
 
+/** Under the mini deck: the thumb marks drawn on it and the plans for its Comebacks live only on this phone. */
+function PhoneNotes({ cards }: { cards: HabitView[] }) {
+  const t = useTheme();
+  const plans = usePlans();
+  const thumbs = cards.some((c) => wearOf(c.allTime.kept).thumb > 0);
+  const planned = cards.some((c) => !!plans[c.habit.id]);
+  if (!thumbs && !planned) return null;
+  const what = thumbs && planned ? 'Thumb marks and plans' : thumbs ? 'Thumb marks' : 'Plans';
+  return (
+    <Body size={typeScale.text.sm} color={t.textSecondary} style={{ textAlign: 'center' }}>
+      {`${what} live only on this phone. Delete my deck clears them.`}
+    </Body>
+  );
+}
+
 function MiniCard({ view, width, x, y, turn, onOpen, onArrange }: { view: HabitView; width: number; x: number; y: number; turn: number; onOpen: () => void; onArrange?: () => void }) {
   const lift = useSharedValue(0);
   const style = useAnimatedStyle(() => ({ transform: [{ translateY: -12 * lift.get() }, { rotate: `${turn * (1 - lift.get() * 0.6)}deg` }, { scale: 1 + 0.05 * lift.get() }] }));
@@ -693,7 +711,7 @@ function Account() {
       'Delete your deck?',
       demo
         ? 'The demo deck empties and starts again from the first deal. Nothing here is saved anyway.'
-        : 'Every card, kept day, hand and call goes, and your north star with it. This can’t be undone. You start again from the first deal.',
+        : 'Every card, kept day, hand and call goes, and your north star with it, and so do the thumb marks and plans on this phone. This can’t be undone. You start again from the first deal.',
       [
         { text: 'Keep it', style: 'cancel' },
         { text: 'Delete my deck', style: 'destructive', onPress: () => void removeDeck() },
@@ -731,7 +749,7 @@ function Account() {
       <Rows>
         {PRIVACY_URL ? <Row label="Privacy" detail="What Do Better keeps, and why" onPress={() => Linking.openURL(PRIVACY_URL).catch(() => {})} /> : null}
         {FEEDBACK_EMAIL ? <Row label="Send feedback" detail="Straight to the person who makes it" onPress={() => Linking.openURL(`mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent('Do Better feedback')}`).catch(() => {})} /> : null}
-        <Row label="Delete my deck" detail={demo ? 'Start the demo from the first deal' : 'Cards, kept days, hands and calls'} danger onPress={confirmDelete} />
+        <Row label="Delete my deck" detail={demo ? 'Start the demo from the first deal' : 'Cards, kept days, hands, calls, thumb marks and plans'} danger onPress={confirmDelete} />
         {demo ? <Row label="Leave the demo" onPress={leaveDemo} /> : <Row label="Sign out" detail={guest ? 'Your deck isn’t saved yet' : undefined} onPress={signOut} />}
       </Rows>
       <SaveSheet visible={saving} onClose={() => setSaving(false)} />
