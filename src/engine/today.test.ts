@@ -670,6 +670,15 @@ describe('the deal arc and the moment after it', () => {
     expect(momentDelay({ comeback: false, reduced: true })).toBeLessThan(600);
   });
 
+  it('never waits for an arc or a turnover that a keep from the list or the pill sheet doesn’t have', () => {
+    expect(momentDelay({ comeback: false, reduced: false, table: false })).toBe(120);
+    // A Comeback kept from the list never turns over, so there's nothing to wait for either.
+    expect(momentDelay({ comeback: true, reduced: false, table: false })).toBe(120);
+    expect(momentDelay({ comeback: true, reduced: true, table: false })).toBe(120);
+    // The table is the default: a swipe or a button on the front card.
+    expect(momentDelay({ comeback: true, reduced: false, table: true })).toBe(momentDelay({ comeback: true, reduced: false }));
+  });
+
   it('arcs from the card to the slot, growing from 0.6 to full size and landing square', () => {
     const from = { x: 195, y: 520 };
     const to = { x: 245, y: 95 };

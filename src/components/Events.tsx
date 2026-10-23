@@ -62,15 +62,12 @@ const rungLine = (rung: Rung) => `And ${grouped(rung.days)} days of ${SUIT_INFO[
 // What Today tells the moments ---------------------------------------------------------------------------
 
 /**
- * The latest keep made on Today: which card, at what level, the level it had before (`was`), and whether
- * it was kept from its Comeback side. A moment from that keep waits for the Comeback's turnover, and only a
- * keep made on the Comeback card itself offers a plan.
- */
-/**
  * A keep made on Today: the habit and its suit, the level, what today was before, whether it was on the
  * Comeback card, and the week's hand just before it (a face card's Joker says how far it lifted the hand).
+ * `table` says it came from the front card, so the card left (a Comeback turning over first) and the deal
+ * arc flew; a keep from the list or the pill sheet has neither, and its moment doesn't wait for them.
  */
-export type KeepNote = { habitId: string; suit: Suit; level: Level; was: Level | null; comeback: boolean; handWas: Hand | null };
+export type KeepNote = { habitId: string; suit: Suit; level: Level; was: Level | null; comeback: boolean; handWas: Hand | null; table: boolean };
 
 /** A tiny store, so Today can tell the moments drawn over every screen about itself without a prop. */
 function store<T>(initial: T) {
@@ -177,7 +174,9 @@ export function GameEvents({ back }: { back: BackKey }) {
   // week: after a Comeback's turnover too, when the keep was on the Comeback card.
   const ownKeep = keep && [main, ...moment.also].some((e) => fromKeep(e, keep)) ? keep : null;
   const fromComeback = !!ownKeep?.comeback;
-  const wait = momentDelay({ comeback: fromComeback, reduced });
+  // A keep Today didn't note (another screen's) waits as a keep on the table does.
+  const table = ownKeep ? ownKeep.table : true;
+  const wait = momentDelay({ comeback: fromComeback, reduced, table });
   if (main.kind === 'face')
     return (
       <Later key={main.id} ms={wait}>

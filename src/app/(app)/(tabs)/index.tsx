@@ -370,12 +370,14 @@ function Table({ deck }: { deck: Deck }) {
 
   /**
    * Keeps a card at a level: from a swipe, a button, the list or a pill. Every kept day comes from one of those.
-   * `firstMove` is Done it on the Comeback card.
+   * `firstMove` is Done it on the Comeback card. `table` is a keep of the front card, which leaves the table
+   * (turning over first when it is a Comeback) and deals today's card into the week on an arc.
    */
-  function keep(view: HabitView, level: Level, firstMove = false) {
+  function keep(view: HabitView, level: Level, firstMove = false, table = false) {
     const id = view.habit.id;
-    // The moments drawn over Today wait for a Comeback's turnover, and only a keep on the Comeback card offers a plan.
-    noteKeep({ habitId: id, suit: view.habit.suit, level, was: view.today, comeback: !!view.neverTwice, handWas: game.current.hand });
+    // The moments drawn over Today wait for a Comeback's turnover and the arc when they play, and only a keep
+    // on the Comeback card offers a plan.
+    noteKeep({ habitId: id, suit: view.habit.suit, level, was: view.today, comeback: !!view.neverTwice, handWas: game.current.hand, table });
     playSound(keepSound(view.habit.suit, level, { comeback: !!view.neverTwice }));
     if (view.neverTwice) feel.turnover();
     else if (level === 'ceiling') feel.ceiling();
@@ -421,7 +423,7 @@ function Table({ deck }: { deck: Deck }) {
       setFocused((f) => (f === item.id ? null : f));
       return;
     }
-    keep(view, dir === 'up' ? 'ceiling' : 'floor', item.kind === 'comeback' && tag === 'first');
+    keep(view, dir === 'up' ? 'ceiling' : 'floor', item.kind === 'comeback' && tag === 'first', true);
     deal(item.kind === 'comeback', tag === 'first', info?.at);
   }
 

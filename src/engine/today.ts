@@ -639,14 +639,23 @@ export function dealArc(o: { reduced: boolean }): { flyMs: number; flipMs: numbe
   return { flyMs, flipMs, settleMs, totalMs: flyMs + flipMs + settleMs };
 }
 
+/** The beat to read the card in its slot before a moment rises. */
+const READ_BEAT_MS = 120;
+
 /**
  * How long a receipt or a big moment waits after a keep: a Comeback card's turnover (it plays first), the
  * deal arc, then a beat to read the card in its slot. 1750 ms after a Comeback, 800 ms otherwise, and about
  * 500 ms or less with Reduce Motion.
+ *
+ * `table` (on by default) says the keep came from the front card on the table, so the card left (a Comeback
+ * turning over first) and the deal arc flew. A keep from the list or the pill sheet has neither, so nothing
+ * waits for them.
  */
-export function momentDelay(o: { comeback: boolean; reduced: boolean }): number {
-  const exit = o.comeback ? comebackExit({ firstMove: false, reduced: o.reduced }).totalMs : 0;
-  return exit + dealArc({ reduced: o.reduced }).totalMs + 120;
+export function momentDelay(o: { comeback: boolean; reduced: boolean; table?: boolean }): number {
+  const table = o.table ?? true;
+  const exit = table && o.comeback ? comebackExit({ firstMove: false, reduced: o.reduced }).totalMs : 0;
+  const arc = table ? dealArc({ reduced: o.reduced }).totalMs : 0;
+  return exit + arc + READ_BEAT_MS;
 }
 
 /**
