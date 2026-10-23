@@ -408,7 +408,7 @@ describe('calls', () => {
         },
       });
       // Safe: Two pair 0.7 x 50 = 35 beats Three of a kind 0.45 x 70 = 31.5.
-      expect(choices.safe).toEqual({ kind: 'two-pair', label: 'Safe', multiplier: 1, payout: 50, made: 6, of: 8, p: 0.7, line: 'Made this or better in 6 of your last 8 weeks.' });
+      expect(choices.safe).toEqual({ kind: 'two-pair', label: 'Safe', multiplier: 1, payout: 50, made: 6, of: 8, p: 0.7, line: 'Made it or better in 6 of your last 8 weeks.' });
       // Stretch: Full house 0.25 x 280 = 70 beats Straight 0.3 x 200 = 60.
       expect(choices.stretch).toMatchObject({ kind: 'full-house', multiplier: 2, payout: 280 });
       // Long shot: Four of a kind 0.05 x 750 = 37.5 beats Royal 0.01 x 1500 = 15.
@@ -420,7 +420,7 @@ describe('calls', () => {
       expect(choices.safe?.line).toBe('Not made last week.');
       expect(choices.stretch).toBeNull();
       expect(choices.longShot).toBeNull();
-      expect(callChoices({ callOdds: { 'two-pair': price(1, 1, 0.6) } }).safe?.line).toBe('Made this or better last week.');
+      expect(callChoices({ callOdds: { 'two-pair': price(1, 1, 0.6) } }).safe?.line).toBe('Made it or better last week.');
       expect(callChoices({ callOdds: { 'two-pair': price(0, 0, 0.6) } }).safe?.line).toBe('No finished weeks yet, so it’s priced for a deck your size.');
       expect(callChoices({ callOdds: {} })).toEqual({ safe: null, stretch: null, longShot: null });
     });

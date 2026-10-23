@@ -289,19 +289,19 @@ describe('a call’s history', () => {
     expect(callHistoryLine('straight-flush', weeks)).toBe('Made it in 1 of your last 8 weeks, with a higher hand.');
     // One finished week, made only by a higher hand.
     expect(callHistoryLine('royal-flush', [ended('five-of-a-kind', ['five-of-a-kind'])])).toBe('Made it last week, with a higher hand.');
-    expect(callHistoryLine('four-of-a-kind', weeks)).toBe('Made in 1 of your last 8 weeks.');
-    expect(callHistoryLine('pair', weeks)).toBe('Made in 8 of your last 8 weeks.');
+    expect(callHistoryLine('four-of-a-kind', weeks)).toBe('Made it in 1 of your last 8 weeks.');
+    expect(callHistoryLine('pair', weeks)).toBe('Made it in 8 of your last 8 weeks.');
   });
 
-  it('says this or better when some weeks made it with a higher hand that never held it', () => {
+  it('says or better when some weeks made it with a higher hand that never held it', () => {
     const weeks = [ended('royal-flush', ['royal-flush', 'straight-flush', 'straight']), ended('five-of-a-kind', ['five-of-a-kind']), ended('pair')];
-    expect(callHistoryLine('straight-flush', weeks)).toBe('Made this or better in 2 of your last 3 weeks.');
+    expect(callHistoryLine('straight-flush', weeks)).toBe('Made it or better in 2 of your last 3 weeks.');
   });
 
   it('says plainly when a hand wasn’t made, and looks back only eight finished weeks', () => {
     expect(callHistoryLine('full-house', [ended('pair'), ended('two-pair', ['two-pair', 'pair'])])).toBe('Not made in your last 2 weeks.');
     expect(callHistoryLine('full-house', [ended('pair')])).toBe('Not made last week.');
-    expect(callHistoryLine('pair', [ended('pair')])).toBe('Made last week.');
+    expect(callHistoryLine('pair', [ended('pair')])).toBe('Made it last week.');
     expect(callHistoryLine('pair', [])).toBe('No finished weeks yet, so it’s priced for a deck your size.');
     const old = [ended('full-house'), ...Array.from({ length: 8 }, () => ended('pair'))];
     expect(callHistoryLine('full-house', old)).toBe('Not made in your last 8 weeks.');

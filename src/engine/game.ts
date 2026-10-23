@@ -468,14 +468,14 @@ export type CallChoice = {
   made: number;
   of: number;
   p: number;
-  /** "Made this or better in 6 of your last 8 weeks." */
+  /** "Made it or better in 6 of your last 8 weeks." */
   line: string;
 };
 
 function historyLine(made: number, of: number): string {
   if (of === 0) return 'No finished weeks yet, so it’s priced for a deck your size.';
-  if (of === 1) return made ? 'Made this or better last week.' : 'Not made last week.';
-  return `Made this or better in ${made} of your last ${of} weeks.`;
+  if (of === 1) return made ? 'Made it or better last week.' : 'Not made last week.';
+  return `Made it or better in ${made} of your last ${of} weeks.`;
 }
 
 /**

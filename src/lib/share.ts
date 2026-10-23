@@ -160,7 +160,7 @@ export function callWindow(week: Pick<Week, 'slots'>): { until: string; line: st
 }
 
 /**
- * How often your last weeks made a hand, for the call card: "Made in 3 of your last 8 weeks". A call is
+ * How often your last weeks made a hand, for the call card: "Made it in 3 of your last 8 weeks". A call is
  * made by that hand or better, so when only a higher hand came up the line says so, and agrees with the
  * Hall of Hands, which shows the hand itself as not spotted.
  */
@@ -173,8 +173,9 @@ export function callHistoryLine(kind: HandKind, weeks: readonly Pick<Week, 'hand
   if (made === 0) return of === 1 ? 'Not made last week.' : `Not made in your last ${of} weeks.`;
   // Only a higher hand made it: it counts, and the line says how, so it still agrees with the Hall.
   if (spotted === 0) return of === 1 ? 'Made it last week, with a higher hand.' : `Made it in ${made} of your last ${of} weeks, with a higher hand.`;
-  if (spotted >= made) return of === 1 ? 'Made last week.' : `Made in ${made} of your last ${of} weeks.`;
-  return `Made this or better in ${made} of your last ${of} weeks.`;
+  // Every line that says it was made starts "Made it", so the call card and Hands read as one voice.
+  if (spotted >= made) return of === 1 ? 'Made it last week.' : `Made it in ${made} of your last ${of} weeks.`;
+  return `Made it or better in ${made} of your last ${of} weeks.`;
 }
 
 /**
