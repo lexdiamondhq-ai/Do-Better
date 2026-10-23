@@ -1,7 +1,7 @@
 import { useIsFocused, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, AppState, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import Animated, { Easing, FadeIn, FadeInDown, FadeOut, interpolateColor, LinearTransition, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, FadeIn, FadeInDown, FadeOut, interpolateColor, LinearTransition, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { scheduleOnUI } from 'react-native-worklets';
@@ -372,7 +372,7 @@ function Table({ deck }: { deck: Deck }) {
     if (!view.today && pending.every((c) => c.habit.id === id)) {
       const cardsAfter = deck.cards.map((c) => ({ suit: c.habit.suit, level: c.habit.id === id ? level : c.today }));
       const steps = strum(dayChord(cardsAfter).notes);
-      playTones(steps, 380);
+      playTones(steps, STRUM_AT_MS);
       setRinging(steps);
     }
     // A Comeback card bursts once, as it turns back over (its own burst): never a second one here.
@@ -697,7 +697,7 @@ function Table({ deck }: { deck: Deck }) {
   ) : null;
   const banner = hasCards && !density.mergeTip && tip ? <TipBanner tip={tip} veiled={tipVeiled} count={tips.length} turn={tipTurn} onNext={() => setTipTurn((n) => n + 1)} /> : null;
   const pills = hasCards ? (
-    <Pills cards={deck.cards} frontId={front?.item.kind === 'welcome' ? null : (front?.item.id ?? null)} ringing={ringing} onPill={onPill} onOpen={(id) => router.push(`/habit/${id}`)} onNew={() => router.push('/habit/edit')} />
+    <Pills cards={deck.cards} frontId={front?.item.kind === 'welcome' ? null : (front?.item.id ?? null)} felt={table} ringing={ringing} onPill={onPill} onOpen={(id) => router.push(`/habit/${id}`)} onNew={() => router.push('/habit/edit')} />
   ) : null;
 
   if (density.mode === 'list') {
@@ -1143,19 +1143,30 @@ function TipBanner({ tip, veiled, count, turn, onNext }: { tip: { tone: TipTone;
   );
 }
 
+/** How wide the soft edge is where the pill row runs on past the screen. */
+const PILL_FADE = 28;
+/** The keep that finishes the day starts its strum this long after the keep. */
+const STRUM_AT_MS = 380;
+
 /**
  * Every card in the deck as a pill: kept ones in their colour, waiting ones as outlines. The row scrolls
- * by itself, just enough to keep the front card's pill in view as the front card changes.
+ * by itself, just enough to keep the front card's pill in view as the front card changes, and comes to
+ * rest with a whole pill at its edge. Where it runs on past the screen, that edge fades softly into the
+ * felt. "+ New" stays put beside it. When the day's chord strums, each pill's chip rings on its suit's note.
  */
 function Pills({
   cards,
   frontId,
+  felt,
+  ringing = [],
   onPill,
   onOpen,
   onNew,
 }: {
   cards: HabitView[];
   frontId: string | null;
+  /** The table's colour as it is drawn right now, so the soft edges match it even mid-swipe. */
+  felt: React.ComponentProps<typeof Animated.View>['style'];
   /** The day's chord as it strums: each pill rings on its suit's note (stream 1 draws it). */
   ringing?: readonly ToneStep[];
   onPill: (view: HabitView) => void;
@@ -1164,17 +1175,31 @@ function Pills({
 }) {
   const t = useTheme();
   const scroll = useRef<ScrollView>(null);
-  const room = useRef({ x: 0, width: 0, spots: new Map<string, { x: number; w: number }>() });
+  const room = useRef({ x: 0, width: 0, content: 0, spots: new Map<string, { x: number; w: number }>() });
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const [snaps, setSnaps] = useState<number[]>([]);
 
-  /** Scrolls just enough to show a pill whole, with the row's padding around it. */
+  /** Which ends have more to scroll to, and where a whole pill sits at the left edge. */
+  const measure = () => {
+    const r = room.current;
+    if (!r.width) return;
+    const max = Math.max(0, r.content - r.width);
+    const left = r.x > 2;
+    const right = r.x < max - 2;
+    setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
+    const at = [...new Set([...r.spots.values()].map((spot) => Math.round(Math.min(max, Math.max(0, spot.x - space.lg)))).concat(Math.round(max)))].sort((a, b) => a - b);
+    setSnaps((was) => (was.length === at.length && was.every((v, i) => v === at[i]) ? was : at));
+  };
+
+  /** Scrolls just enough to show a pill whole, clear of the soft edges. */
   const reveal = (id: string | null) => {
     const r = room.current;
     const spot = id ? r.spots.get(id) : undefined;
     if (!spot || !r.width) return;
-    const pad = space.lg;
+    const pad = PILL_FADE + 4;
     let x = r.x;
-    if (spot.x - pad < r.x) x = Math.max(0, spot.x - pad);
-    else if (spot.x + spot.w + pad > r.x + r.width) x = spot.x + spot.w + pad - r.width;
+    if (spot.x - pad < r.x) x = Math.max(0, spot.x - space.lg);
+    else if (spot.x + spot.w + pad > r.x + r.width) x = Math.min(Math.max(0, r.content - r.width), spot.x + spot.w + pad - r.width);
     if (x === r.x) return;
     r.x = x;
     scroll.current?.scrollTo({ x, animated: true });
@@ -1185,79 +1210,154 @@ function Pills({
   });
 
   return (
-    <ScrollView
-      ref={scroll}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={{ flexGrow: 0, marginTop: space.md }}
-      contentContainerStyle={{ paddingHorizontal: space.lg, gap: 6, alignItems: 'center' }}
-      scrollEventThrottle={32}
-      onScroll={(e) => {
-        room.current.x = e.nativeEvent.contentOffset.x;
-      }}
-      onLayout={(e) => {
-        room.current.width = e.nativeEvent.layout.width;
-        reveal(frontId);
-      }}
-    >
-      {cards.map((view) => {
-        const c = cardColors[view.habit.color];
-        const kept = view.today;
-        const isFront = view.habit.id === frontId;
-        const state = kept === 'ceiling' ? 'Ceiling reached' : kept === 'floor' ? 'Floor kept' : view.neverTwice ? 'Comeback waiting' : 'not kept yet';
-        return (
-          <Pressable
-            key={view.habit.id}
-            accessibilityRole="button"
-            accessibilityLabel={`${view.habit.name}, ${state}`}
-            accessibilityHint={kept ? 'Change or undo today' : 'Brings this card to the front'}
-            accessibilityActions={[{ name: 'open', label: 'Open card' }]}
-            onAccessibilityAction={(e) => {
-              if (e.nativeEvent.actionName === 'open') onOpen(view.habit.id);
-            }}
-            onPress={() => onPill(view)}
-            onLongPress={() => onOpen(view.habit.id)}
-            onLayout={(e) => {
-              const { x, width } = e.nativeEvent.layout;
-              room.current.spots.set(view.habit.id, { x, w: width });
-              if (isFront) reveal(view.habit.id);
-            }}
-            hitSlop={{ top: 5, bottom: 5 }}
-            style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              height: 36,
-              borderRadius: radius.pill,
-              paddingLeft: kept ? 12 : 8,
-              paddingRight: 12,
-              backgroundColor: kept ? c.bg : isFront ? withAlpha(t.text, 0.1) : 'transparent',
-              borderWidth: kept ? 1 : 1.5,
-              borderStyle: kept || isFront || view.neverTwice ? 'solid' : 'dashed',
-              borderColor: kept ? withAlpha('#000000', 0.12) : isFront ? t.text : t.dashed,
-              opacity: pressed ? 0.75 : 1,
-              transform: [{ scale: pressed ? 0.96 : 1 }],
-            })}
-          >
-            {kept ? null : <View style={{ width: 16, height: 22, borderRadius: 4, backgroundColor: c.bg, borderWidth: 1, borderColor: withAlpha('#000000', 0.14) }} />}
-            <Body weight="heavy" size={13} numberOfLines={1} color={kept ? c.ink : t.text} maxFontSizeMultiplier={fontScale.chrome}>
-              {kept ? `${kept === 'ceiling' ? '↑' : '✓'} ${view.habit.name}` : view.habit.name}
-            </Body>
-          </Pressable>
-        );
-      })}
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: space.md }}>
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          ref={scroll}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={{ paddingLeft: space.lg, paddingRight: space.sm, gap: 6, alignItems: 'center' }}
+          snapToOffsets={snaps.length > 1 ? snaps : undefined}
+          snapToStart
+          snapToEnd
+          decelerationRate="fast"
+          scrollEventThrottle={32}
+          onScroll={(e) => {
+            const n = e.nativeEvent;
+            room.current.x = n.contentOffset.x;
+            if (n.contentSize?.width) room.current.content = n.contentSize.width;
+            if (n.layoutMeasurement?.width) room.current.width = n.layoutMeasurement.width;
+            measure();
+          }}
+          onContentSizeChange={(w) => {
+            room.current.content = w;
+            measure();
+          }}
+          onLayout={(e) => {
+            room.current.width = e.nativeEvent.layout.width;
+            measure();
+            reveal(frontId);
+          }}
+        >
+          {cards.map((view) => {
+            const c = cardColors[view.habit.color];
+            const kept = view.today;
+            const isFront = view.habit.id === frontId;
+            const state = kept === 'ceiling' ? 'Ceiling reached' : kept === 'floor' ? 'Floor kept' : view.neverTwice ? 'Comeback waiting' : 'not kept yet';
+            const step = ringing.find((s) => s.suit === view.habit.suit);
+            return (
+              <Pressable
+                key={view.habit.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${view.habit.name}, ${state}`}
+                accessibilityHint={kept ? 'Change or undo today' : 'Brings this card to the front'}
+                accessibilityActions={[{ name: 'open', label: 'Open card' }]}
+                onAccessibilityAction={(e) => {
+                  if (e.nativeEvent.actionName === 'open') onOpen(view.habit.id);
+                }}
+                onPress={() => onPill(view)}
+                onLongPress={() => onOpen(view.habit.id)}
+                onLayout={(e) => {
+                  const { x, width } = e.nativeEvent.layout;
+                  room.current.spots.set(view.habit.id, { x, w: width });
+                  measure();
+                  if (isFront) reveal(view.habit.id);
+                }}
+                hitSlop={{ top: 5, bottom: 5 }}
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 36,
+                  borderRadius: radius.pill,
+                  paddingLeft: 8,
+                  paddingRight: 12,
+                  backgroundColor: kept ? c.bg : isFront ? withAlpha(t.text, 0.1) : 'transparent',
+                  borderWidth: kept ? 1 : 1.5,
+                  borderStyle: kept || isFront || view.neverTwice ? 'solid' : 'dashed',
+                  borderColor: kept ? withAlpha('#000000', 0.12) : isFront ? t.text : t.dashed,
+                  opacity: pressed ? 0.75 : 1,
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                })}
+              >
+                <RingChip ring={ringing} at={step ? STRUM_AT_MS + step.delayMs : null} color={kept ? withAlpha(c.ink, 0.14) : c.bg} edge={kept ? withAlpha(c.ink, 0.22) : withAlpha('#000000', 0.14)}>
+                  {kept ? (
+                    <Body weight="heavy" size={12} color={c.ink} maxFontSizeMultiplier={fontScale.chrome} style={{ lineHeight: 14 }}>
+                      {kept === 'ceiling' ? '↑' : '✓'}
+                    </Body>
+                  ) : null}
+                </RingChip>
+                <Body weight="heavy" size={13} numberOfLines={1} color={kept ? c.ink : t.text} maxFontSizeMultiplier={fontScale.chrome}>
+                  {view.habit.name}
+                </Body>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+        {edges.left ? <EdgeFade side="left" felt={felt} /> : null}
+        {edges.right ? <EdgeFade side="right" felt={felt} /> : null}
+      </View>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="New card"
         onPress={onNew}
         hitSlop={{ top: 5, bottom: 5 }}
-        style={({ pressed }) => ({ height: 36, justifyContent: 'center', borderRadius: radius.pill, paddingHorizontal: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.dashed, opacity: pressed ? 0.7 : 1 })}
+        style={({ pressed }) => ({
+          height: 36,
+          justifyContent: 'center',
+          borderRadius: radius.pill,
+          paddingHorizontal: 12,
+          marginLeft: 2,
+          marginRight: space.lg,
+          borderWidth: 1.5,
+          borderStyle: 'dashed',
+          borderColor: t.dashed,
+          opacity: pressed ? 0.7 : 1,
+          transform: [{ scale: pressed ? 0.96 : 1 }],
+        })}
       >
         <Body weight="heavy" size={13} color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
           + New
         </Body>
       </Pressable>
-    </ScrollView>
+    </View>
+  );
+}
+
+/** How the soft edge builds up: thin bands of the felt, each a little more solid towards the edge. */
+const FADE_BANDS = Array.from({ length: 10 }, (_, i) => ({ left: (i * PILL_FADE) / 10, opacity: Math.pow((i + 1) / 10, 1.6) }));
+
+/** The pill row running on under the felt at one end: drawn in the table's own colour, taking no touches. */
+function EdgeFade({ side, felt }: { side: 'left' | 'right'; felt: React.ComponentProps<typeof Animated.View>['style'] }) {
+  return (
+    <Animated.View
+      entering={FadeIn.duration(160)}
+      exiting={FadeOut.duration(160)}
+      pointerEvents="none"
+      aria-hidden
+      style={{ position: 'absolute', top: 0, bottom: 0, width: PILL_FADE, [side]: 0, transform: side === 'left' ? [{ scaleX: -1 }] : undefined }}
+    >
+      {FADE_BANDS.map((band) => (
+        <Animated.View key={band.left} style={[{ position: 'absolute', top: 0, bottom: 0, left: band.left, width: PILL_FADE / 10 + 0.5, opacity: band.opacity }, felt]} />
+      ))}
+    </Animated.View>
+  );
+}
+
+/**
+ * A pill's little card of colour. When the day's chord strums it rings: up to 1.15 and back on its suit's
+ * note (`at`, in ms from the keep). Reduce Motion leaves it still.
+ */
+function RingChip({ ring, at, color, edge, children }: { ring: readonly ToneStep[]; at: number | null; color: string; edge: string; children?: ReactNode }) {
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    if (at === null || ring.length === 0) return;
+    scale.set(withDelay(at, withSequence(withTiming(1.15, { duration: 90, easing: Easing.out(Easing.quad) }), withTiming(1, { duration: 300, easing: Easing.out(Easing.cubic) }))));
+  }, [ring, at, scale]);
+  const ringStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.get() }] }));
+  return (
+    <Animated.View style={[{ width: 16, height: 22, borderRadius: 4, backgroundColor: color, borderWidth: 1, borderColor: edge, alignItems: 'center', justifyContent: 'center' }, ringStyle]}>{children}</Animated.View>
   );
 }
 
