@@ -257,15 +257,31 @@ type FieldProps = {
   inputRef?: Ref<TextInput>;
 } & Omit<TextInputProps, 'value' | 'onChangeText' | 'style' | 'ref'>;
 
+/** How wide a field's focus ring is: always there, and clear until the field has focus, so nothing shifts. */
+const FIELD_RING = 2;
+
 /**
  * A labelled text field. The label and hint are given to the input itself, so a screen reader reads
  * "Name, text field, Small enough to do on your worst day" in one stop; the visible copies are hidden
  * from it. The keyboard matches the table, light or dark.
  */
-export function Field({ label, hint, value, onChangeText, inputRef, multiline, ...input }: FieldProps) {
+export function Field({ label, hint, value, onChangeText, inputRef, multiline, onFocus, onBlur, ...input }: FieldProps) {
   const t = useTheme();
+  // The field itself shows where typing goes: its rounded edge darkens while it has focus. The browser's own
+  // square ring around the bare input inside it is turned off, so the two never disagree.
+  const [focused, setFocused] = useState(false);
   return (
-    <View style={{ backgroundColor: t.bgRaised, borderRadius: radius.md, paddingHorizontal: space.lg, paddingVertical: space.md, gap: 4 }}>
+    <View
+      style={{
+        backgroundColor: t.bgRaised,
+        borderRadius: radius.md,
+        borderWidth: FIELD_RING,
+        borderColor: focused ? t.text : 'transparent',
+        paddingHorizontal: space.lg - FIELD_RING,
+        paddingVertical: space.md - FIELD_RING,
+        gap: 4,
+      }}
+    >
       <Label aria-hidden>{label}</Label>
       <TextInput
         ref={inputRef}
@@ -280,6 +296,14 @@ export function Field({ label, hint, value, onChangeText, inputRef, multiline, .
         multiline={multiline}
         maxFontSizeMultiplier={fontScale.page}
         {...input}
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          onBlur?.(e);
+        }}
         style={{
           fontFamily: fonts.bodyBold,
           fontSize: typeScale.text.lg,
@@ -287,6 +311,7 @@ export function Field({ label, hint, value, onChangeText, inputRef, multiline, .
           paddingVertical: 4,
           minHeight: multiline ? 60 : 32,
           textAlignVertical: multiline ? 'top' : 'center',
+          outlineWidth: 0,
         }}
       />
       {hint ? (
