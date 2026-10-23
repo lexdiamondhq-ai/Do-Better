@@ -179,7 +179,8 @@ export function HabitCard({
       <SuitGlyph suit={habit.suit} size={compact ? 180 : 250} color={ink} />
     </View>
   );
-  const wear = <CardWear habitId={habit.id} kept={kept} depth={wearDepth} />;
+  // The wear knows the face it sits on, so an Heirloom's foil lands on the watermark drawn here.
+  const wear = <CardWear habitId={habit.id} kept={kept} depth={wearDepth} compact={compact} color={habit.color} suit={habit.suit} />;
 
   const middle = (
     <View style={{ gap: compact ? 4 : space.sm }}>
