@@ -304,11 +304,12 @@ function FanCard({
           accessibilityRole="none"
           onLongPress={() => {
             // Mass is given: Reanimated 4's default (4) makes this spring sail well past its 10 pt.
-            lift.set(withSpring(-HOLD_LIFT, { damping: 20, stiffness: 320, mass: 1 }));
+            // Reduce Motion: the card simply stands up out of the fan, with no spring.
+            lift.set(reduced ? -HOLD_LIFT : withSpring(-HOLD_LIFT, { damping: 20, stiffness: 320, mass: 1 }));
             onHold();
           }}
           onPressOut={() => {
-            lift.set(withSpring(0, { damping: 20, stiffness: 320, mass: 1 }));
+            lift.set(reduced ? 0 : withSpring(0, { damping: 20, stiffness: 320, mass: 1 }));
             onRelease();
           }}
           delayLongPress={260}
@@ -352,7 +353,8 @@ function HoldHint({ gone }: { gone: boolean }) {
   }, [fade, gone]);
   const style = useAnimatedStyle(() => ({ opacity: fade.get() }));
   return (
-    <Animated.View style={[{ height: HOLD_HINT_H, justifyContent: 'flex-end' }, style]}>
+    // A screen reader already hears each card's caption as its name, so the hint about holding is not for it.
+    <Animated.View aria-hidden style={[{ height: HOLD_HINT_H, justifyContent: 'flex-end' }, style]}>
       <Text numberOfLines={1} maxFontSizeMultiplier={fontScale.chrome} style={{ fontFamily: fonts.bodyBold, fontSize: 13, lineHeight: 18, color: t.textSecondary, textAlign: 'center' }}>
         Hold a card to read it.
       </Text>
