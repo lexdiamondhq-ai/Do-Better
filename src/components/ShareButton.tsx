@@ -114,13 +114,20 @@ export function SharePreview({ target, visible, onClose }: { target: ShareTarget
             <View style={{ width: SHARE_LAYOUT.w, height: SHARE_LAYOUT.h, transform: [{ translateX: -(SHARE_LAYOUT.w * (1 - scale)) / 2 }, { translateY: -(SHARE_LAYOUT.h * (1 - scale)) / 2 }, { scale }] }}>
               <ShareCard target={shown} habits={habits} back={back} lead={target.kind === 'hand' ? weekSuit(review, target.week.hand) : null} cardRef={card} />
             </View>
+            {/* What happened, laid over the foot of the picture (never part of it), so nothing on the screen moves when it appears. */}
+            {said ? (
+              <View
+                accessibilityLiveRegion="polite"
+                aria-live="polite"
+                style={{ position: 'absolute', left: space.md, right: space.md, bottom: space.md, borderRadius: radius.md, paddingVertical: space.sm, paddingHorizontal: space.md, backgroundColor: 'rgba(8, 6, 12, 0.9)' }}
+              >
+                <Body weight="bold" color="#FFFDF8" style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
+                  {said}
+                </Body>
+              </View>
+            ) : null}
           </View>
           {habits.length ? <Toggle label="Show my habits" on={names} onChange={setNames} hint="Puts each habit’s name and kept days on the picture" /> : null}
-          {said ? (
-            <Body weight="bold" color="#FFFDF8" style={{ textAlign: 'center' }} maxFontSizeMultiplier={fontScale.chrome}>
-              {said}
-            </Body>
-          ) : null}
           <View style={{ alignSelf: 'stretch', gap: space.xs }}>
             <Button
               label={Platform.OS === 'web' ? 'Share' : 'Share picture'}
