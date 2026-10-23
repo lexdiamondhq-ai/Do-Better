@@ -444,6 +444,17 @@ export function momentOf<E extends EventLike>(events: readonly E[]): Moment<E> |
   return { kind: 'receipt', main, also: events.filter((e) => e !== main), ids };
 }
 
+/**
+ * Whether a moment first seen on the screen at `seenOn` can still show now that `path` is in front. A receipt
+ * belongs to the screen it rose on (Today below its strip, a card's page under its header): once the player
+ * moves to another screen it goes at once, so it never sits over that screen's title or buttons, and a receipt
+ * still waiting to rise never rises there. A face card, the first card and a milestone are moments of their
+ * own, drawn over everything with their own buttons, so they follow the player.
+ */
+export function momentStays(kind: Moment<EventLike>['kind'], seenOn: string, path: string): boolean {
+  return kind !== 'receipt' || seenOn === path;
+}
+
 /** A waiting event as far as staleness goes: the check-in it came from, or the rung it reached. */
 export type EventFacts = { kind: string; habitId?: string; level?: Level; day?: Day; suit?: string; days?: number };
 

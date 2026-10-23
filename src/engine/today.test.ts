@@ -31,6 +31,7 @@ import {
   HAND_ROLL_MS,
   momentDelay,
   momentOf,
+  momentStays,
   partOfDayAt,
   pillMenu,
   receiptCopy,
@@ -450,6 +451,18 @@ describe('moments', () => {
     expect(m?.also.map((e) => e.kind)).toEqual(['rung']);
     expect(momentOf([ev(1, 'rung'), ev(2, 'backfill')])?.main.kind).toBe('backfill');
     expect(momentOf([ev(1, 'rung')])?.main.kind).toBe('rung');
+  });
+
+  it('keeps a receipt on the screen it rose on, and lets the big moments follow the player', () => {
+    // Up on Today, a receipt stays there; on a card's page, it stays on that page.
+    expect(momentStays('receipt', '/', '/')).toBe(true);
+    expect(momentStays('receipt', '/habit/demo-walk', '/habit/demo-walk')).toBe(true);
+    // Leaving for Hands (or any other screen, a sheet included) takes it away at once, so it never covers Hands' title or Rules.
+    expect(momentStays('receipt', '/', '/hands')).toBe(false);
+    expect(momentStays('receipt', '/', '/call')).toBe(false);
+    expect(momentStays('receipt', '/habit/demo-walk', '/')).toBe(false);
+    // A face card, the first card and a milestone are moments of their own, wherever the player goes.
+    for (const kind of ['face', 'first', 'milestone'] as const) expect(momentStays(kind, '/', '/hands')).toBe(true);
   });
 });
 

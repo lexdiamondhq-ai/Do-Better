@@ -14,7 +14,7 @@ import type { BackKey } from '@/engine/game';
 import { improves } from '@/engine/game';
 import type { Level } from '@/engine/kept';
 import { HANDS, type Hand } from '@/engine/poker';
-import { eventStale, grouped, JOKER_LINE, jokerResult, keepWore, momentDelay, momentOf, receiptCopy, receiptNext, receiptOffersPlan, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
+import { eventStale, grouped, JOKER_LINE, jokerResult, keepWore, momentDelay, momentOf, momentStays, receiptCopy, receiptNext, receiptOffersPlan, type JokerMove, type Moment, type ReceiptCopy, type RungNote } from '@/engine/today';
 import { useData, useEvents, type GameEvent } from '@/lib/data';
 import { useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
@@ -157,6 +157,15 @@ export function GameEvents({ back }: { back: BackKey }) {
     : [];
   const live = stale.length ? events.filter((e) => !stale.includes(e)) : events;
   const moment = momentOf(live);
+  // The screen each moment was first seen on. A receipt belongs to it: when the player moves to another screen
+  // (Hands, a sheet, back from a card's page) the receipt goes at once, or never rises if it was still waiting,
+  // so it never sits over that screen's title or buttons. A moment's events arrive right after its keep, so the
+  // screen it is first seen on is the one the keep was made on.
+  const mainId = moment?.main.id ?? null;
+  const [seenOn, setSeenOn] = useState<{ id: number; path: string } | null>(null);
+  if (mainId !== null && seenOn?.id !== mainId) setSeenOn({ id: mainId, path });
+  const home = seenOn !== null && seenOn.id === mainId ? seenOn.path : path;
+  const strayed = moment && !momentStays(moment.kind, home, path) ? moment.ids.join(',') : '';
   const shown = moment?.ids.join(',') ?? '';
   const gone = stale.map((e) => e.id).join(',');
 
@@ -170,7 +179,14 @@ export function GameEvents({ back }: { back: BackKey }) {
     for (const id of gone.split(',')) dismissEvent(Number(id));
   }, [gone, dismissEvent]);
 
-  if (!moment) return null;
+  // A receipt left behind on another screen is closed, as if flicked away: its keep has had its moment.
+  useEffect(() => {
+    if (!strayed) return;
+    for (const id of strayed.split(',')) dismissEvent(Number(id));
+    lastKeep.set(null);
+  }, [strayed, dismissEvent]);
+
+  if (!moment || strayed) return null;
   const done = () => {
     moment.ids.forEach(dismissEvent);
     // The keep has had its moment: a later one from another screen never borrows it.
