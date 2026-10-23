@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, AppState, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, { Easing, FadeIn, FadeInDown, FadeOut, interpolateColor, LinearTransition, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 import { scheduleOnUI } from 'react-native-worklets';
 
 import { ask, type AskButton } from '@/components/Ask';
@@ -1406,8 +1406,13 @@ const FADE_BANDS = (() => {
   return Array.from({ length: n }, (_, k) => ({ left: k * 2, opacity: k === 0 ? reach(0) : 1 - (1 - reach(k)) / (1 - reach(k - 1)) }));
 })();
 
-/** The pill row running on under the felt at one end: drawn in the table's own colour, taking no touches. */
+/**
+ * The pill row running on under the felt at one end: drawn in the table's own colour, taking no touches.
+ * A small chevron sits in it, pointing the way the row goes on, so a card hidden past the edge is never a
+ * secret even when no part of its pill shows.
+ */
 function EdgeFade({ side, felt }: { side: 'left' | 'right'; felt: React.ComponentProps<typeof Animated.View>['style'] }) {
+  const t = useTheme();
   return (
     <Animated.View
       entering={FadeIn.duration(160)}
@@ -1419,6 +1424,11 @@ function EdgeFade({ side, felt }: { side: 'left' | 'right'; felt: React.Componen
       {FADE_BANDS.map((band) => (
         <Animated.View key={band.left} style={[{ position: 'absolute', top: 0, bottom: 0, left: band.left, right: 0, opacity: band.opacity }, felt]} />
       ))}
+      <View style={{ position: 'absolute', right: 3, top: 0, bottom: 0, justifyContent: 'center' }}>
+        <Svg width={9} height={14} viewBox="0 0 9 14">
+          <Path d="M2 2 L7 7 L2 12" stroke={withAlpha(t.text, 0.6)} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </Svg>
+      </View>
     </Animated.View>
   );
 }
