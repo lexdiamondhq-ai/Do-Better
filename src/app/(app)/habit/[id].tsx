@@ -20,9 +20,9 @@ import { addDays, canBackfill, daysBetween, weekStart, type Day } from '@/engine
 import type { Slot } from '@/engine/deal';
 import { best30, calendarWeeks, keptBetween, MASTERY, type CalendarDay, type Level } from '@/engine/kept';
 import { ownWhy, playsLine, PRINCIPLES, recipeFor, type EditField } from '@/engine/playbook';
-import { GRIP_NOTE, wearLine, wearOf, type WearStage } from '@/engine/wear';
+import { GRIP_NOTE, GRIP_SETTLES, wearLine, wearOf, type WearStage } from '@/engine/wear';
 import { useData } from '@/lib/data';
-import { useDeck, useKeep, type HabitView } from '@/lib/deck';
+import { useDeck, useGrips, useKeep, type HabitView } from '@/lib/deck';
 import * as feel from '@/lib/feel';
 import { monthDay, shortDay } from '@/lib/format';
 import { usePlans } from '@/lib/plans';
@@ -555,8 +555,10 @@ function WornIn({ view }: { view: HabitView }) {
   // The line reads "Well played · 34 kept days. Broken in…": the stage leads, the rest sits under it.
   const rest = line.slice(title.length + ' · '.length);
   const at = STAGES.indexOf(stage);
-  // The thumb mark only comes with Well played, so the note about where it is saved waits for it too.
-  const gripNote = wearOf(kept).thumb > 0 ? GRIP_NOTE : null;
+  // The thumb mark only comes with Well played, so the note about where it is saved waits for it too. Until a
+  // swipe has placed it on this phone, the mark sits where the card seeds it and nothing is saved yet.
+  const placed = !!useGrips()[habit.id];
+  const gripNote = wearOf(kept).thumb > 0 ? (placed ? GRIP_NOTE : GRIP_SETTLES) : null;
   return (
     <View accessible accessibilityLabel={gripNote ? `${line} ${gripNote}` : line} style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, borderRadius: radius.lg, padding: space.lg, paddingLeft: space.xl, backgroundColor: t.bgRaised }}>
       <View style={{ transform: [{ rotate: '-4deg' }], marginVertical: space.xs }}>
