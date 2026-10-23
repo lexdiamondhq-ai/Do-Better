@@ -60,6 +60,11 @@ const SUIT_TONES: Readonly<Record<Suit, readonly [Tone, Tone]>> = {
   clubs: ['ring-d5', 'ring-d6'],
 };
 
+/** A suit's note, or its octave for a Ceiling. */
+export function suitTone(suit: Suit, octave = false): Tone {
+  return SUIT_TONES[suit][octave ? 1 : 0];
+}
+
 /** The suit whose pills a note lights, or null for the low F. */
 export function toneSuit(tone: Tone): Suit | null {
   return SUITS.find((s) => SUIT_TONES[s].includes(tone)) ?? null;
