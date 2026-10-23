@@ -555,8 +555,10 @@ function WornIn({ view }: { view: HabitView }) {
   // The line reads "Well played · 34 kept days. Broken in…": the stage leads, the rest sits under it.
   const rest = line.slice(title.length + ' · '.length);
   const at = STAGES.indexOf(stage);
+  // The thumb mark only comes with Well played, so the note about where it is saved waits for it too.
+  const gripNote = wearOf(kept).thumb > 0 ? GRIP_NOTE : null;
   return (
-    <View accessible accessibilityLabel={`${line} ${GRIP_NOTE}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, borderRadius: radius.lg, padding: space.lg, paddingLeft: space.xl, backgroundColor: t.bgRaised }}>
+    <View accessible accessibilityLabel={gripNote ? `${line} ${gripNote}` : line} style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, borderRadius: radius.lg, padding: space.lg, paddingLeft: space.xl, backgroundColor: t.bgRaised }}>
       <View style={{ transform: [{ rotate: '-4deg' }], marginVertical: space.xs }}>
         <CardPicture habit={habit} kept={kept} width={104} />
       </View>
@@ -572,9 +574,11 @@ function WornIn({ view }: { view: HabitView }) {
             <View key={s} style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: i <= at ? t.text : t.border }} />
           ))}
         </View>
-        <Body size={typeScale.text.sm} color={t.textSecondary}>
-          {GRIP_NOTE}
-        </Body>
+        {gripNote ? (
+          <Body size={typeScale.text.sm} color={t.textSecondary}>
+            {gripNote}
+          </Body>
+        ) : null}
       </View>
     </View>
   );

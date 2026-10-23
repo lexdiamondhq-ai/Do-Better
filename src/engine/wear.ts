@@ -98,7 +98,7 @@ export function wearLine(kept: number): { title: string; line: string } {
   return { title: STAGE_NAME[stage], line: `${STAGE_NAME[stage]} · ${days}. ${after[stage]}` };
 }
 
-/** Said under the wear line, wherever the thumb mark shows: it lives only on this phone. */
+/** Said under the wear line once the card has a thumb mark (from Well played): it lives only on this phone. */
 export const GRIP_NOTE = 'Its thumb mark is saved on this phone.';
 
 /** Where a card's thumb mark sits before any swipe is saved: seeded by the card, in the lower right. */
