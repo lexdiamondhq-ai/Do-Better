@@ -25,9 +25,8 @@ import * as feel from '@/lib/feel';
 import { shortDate, weekOf, weekRange } from '@/lib/format';
 import { gameInput } from '@/lib/play';
 import { usePrefs } from '@/lib/prefs';
-import { callWindow, feltFor, firstShowdownDate, hallLine, handLines, riverLine, showdownWhen, type Felt } from '@/lib/share';
+import { callWindow, captionFacts, feltFor, firstShowdownDate, hallLine, handLines, riverLine, showdownWhen, type Felt } from '@/lib/share';
 import { playSound } from '@/lib/sound';
-import type { HabitDay } from '@/lib/types';
 import { withAlpha } from '@/theme/color';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
 import { cardFace, fontScale, fonts, radius, space, suitColors } from '@/theme/tokens';
@@ -68,8 +67,8 @@ export default function Hands() {
   const spotted = game.hall.filter((e) => e.count > 0).length;
   const lead = state.status === 'ready' && current.slots.some((s) => s.card) ? weekReview(current, gameInput(state, today, seed)).lead : null;
   // What a held card's caption says about its day beyond the card: whose habits were kept (archived ones
-  // too, so past weeks caption every card), a Ceiling, a late log.
-  const facts = captionFacts(state.status === 'ready' ? state.days : [], [...deck.cards.map((c) => c.habit), ...deck.archived]);
+  // too, so past weeks caption every card), a Ceiling, a late log. The same facts the Showdown reads.
+  const facts = state.status === 'ready' ? captionFacts(state.habits, state.days) : captionFacts([], []);
   // The secret hand keeps its name hidden in the outs until a week has held it.
   const secretKnown = game.hall.some((e) => e.kind === 'five-of-a-kind' && e.count > 0);
 
@@ -521,27 +520,6 @@ function WeekRow({ week, facts, best, onPress, onShare }: { week: Week; facts: C
       </View>
     </Pressable>
   );
-}
-
-/**
- * Caption facts for the held cards, from every day row: whose habits were kept that day (archived habits
- * too, so a past week captions every card), whether one reached its Ceiling, and whether one was logged late.
- */
-function captionFacts(days: readonly HabitDay[], habits: readonly { id: string; name: string }[]): CaptionFacts {
-  const order = new Map(habits.map((h, i) => [h.id, i]));
-  const byDay = new Map<Day, HabitDay[]>();
-  for (const row of days) {
-    if (!order.has(row.habitId)) continue;
-    const list = byDay.get(row.day);
-    if (list) list.push(row);
-    else byDay.set(row.day, [row]);
-  }
-  const rows = (day: Day) => byDay.get(day) ?? [];
-  return {
-    names: (day) => [...rows(day)].sort((a, b) => order.get(a.habitId)! - order.get(b.habitId)!).map((r) => habits[order.get(r.habitId)!].name),
-    ceiling: (day) => rows(day).some((r) => r.level === 'ceiling'),
-    late: (day) => rows(day).some((r) => !!r.loggedOn && r.loggedOn > day),
-  };
 }
 
 /** How far a ghost card rises out of the outs row, and how much later each one leaves than the one before. */
