@@ -15,9 +15,9 @@ import { Body, Button, Display, Label, Page, PageTitle, raisedStyle, Section } f
 import { WeekStrip } from '@/components/WeekStrip';
 import { rankLabel, rankName, SUITS, type Rank } from '@/engine/cards';
 import { weekday, type Day } from '@/engine/day';
-import { lastShowdown, weekReview, weekTotal, type BackKey, type Game, type HallEntry, type Week } from '@/engine/game';
+import { bestWeek, lastShowdown, weekReview, weekTotal, type BackKey, type Game, type HallEntry, type Week } from '@/engine/game';
 import { callGap, callLine, outCards, outName, outs, outsLine, outsWorthSaying, riverOutsLine, type OutGroup } from '@/engine/outs';
-import { HANDS, makesCall } from '@/engine/poker';
+import { handIndex, HANDS, makesCall, type HandKind } from '@/engine/poker';
 import { captionsFor, stampsFor, type CaptionFacts } from '@/engine/showdown';
 import { useData } from '@/lib/data';
 import { useDeck, useLook } from '@/lib/deck';
@@ -63,6 +63,8 @@ export default function Hands() {
   const { current } = game;
   const finished = [...game.weeks].reverse().filter((w) => w.slots.some((s) => s.card));
   const weeks = finished.slice(0, count);
+  // The strongest week you've played, marked wherever it sits in the list. One week alone isn't a best yet.
+  const best = finished.filter((w) => w.hand && !w.warmup).length > 1 ? bestWeek(finished) : null;
   const spotted = game.hall.filter((e) => e.count > 0).length;
   const lead = state.status === 'ready' && current.slots.some((s) => s.card) ? weekReview(current, gameInput(state, today, seed)).lead : null;
   // What a held card's caption says about its day beyond the card: whose habits were kept (archived ones
@@ -96,7 +98,7 @@ export default function Hands() {
           </Body>
           <View style={{ gap: space.sm }}>
             {away.map((w) => (
-              <WeekRow key={w.start} week={w} facts={facts} onPress={() => replay(w)} onShare={() => setSharing(w)} />
+              <WeekRow key={w.start} week={w} facts={facts} best={w === best} onPress={() => replay(w)} onShare={() => setSharing(w)} />
             ))}
           </View>
         </Section>
@@ -128,7 +130,7 @@ export default function Hands() {
               {weeks.some((w) => w.hand && !w.warmup) ? 'Tap a week to replay its Showdown. Press and hold to share it.' : 'Tap your warm-up week to see its cards.'}
             </Body>
             {weeks.map((w) => (
-              <WeekRow key={w.start} week={w} facts={facts} onPress={() => replay(w)} onShare={w.hand && !w.warmup ? () => setSharing(w) : undefined} />
+              <WeekRow key={w.start} week={w} facts={facts} best={w === best} onPress={() => replay(w)} onShare={w.hand && !w.warmup ? () => setSharing(w) : undefined} />
             ))}
             {finished.length > weeks.length ? <Button label={`Show ${Math.min(PAGE, finished.length - weeks.length)} more`} variant="quiet" onPress={() => setCount((c) => c + PAGE)} /> : null}
           </View>
@@ -434,28 +436,59 @@ function SuitedRow({ weeks }: { weeks: number }) {
   );
 }
 
-/** A finished week: its dates and what it paid, then its hand, then the call. Tap to replay, hold to share. */
-function WeekRow({ week, facts, onPress, onShare }: { week: Week; facts: CaptionFacts; onPress: () => void; onShare?: () => void }) {
+/** How big a past week's row plays its hand: up to Two pair, up to a Full house, then Four of a kind and up. */
+function tierOf(kind: HandKind | undefined): 0 | 1 | 2 {
+  if (!kind) return 0;
+  const i = handIndex(kind);
+  return i >= handIndex('four-of-a-kind') ? 2 : i >= handIndex('three-of-a-kind') ? 1 : 0;
+}
+const TIER_TITLE = [15, 17, 20] as const;
+
+/**
+ * A finished week: its dates and what it paid, then its hand, then the call. Tap to replay, hold to share.
+ * Bigger hands get bigger rows, so the weeks worth remembering stand out as you scroll; the best one says so.
+ */
+function WeekRow({ week, facts, best, onPress, onShare }: { week: Week; facts: CaptionFacts; best: boolean; onPress: () => void; onShare?: () => void }) {
   const t = useTheme();
   const total = weekTotal(week);
   const call = week.call ? `Called ${HANDS[week.call].name}${week.madeCall ? `${NBSP}✓` : ''}` : null;
   const title = week.warmup ? 'Warm-up week' : (week.hand?.title ?? 'No hand');
+  const tier = week.warmup ? 0 : tierOf(week.hand?.kind);
   return (
     <Pressable
       onPress={onPress}
       onLongPress={onShare}
       accessibilityRole="button"
-      accessibilityLabel={`${weekRange(week.start)}. ${title}.${call ? ` ${call.replace('✓', 'made')}.` : ''}${total ? ` ${total} chips.` : ''}`}
+      accessibilityLabel={`${weekRange(week.start)}.${best ? ' Best week.' : ''} ${title}.${call ? ` ${call.replace('✓', 'made')}.` : ''}${total ? ` ${total} chips.` : ''}`}
       accessibilityHint="Replays this week’s Showdown"
       accessibilityActions={onShare ? [{ name: 'longpress', label: 'Share this hand' }] : undefined}
       onAccessibilityAction={(e) => {
         if (e.nativeEvent.actionName === 'longpress') onShare?.();
       }}
-      style={({ pressed }) => ({ borderRadius: radius.md, padding: space.md, gap: space.sm, backgroundColor: t.bgRaised, opacity: pressed ? 0.8 : 1 })}
+      style={({ pressed }) => ({
+        borderRadius: radius.md,
+        padding: space.md,
+        paddingVertical: tier === 2 ? space.lg : space.md,
+        gap: space.sm,
+        backgroundColor: t.bgRaised,
+        borderWidth: best ? 2 : 0,
+        borderColor: t.text,
+        opacity: pressed ? 0.8 : 1,
+        transform: [{ scale: pressed ? 0.98 : 1 }],
+      })}
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.md }}>
-        <Label>{weekRange(week.start)}</Label>
-        {total ? <Chips value={total} size={14} sign /> : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexShrink: 1, flexWrap: 'wrap' }}>
+          <Label>{weekRange(week.start)}</Label>
+          {best ? (
+            <View style={{ backgroundColor: t.text, borderRadius: radius.pill, paddingHorizontal: space.sm, paddingVertical: 2 }}>
+              <Text allowFontScaling={false} style={{ fontFamily: fonts.bodyHeavy, fontSize: 11, letterSpacing: 0.9, textTransform: 'uppercase', color: t.bg }}>
+                Best week
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        {total ? <Chips value={total} size={tier === 2 ? 16 : 14} sign /> : null}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
         {week.hand ? (
@@ -464,15 +497,21 @@ function WeekRow({ week, facts, onPress, onShare }: { week: Week; facts: Caption
             days={week.hand.cards.map((c) => c.day)}
             stamps={stampsFor(week)}
             captions={captionsFor(week, facts)}
-            size="xs"
-            overlap={0.4}
+            size={tier === 2 ? 'sm' : 'xs'}
+            overlap={tier === 2 ? 0.45 : 0.4}
             highlight={week.madeCall ? 'called' : undefined}
           />
         ) : null}
         <View style={{ flex: 1, gap: 2 }}>
-          <Body size={15} weight="heavy" numberOfLines={2}>
-            {title}
-          </Body>
+          {tier === 2 ? (
+            <Display size={TIER_TITLE[2]} numberOfLines={3}>
+              {title}
+            </Display>
+          ) : (
+            <Body size={TIER_TITLE[tier]} weight="heavy" numberOfLines={2}>
+              {title}
+            </Body>
+          )}
           {call ? (
             <Body size={12} weight="bold" color={t.textSecondary}>
               {call}
@@ -614,8 +653,9 @@ function GhostGroup({ group, from, count, w, h, lift, reduced, secretKnown }: { 
 }
 
 /**
- * A card the week hasn't dealt: cream at 60% with a dashed edge, its rank in the middle and every suit
- * under it, because any suit will do. It rises out of the row a beat after the one before it.
+ * A card the week hasn't dealt: an outline in cream at 60% with a dashed edge, the way an empty slot is drawn
+ * on the table, its rank in the middle and every suit under it, because any suit will do. It rises out of
+ * the row a beat after the one before it.
  */
 function Ghost({ rank, index, count, w, h, lift, reduced, said }: { rank: Rank; index: number; count: number; w: number; h: number; lift: SharedValue<number>; reduced: boolean; said: string }) {
   const style = useAnimatedStyle(() => {
@@ -633,22 +673,22 @@ function Ghost({ rank, index, count, w, h, lift, reduced, said }: { rank: Rank; 
           width: w,
           height: h,
           borderRadius: Math.round(w * 0.17),
-          backgroundColor: cardFace.bg,
-          opacity: 0.6,
+          backgroundColor: withAlpha(cardFace.bg, 0.07),
           borderWidth: 1.5,
           borderStyle: 'dashed',
-          borderColor: cardFace.faint,
+          borderColor: withAlpha(cardFace.bg, 0.6),
+          boxShadow: `0px 0px 14px ${withAlpha(cardFace.bg, 0.1)}`,
           alignItems: 'center',
           justifyContent: 'center',
           gap: Math.round(h * 0.05),
         }}
       >
-        <Text allowFontScaling={false} style={{ fontFamily: fonts.display, fontSize: Math.round(w * 0.5), lineHeight: Math.round(w * 0.56), color: cardFace.ink, letterSpacing: rank === 10 ? -2 : 0 }}>
+        <Text allowFontScaling={false} style={{ fontFamily: fonts.display, fontSize: Math.round(w * 0.5), lineHeight: Math.round(w * 0.56), color: cardFace.bg, letterSpacing: rank === 10 ? -2 : 0 }}>
           {rankLabel(rank)}
         </Text>
         <View style={{ flexDirection: 'row', gap: 1 }}>
           {SUITS.map((suit) => (
-            <SuitGlyph key={suit} suit={suit} size={glyph} color={withAlpha(suitColors[suit].glyph, 0.9)} />
+            <SuitGlyph key={suit} suit={suit} size={glyph} color={suitColors[suit].bright} />
           ))}
         </View>
       </View>

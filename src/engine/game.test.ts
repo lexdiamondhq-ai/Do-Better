@@ -5,6 +5,7 @@ import { addDays, weekDays, type Day } from './day';
 import { dealDay, savedCard, type DayCard, type DealHabit, type Slot } from './deal';
 import {
   BACKS,
+  bestWeek,
   CALL_BASELINE,
   CALL_HISTORY,
   CALLABLE,
@@ -967,5 +968,36 @@ describe('tips', () => {
 describe('weekTotal', () => {
   it('adds the hand, the Suited line and the call', () => {
     expect(weekTotal({ chips: 50, suitedBonus: 0, bonus: 140 })).toBe(190);
+  });
+});
+
+describe('bestWeek', () => {
+  // Just enough of a week to rank it: a hand with a score, what it paid, and whether it counts.
+  const week = (start: string, score: number | null, chips: number, over: Partial<Week> = {}): Week =>
+    ({ start, hand: score === null ? null : ({ score } as Hand), chips, suitedBonus: 0, bonus: 0, live: false, warmup: false, ...over }) as Week;
+
+  it('is the highest hand, whatever it paid', () => {
+    const best = week('2026-09-07', 900, 30);
+    expect(bestWeek([week('2026-08-31', 400, 500), best, week('2026-09-14', 100, 90)])).toBe(best);
+  });
+  it('breaks a tie on the hand by chips, then by the later week', () => {
+    const richer = week('2026-08-31', 500, 400);
+    expect(bestWeek([week('2026-09-07', 500, 100), richer])).toBe(richer);
+    const later = week('2026-09-14', 500, 100);
+    expect(bestWeek([week('2026-09-07', 500, 100), later])).toBe(later);
+    expect(bestWeek([later, week('2026-09-07', 500, 100)])).toBe(later);
+  });
+  it('never picks the live week, a warm-up week or a week with no hand', () => {
+    const only = week('2026-08-24', 10, 10);
+    expect(bestWeek([only, week('2026-08-31', 999, 999, { live: true }), week('2026-09-07', 999, 999, { warmup: true }), week('2026-09-14', null, 0)])).toBe(only);
+    expect(bestWeek([week('2026-09-07', 999, 0, { warmup: true })])).toBeNull();
+    expect(bestWeek([])).toBeNull();
+  });
+  it('picks the same week from a real game, in any order', () => {
+    const g = playGame(input({ habits: [read, walk], today: '2026-10-21', days: { read: run(W1, 30, 'ceiling'), walk: run(W1, 30) } }));
+    const best = bestWeek(g.weeks);
+    expect(best).not.toBeNull();
+    expect(bestWeek([...g.weeks].reverse())).toBe(best);
+    for (const w of g.weeks) if (!w.live && !w.warmup && w.hand) expect(w.hand.score).toBeLessThanOrEqual(best!.hand!.score);
   });
 });

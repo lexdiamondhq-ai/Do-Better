@@ -183,6 +183,24 @@ export function weekTotal(week: Pick<Week, 'chips' | 'suitedBonus' | 'bonus'>): 
   return week.chips + week.suitedBonus + week.bonus;
 }
 
+/**
+ * The strongest finished week: the highest hand, then the most chips, then the latest. The week still being
+ * played, a warm-up week and a week with no hand never count. Null when there is none.
+ */
+export function bestWeek(weeks: readonly Week[]): Week | null {
+  let best: Week | null = null;
+  for (const w of weeks) {
+    if (w.live || w.warmup || !w.hand) continue;
+    if (!best?.hand) {
+      best = w;
+      continue;
+    }
+    const by = w.hand.score - best.hand.score || weekTotal(w) - weekTotal(best) || (w.start > best.start ? 1 : -1);
+    if (by > 0) best = w;
+  }
+  return best;
+}
+
 function firstStart(habits: readonly DealHabit[]): Day | null {
   return habits.reduce<Day | null>((min, h) => (min === null || h.startedOn < min ? h.startedOn : min), null);
 }
