@@ -35,6 +35,21 @@ const PAGE = 8;
 /** A non-breaking space, so a check never wraps onto a line of its own. */
 const NBSP = ' ';
 
+/**
+ * A line that never ends on one word alone: its last two words are held together, and so is each hand's
+ * name ("Two pair", "Three of a kind"), so a wrapped line never leaves "pair." or "Ten" on its own.
+ */
+function noOrphan(text: string): string {
+  let out = text;
+  for (const name of HAND_NAMES) out = out.split(name).join(name.replace(/ /g, NBSP));
+  const last = out.lastIndexOf(' ');
+  return last > 0 ? `${out.slice(0, last)}${NBSP}${out.slice(last + 1)}` : out;
+}
+const HAND_NAMES = Object.values(HANDS)
+  .map((h) => h.name)
+  .filter((n) => n.includes(' '))
+  .sort((a, b) => b.length - a.length);
+
 /** How long until Sunday night's Showdown, from today. */
 function countdown(today: string): string {
   const left = 6 - weekday(today);
@@ -258,7 +273,7 @@ function River({ week, back, today, secretKnown }: { week: Week; back: BackKey; 
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: space.xs }}>
             <Waves color={t.text} />
             <Body size={14} weight="heavy" style={{ flex: 1 }}>
-              {outsSaid}
+              {noOrphan(outsSaid)}
             </Body>
           </View>
         ) : null}
@@ -504,16 +519,16 @@ function WeekRow({ week, facts, best, onPress, onShare }: { week: Week; facts: C
         <View style={{ flex: 1, gap: 2 }}>
           {tier === 2 ? (
             <Display size={TIER_TITLE[2]} numberOfLines={3}>
-              {title}
+              {noOrphan(title)}
             </Display>
           ) : (
             <Body size={TIER_TITLE[tier]} weight="heavy" numberOfLines={2}>
-              {title}
+              {noOrphan(title)}
             </Body>
           )}
           {call ? (
             <Body size={12} weight="bold" color={t.textSecondary}>
-              {call}
+              {noOrphan(call)}
             </Body>
           ) : null}
         </View>
@@ -587,7 +602,7 @@ function OutsRow({ week, width, secretKnown }: { week: Week; width: number; secr
         <View style={{ flex: 1, gap: 2 }}>
           <Label color={t.textSecondary}>◆  Outs</Label>
           <Body size={15} weight="heavy" color={t.text}>
-            {line}
+            {noOrphan(line)}
           </Body>
         </View>
         {/* The outs as a little face-down pile: it fans open with the row. */}
