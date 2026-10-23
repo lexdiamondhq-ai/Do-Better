@@ -19,6 +19,7 @@ import { SuitGlyph } from '@/components/Suit';
 import { DeckCard, LIFT, SwipeCard, type CommitInfo, type SwipeDirection, type SwipeHandle } from '@/components/SwipeCard';
 import { Body, Button, Display, Label, raisedStyle, TableSurface } from '@/components/ui';
 import { WeekStrip, type Rect as SlotRect, type StripArc } from '@/components/WeekStrip';
+import type { Suit } from '@/engine/cards';
 import { dayChord, keepSound, strum, type ToneStep } from '@/engine/chord';
 import { comebackExit, planLine, type Point } from '@/engine/comeback';
 import { addDays, canBackfill, weekday } from '@/engine/day';
@@ -61,7 +62,7 @@ import * as feel from '@/lib/feel';
 import { shortDay } from '@/lib/format';
 import { usePlans } from '@/lib/plans';
 import { hasSeen, usePrefs } from '@/lib/prefs';
-import { playSound, playTones } from '@/lib/sound';
+import { playSound, playTones, warmDeckSounds } from '@/lib/sound';
 import { withAlpha } from '@/theme/color';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
 import { cardColors, fontScale, radius, space, suitColors, TAP, themeOn, type Theme } from '@/theme/tokens';
@@ -327,6 +328,15 @@ function Table({ deck }: { deck: Deck }) {
     const id = setTimeout(() => setRinging((r) => (r === ringing ? null : r)), Math.max(0, ringing.at + STRUM_AT_MS + last + RING_MS - Date.now()));
     return () => clearTimeout(id);
   }, [ringing]);
+
+  // A moment after Today shows, the keep sounds and ring notes for the deck's own suits are made ready, so the
+  // first keep of each suit and the first strum play on time.
+  const deckSuits = [...new Set(deck.cards.map((c) => c.habit.suit))].sort().join(' ');
+  useEffect(() => {
+    if (!deckSuits) return;
+    const id = setTimeout(() => warmDeckSounds(deckSuits.split(' ') as Suit[]), 1500);
+    return () => clearTimeout(id);
+  }, [deckSuits]);
   const listMode = density.mode === 'list';
   useEffect(() => {
     if (listMode) anchorReceipts(null);

@@ -1,7 +1,8 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { Platform } from 'react-native';
 
-import type { KeySound, Tone, ToneStep } from '@/engine/chord';
+import type { Suit } from '@/engine/cards';
+import { keepSound, suitTone, type KeySound, type Tone, type ToneStep } from '@/engine/chord';
 
 /**
  * The table's music and one sound for each thing you do. Every sound is made by
@@ -204,6 +205,23 @@ function warm(names: Iterable<SoundName>) {
   } catch {
     // They load on first play instead.
   }
+}
+
+/**
+ * Gets the sounds a deck will ask for ready ahead of time, a moment after it shows: each of its suits'
+ * keep sounds and ring notes, so the first keep of each suit and the first strum aren't late. Only the
+ * deck's own suits, so a small deck never makes players it won't use.
+ */
+export function warmDeckSounds(suits: Iterable<Suit>) {
+  const names = new Set<SoundName>(['ring-low']);
+  for (const suit of suits) {
+    names.add(keepSound(suit, 'floor'));
+    names.add(keepSound(suit, 'ceiling'));
+    names.add(keepSound(suit, 'floor', { comeback: true }));
+    names.add(suitTone(suit));
+    names.add(suitTone(suit, true));
+  }
+  warm(names);
 }
 
 /** Plays one effect from the start. Quietly does nothing if sound is off or the player fails. */

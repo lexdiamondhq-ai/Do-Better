@@ -204,6 +204,32 @@ describe('the day’s chord, in sound', () => {
     expect(sound.playTones(strum(['ring-f4']), 380)).toBe(Date.parse('2026-10-23T19:00:00-04:00'));
   });
 
+  it('makes the deck’s own keep sounds and notes ready ahead of time without playing them', async () => {
+    os = 'ios';
+    const sound = await load({ activation: null });
+    sound.setSoundSettings({ sounds: true, music: false });
+    created.length = 0;
+    sound.warmDeckSounds(['hearts', 'clubs']);
+    expect(played).toEqual([]);
+    const made = new Set(created.map(file));
+    for (const name of ['floor-hearts', 'ceiling-hearts', 'resolve-hearts', 'floor-clubs', 'ceiling-clubs', 'resolve-clubs', 'ring-a4', 'ring-a5', 'ring-d5', 'ring-d6', 'ring-low']) expect(made).toContain(`${name}.mp3`);
+    expect([...made].filter((f) => /spades|diamonds|ring-f|ring-c/.test(f))).toEqual([]);
+    // Ready means the first keep plays without making a player then.
+    created.length = 0;
+    sound.playSound('floor-hearts');
+    expect(created).toEqual([]);
+    expect(played.map(file)).toEqual(['floor-hearts.mp3']);
+  });
+
+  it('makes nothing ahead of time with sounds off', async () => {
+    os = 'ios';
+    const sound = await load({ activation: null });
+    sound.setSoundSettings({ sounds: false, music: false });
+    created.length = 0;
+    sound.warmDeckSounds(['spades']);
+    expect(created).toEqual([]);
+  });
+
   it('rings a hand’s chord from the moment it’s asked, a low F for a card with no suit', async () => {
     os = 'ios';
     const sound = await load({ activation: null });
