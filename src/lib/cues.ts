@@ -14,12 +14,14 @@ import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
 import { SUIT_INFO } from '@/engine/cards';
+import { planLine, type Plan } from '@/engine/comeback';
 import { cuesFor, type Cue, type CueSettings, type CueSnapshot, type CueUrl } from '@/engine/cues';
 import { lastShowdown } from '@/engine/game';
 
 import { onSignOut, useAuth } from './auth';
 import { useData } from './data';
 import type { Deck } from './deck';
+import { usePlans } from './plans';
 import { usePrefs, type Prefs, type Reminders } from './prefs';
 
 type Notifications = typeof import('expo-notifications');
@@ -146,8 +148,11 @@ function apply(cues: readonly Cue[] | null, gen = generation) {
 
 const deviceTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
-/** What the cue plan needs from the deck and this phone's settings. */
-export function cueSnapshot(deck: Deck, prefs: Prefs, seed: string): CueSnapshot {
+/**
+ * What the cue plan needs from the deck and this phone's settings. `plans` are the player's plans by card
+ * (`usePlans`), the saved ones on this phone when left out: a card's plan is what its last call says.
+ */
+export function cueSnapshot(deck: Deck, prefs: Prefs, seed: string, plans: Readonly<Record<string, Plan>> = prefs.plans[seed] ?? {}): CueSnapshot {
   const keptToday = new Set(deck.cards.filter((c) => c.today).map((c) => c.habit.id));
   const last = lastShowdown(deck.game);
   const seen = prefs.showdownSeen[seed];
@@ -163,6 +168,7 @@ export function cueSnapshot(deck: Deck, prefs: Prefs, seed: string): CueSnapshot
       part: c.partOfDay,
       keptToday: !!c.today,
       remindAt: prefs.reminders.perHabit[c.habit.id] ?? null,
+      plan: plans[c.habit.id] ? planLine(plans[c.habit.id], c.habit) : null,
     })),
     rescue: !!deck.game.rescue,
     callWaiting: deck.game.callOpen && !deck.game.current.call,
@@ -198,9 +204,10 @@ function useNow(): number {
 export function usePlannedCues(deck: Deck | null): Cue[] {
   const { prefs } = usePrefs();
   const { seed } = useData();
+  const plans = usePlans();
   const now = useNow();
   if (!deck) return [];
-  return cuesFor(cueSnapshot(deck, prefs, seed), cueSettings(prefs), new Date(now), deviceTimeZone());
+  return cuesFor(cueSnapshot(deck, prefs, seed, plans), cueSettings(prefs), new Date(now), deviceTimeZone());
 }
 
 let handled: string | null = null;
@@ -234,6 +241,7 @@ export function CueScheduler({ deck }: { deck: Deck | null }) {
   const { prefs, ready, setPrefs } = usePrefs();
   const { demo } = useAuth();
   const { seed } = useData();
+  const plans = usePlans();
   const now = useNow();
   const on = prefs.reminders.on && !demo && native;
 
@@ -246,7 +254,7 @@ export function CueScheduler({ deck }: { deck: Deck | null }) {
       if (!demo) apply(null);
       return;
     }
-    const plan = cuesFor(cueSnapshot(deck, prefs, seed), cueSettings(prefs), new Date(now), deviceTimeZone());
+    const plan = cuesFor(cueSnapshot(deck, prefs, seed, plans), cueSettings(prefs), new Date(now), deviceTimeZone());
     // The plan belongs to this sign-in and this render. If the deck changes, or the player signs out, while
     // the phone is still answering about permission, the stale plan is dropped instead of written.
     const gen = generation;
@@ -260,7 +268,7 @@ export function CueScheduler({ deck }: { deck: Deck | null }) {
       live = false;
       clearTimeout(timer);
     };
-  }, [deck, prefs, seed, now, on, ready, demo]);
+  }, [deck, prefs, seed, plans, now, on, ready, demo]);
 
   // Taps, while running and from a cold start.
   useEffect(() => {

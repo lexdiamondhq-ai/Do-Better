@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useState, type PropsWithChildren, type ReactNode, type Ref } from 'react';
+import { createContext, useContext, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type PropsWithChildren, type ReactNode, type Ref, type RefObject } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View, type AccessibilityActionEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -9,17 +9,23 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withDelay,
   withSequence,
   withSpring,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 
-import type { Point } from '@/engine/comeback';
+import { comebackExit, LIGHT_SOLID, lightOrigin, lightReach, turnNote, type Point } from '@/engine/comeback';
+import { densityFor } from '@/engine/today';
 import type { Grip } from '@/engine/wear';
 import * as feel from '@/lib/feel';
+import { withAlpha } from '@/theme/color';
 import { fontScale, fonts, INK, radius } from '@/theme/tokens';
+
+import { Burst } from './Burst';
 
 export type SwipeDirection = 'up' | 'down' | 'left' | 'right';
 
@@ -35,6 +41,83 @@ export type CommitInfo = { grip?: Grip; at?: Point };
  */
 export type Fling = (dir: SwipeDirection, opts?: { note?: string; tag?: string; turnover?: Point }) => void;
 export type SwipeHandle = { fling: Fling };
+
+/** The bright side a dark card turns to: its colour, its ink and its soft tint. */
+export type TurnFace = { bg: string; ink: string; soft: string };
+
+/** The light's circle on the card face, in the card's own coordinates. */
+type Glow = { x: number; y: number; r: number };
+
+/**
+ * What a card that turns over shares with the face inside it. The dark face draws the warm light
+ * (`TurnLight`) and says what its bright side looks like; Done it says where it is, so a key press can
+ * start the light from it; a button says where the finger was.
+ */
+type Turnover = {
+  light: SharedValue<number>;
+  glow: SharedValue<Glow>;
+  setFace: (face: TurnFace) => void;
+  setDone: (button: RefObject<View | null> | null) => void;
+  noteTap: (at: Point) => void;
+};
+
+const TurnContext = createContext<Turnover | null>(null);
+
+/** The card this face is turning on, when it is the front of the deck. Null anywhere else. */
+export function useTurnover(): Turnover | null {
+  return useContext(TurnContext);
+}
+
+/** The bright side's density, so it matches the deck's other cards on a short screen. */
+const BackDensity = createContext<{ compact: boolean } | null>(null);
+
+/** Whether the card face is drawn inside a turnover's bright side, and at what density. */
+export function useBackDensity(): { compact: boolean } | null {
+  return useContext(BackDensity);
+}
+
+/** A tap counts as the finger behind a fling this soon after it. */
+const TAP_FRESH_MS = 800;
+
+/**
+ * The turnover's warm light: a disc in the card's own colour that grows from where the light starts until
+ * it covers the face. Drawn by the dark face, under its words, and clipped by it. Nothing on any other card.
+ */
+export function TurnLight({ color }: { color: string }) {
+  const turnover = useTurnover();
+  return turnover ? <Light turnover={turnover} color={color} /> : null;
+}
+
+function Light({ turnover, color }: { turnover: Turnover; color: string }) {
+  const id = `light${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  const { light, glow } = turnover;
+  const style = useAnimatedStyle(() => {
+    const g = glow.get();
+    const l = light.get();
+    return {
+      opacity: l > 0 ? 1 : 0,
+      left: g.x - g.r,
+      top: g.y - g.r,
+      width: g.r * 2,
+      height: g.r * 2,
+      transform: [{ scale: Math.max(0.001, l) }],
+    };
+  });
+  return (
+    <Animated.View pointerEvents="none" aria-hidden style={[{ position: 'absolute' }, style]}>
+      <Svg width="100%" height="100%" viewBox="0 0 100 100">
+        <Defs>
+          <RadialGradient id={id} cx="50" cy="50" r="50" gradientUnits="userSpaceOnUse">
+            <Stop offset="0" stopColor={color} stopOpacity={1} />
+            <Stop offset={String(LIGHT_SOLID)} stopColor={color} stopOpacity={1} />
+            <Stop offset="1" stopColor={color} stopOpacity={0} />
+          </RadialGradient>
+        </Defs>
+        <Circle cx="50" cy="50" r="50" fill={`url(#${id})`} />
+      </Svg>
+    </Animated.View>
+  );
+}
 
 /** How far a card has to travel before letting go counts. */
 export const DISTANCE = 110;
@@ -98,6 +181,7 @@ export function SwipeCard({
   ghost = false,
   label,
   testID,
+  backFace,
 }: PropsWithChildren<{
   ref?: Ref<SwipeHandle>;
   /** Fires at the first frame of the exit. `info` is filled in by stream 2 (grip and centre). */
@@ -120,12 +204,13 @@ export function SwipeCard({
   label?: string;
   testID?: string;
   /**
-   * The bright side a Comeback card turns to as it leaves, for the way it went. Mounted only during the
-   * exit. Accepted and not yet drawn: stream 2 builds the turnover.
+   * The bright side a Comeback card turns to as it leaves, for the way it went. With it, a keep up or down
+   * runs the turnover: warm light spreads from the finger, the card turns over to this side, holds while
+   * it bursts, then leaves the normal way. Mounted only during the exit.
    */
   backFace?: (dir: SwipeDirection) => ReactNode;
 }>) {
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale: textScale } = useWindowDimensions();
   const reduced = useReducedMotion();
   const x = useSharedValue(0);
   const y = useSharedValue(0);
@@ -146,10 +231,76 @@ export function SwipeCard({
   const left = !!allow.left;
   const right = !!allow.right;
 
+  // The turnover ---------------------------------------------------------------------------------------
+  const turns = !!backFace;
+  const timing = comebackExit({ firstMove: false, reduced });
+  // The card's size, and where it sits in the window at rest, for the grip, the centre and the light.
+  const cardW = useSharedValue(0);
+  const cardH = useSharedValue(0);
+  const rest = useSharedValue<Point | null>(null);
+  const grip = useSharedValue<Grip | null>(null);
+  // Where a button or key asked the light to start, on the card, for the exit about to run.
+  const asked = useSharedValue<Point | null>(null);
+  const doneAt = useSharedValue<Point | null>(null);
+  const light = useSharedValue(0);
+  const glow = useSharedValue<Glow>({ x: 0, y: 0, r: 0 });
+  const cross = useSharedValue(0);
+  const lifting = useSharedValue(0);
+  const slam = useSharedValue(0);
+  const wait = useSharedValue(0);
+  // 1 once the bright side is on screen. Until then the dark side stays up, so a slow render of the keep
+  // never leaves an empty card turning in the hand.
+  const backIn = useSharedValue(0);
+  // While it turns, the card holds both its sides as they were when it was kept, so nothing on it reflows
+  // as the day it just kept updates the screen behind it.
+  const [turning, setTurning] = useState<{ dir: 'up' | 'down'; face: TurnFace | null; compact: boolean; front: ReactNode; back: ReactNode } | null>(null);
+  const [burst, setBurst] = useState(false);
+  const view = useRef<View>(null);
+  const face = useSharedValue<TurnFace | null>(null);
+  const doneButton = useRef<RefObject<View | null> | null>(null);
+  const tap = useRef<(Point & { at: number }) | null>(null);
+
+  const turnover = useMemo<Turnover>(
+    () => ({
+      light,
+      glow,
+      setFace: (f) => {
+        face.set(f);
+      },
+      setDone: (button) => {
+        doneButton.current = button;
+      },
+      noteTap: (at) => {
+        tap.current = { ...at, at: Date.now() };
+      },
+    }),
+    [light, glow, face],
+  );
+
+  /** Where the card and its Done it sit in the window, measured once it is still. */
+  const measure = () => {
+    view.current?.measureInWindow((x, y, w, h) => {
+      if (!w || !h) return;
+      const centre = { x: x + w / 2, y: y + h / 2 };
+      rest.set(centre);
+      doneButton.current?.current?.measureInWindow((dx, dy, dw, dh) => {
+        if (dw && dh) doneAt.set(toCard({ x: dx + dw / 2, y: dy + dh / 2 }, centre));
+      });
+    });
+  };
+
+  /** A window point on the card face, from the card's centre at rest and its own size. */
+  const toCard = (at: Point, centre: Point): Point => ({ x: at.x - (centre.x - cardW.get() / 2), y: at.y - (centre.y - cardH.get() / 2) });
+
   useEffect(() => {
     if (ghost) return;
-    const id = setTimeout(() => setSettled(true), SETTLE_MS);
+    const id = setTimeout(() => {
+      setSettled(true);
+      measure();
+    }, SETTLE_MS);
     return () => clearTimeout(id);
+    // `measure` only reads refs and sets shared values when the timer fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ghost]);
 
   useEffect(() => {
@@ -171,16 +322,23 @@ export function SwipeCard({
     if (onSwipe) onSwipe(dir);
   };
 
-  const commit = (dir: SwipeDirection, tag?: string) => {
-    if (onCommit) onCommit(dir, tag);
+  const commit = (dir: SwipeDirection, tag?: string, info?: CommitInfo) => {
+    if (onCommit) onCommit(dir, tag, info);
   };
 
-  const exit = (dir: SwipeDirection, vx: number, vy: number, tag?: string) => {
+  /** The bright side comes in under the turning card: mounted now, shown once the card is past its edge. */
+  const beginTurn = (dir: 'up' | 'down') => {
+    const h = cardH.get();
+    // The same reading of the room as Today's, text size included, so the bright side folds when the deck does.
+    const compact = densityFor({ cardHeight: h || height, windowHeight: height, fontScale: textScale, screenReader: false }).mode === 'compact';
+    setTurning({ dir, face: face.get(), compact, front: children, back: backFace?.(dir) ?? null });
+    setNote((n) => turnNote(dir, n));
+  };
+
+  // Worklets capture what they call when they are made, so each comes after the ones it calls.
+  /** The card leaves the way it went: a Floor drops, a Ceiling sails up, later slides off the side. */
+  const leave = (dir: SwipeDirection, vx: number, vy: number) => {
     'worklet';
-    gone.set(true);
-    scheduleOnRN(commit, dir, tag);
-    // The deck behind comes forward as this one goes.
-    p.set(withTiming(1, { duration: 180, reduceMotion: ReduceMotion.Never }));
     const done = (finished?: boolean) => {
       'worklet';
       if (finished) scheduleOnRN(report, dir);
@@ -232,11 +390,105 @@ export function SwipeCard({
     }
   };
 
+  /**
+   * A kept Comeback card turns back over in your hand: it comes back to rest as warm light in its own colour
+   * spreads from the finger (or the edge it was swiped toward), turns to its bright side, holds while it
+   * bursts and its note lands, then leaves the normal way. With Reduce Motion it crossfades in place.
+   */
+  const turnOver = (dir: 'up' | 'down', tag?: string) => {
+    'worklet';
+    const w = cardW.get();
+    const h = cardH.get();
+    const g = grip.get();
+    const origin = lightOrigin({ w, h, dir, at: asked.get(), x: tag === 'swipe' && g ? g.x * w : null });
+    asked.set(null);
+    glow.set({ x: origin.x, y: origin.y, r: lightReach(origin, w, h) });
+    const never = { reduceMotion: ReduceMotion.Never };
+    const hold = () => {
+      'worklet';
+      scheduleOnRN(setBurst, true);
+      if (reduced) {
+        // With Reduce Motion the note simply appears: nothing lands or grows.
+        noteIn.set(withTiming(1, { duration: 120, ...never }));
+      } else {
+        slam.set(1);
+        noteIn.set(withSpring(1, { damping: 13, stiffness: 320, mass: 0.7, ...never }));
+      }
+      wait.set(
+        withDelay(
+          timing.holdMs,
+          withTiming(1, { duration: 1, ...never }, (finished) => {
+            'worklet';
+            if (finished) leave(dir, 0, 0);
+          }),
+        ),
+      );
+    };
+    if (reduced) {
+      cross.set(
+        withTiming(1, { duration: timing.crossfadeMs, ...never }, (finished) => {
+          'worklet';
+          if (finished) hold();
+        }),
+      );
+      return;
+    }
+    // Back into the hand, so it turns where you can see it.
+    const settle = { damping: 20, stiffness: 240, mass: 0.8, ...never };
+    x.set(withSpring(0, settle));
+    y.set(withSpring(0, settle));
+    spin.set(withSpring(0, settle));
+    scale.set(withSpring(1, settle));
+    lifting.set(1);
+    light.set(0);
+    light.set(withTiming(1, { duration: timing.lightMs, easing: Easing.out(Easing.cubic), ...never }));
+    turn.set(0);
+    turn.set(
+      withDelay(
+        timing.lightMs,
+        withTiming(2, { duration: timing.flipMs, easing: Easing.inOut(Easing.cubic), ...never }, (finished) => {
+          'worklet';
+          if (finished) hold();
+        }),
+      ),
+    );
+  };
+
+  const exit = (dir: SwipeDirection, vx: number, vy: number, tag?: string) => {
+    'worklet';
+    gone.set(true);
+    const centre = rest.get();
+    const info: CommitInfo = { at: centre ? { x: centre.x + x.get(), y: centre.y + y.get() } : undefined, grip: tag === 'swipe' ? (grip.get() ?? undefined) : undefined };
+    if (turns && (dir === 'up' || dir === 'down')) scheduleOnRN(beginTurn, dir);
+    scheduleOnRN(commit, dir, tag, info);
+    // The deck behind comes forward as this one goes.
+    p.set(withTiming(1, { duration: 180, reduceMotion: ReduceMotion.Never }));
+    if (turns && (dir === 'up' || dir === 'down')) {
+      turnOver(dir, tag);
+      return;
+    }
+    leave(dir, vx, vy);
+  };
+
+  /** Where on the card a button or key starts the light: Done it's centre, the finger, or nowhere (the edge). */
+  const lightFrom = (opts?: { tag?: string; turnover?: Point }): Point | null => {
+    const centre = rest.get();
+    if (opts?.turnover && centre) return toCard(opts.turnover, centre);
+    if (opts?.tag === 'first' && doneAt.get()) return doneAt.get();
+    const finger = tap.current;
+    if (finger && centre && Date.now() - finger.at < TAP_FRESH_MS) return toCard(finger, centre);
+    return null;
+  };
+
   const fling: Fling = (dir, opts) => {
+    const over = turns && (dir === 'up' || dir === 'down');
     if (opts?.note) {
       setNote(opts.note);
-      noteIn.set(withTiming(1, { duration: 140, reduceMotion: ReduceMotion.Never }));
+      // On a card that turns over, the note waits for the bright side.
+      if (!over) noteIn.set(withTiming(1, { duration: 140, reduceMotion: ReduceMotion.Never }));
     }
+    if (over) asked.set(lightFrom(opts));
+    tap.current = null;
     const tag = opts?.tag;
     scheduleOnUI(() => {
       'worklet';
@@ -250,6 +502,12 @@ export function SwipeCard({
   const pan = Gesture.Pan()
     .enabled(!ghost)
     .minDistance(8)
+    .onBegin((e) => {
+      // Where the thumb took the card, across and down its face: the card wears in there.
+      const w = cardW.get();
+      const h = cardH.get();
+      if (w > 0 && h > 0) grip.set({ x: Math.min(1, Math.max(0, e.x / w)), y: Math.min(1, Math.max(0, e.y / h)) });
+    })
     .onUpdate((e) => {
       if (gone.get()) return;
       const dx = e.translationX;
@@ -301,18 +559,27 @@ export function SwipeCard({
     const pose = deckPose(depth.get());
     const tilt = reduced ? 0 : x.get() / 18;
     const t = turn.get();
+    // Past its edge (beyond a quarter turn) the card shows its other side, coming round to face you.
+    const angle = (t > 1 ? t - 2 : t) * 90;
+    // A card turning over in the hand lifts toward you and leans a little as it goes.
+    const arc = lifting.get() ? Math.sin((Math.PI * Math.min(2, Math.max(0, t))) / 2) : 0;
     return {
       opacity: fade.get(),
       transform: [
         { perspective: 900 },
         { translateX: x.get() },
-        { translateY: y.get() + pose.translateY },
-        { rotate: `${pose.rotate + tilt + spin.get()}deg` },
-        { rotateY: `${t * 90}deg` },
-        { scale: scale.get() * pose.scale },
+        { translateY: y.get() + pose.translateY - 14 * arc },
+        { rotate: `${pose.rotate + tilt + spin.get() - 3 * arc}deg` },
+        { rotateY: `${angle}deg` },
+        { scale: scale.get() * pose.scale * (1 + 0.07 * arc) },
       ],
     };
   });
+  // The dark side until the card is past its edge, then the bright one. With Reduce Motion the bright side
+  // fades in over the dark one, which stays solid underneath so nothing behind the card shows through.
+  // The dark side only goes once the bright side is really there.
+  const frontStyle = useAnimatedStyle(() => ({ opacity: backIn.get() > 0 && (turn.get() > 1 || cross.get() >= 1) ? 0 : 1 }));
+  const backStyle = useAnimatedStyle(() => ({ opacity: turn.get() > 1 ? 1 : cross.get() }));
 
   // Each style reads the shared values itself: Reanimated only re-runs a style for values read in its own body.
   const stamp = (dir: SwipeDirection, dx: number, dy: number, note: number) => {
@@ -338,7 +605,16 @@ export function SwipeCard({
     const v = stamp('right', x.get(), y.get(), noteIn.get());
     return { opacity: v, transform: [{ rotate: '12deg' }, { scale: 0.84 + 0.16 * v }] };
   });
-  const noteStyle = useAnimatedStyle(() => ({ opacity: noteIn.get(), transform: [{ rotate: '-6deg' }, { scale: 0.8 + 0.2 * noteIn.get() }] }));
+  // On the bright side the note is pressed on like a stamp: it lands big and settles.
+  const noteStyle = useAnimatedStyle(() => {
+    const n = noteIn.get();
+    const slammed = slam.get() > 0;
+    return { opacity: Math.min(1, slammed ? n * 5 : n), transform: [{ rotate: '-6deg' }, { scale: reduced ? 1 : slammed ? 1.35 - 0.35 * n : 0.8 + 0.2 * n }] };
+  });
+  const turnStampStyle = useAnimatedStyle(() => {
+    const n = noteIn.get();
+    return { opacity: Math.min(1, reduced ? n : n * 5), transform: [{ rotate: '-9deg' }, { scale: reduced ? 1 : 1.35 - 0.35 * n }] };
+  });
 
   const ways: { dir: SwipeDirection; style: typeof upStyle; at: ViewStyle }[] = [
     { dir: 'up', style: upStyle, at: { top: '30%', alignSelf: 'center' } },
@@ -352,21 +628,50 @@ export function SwipeCard({
     if (offered.includes(dir)) fling(dir, { tag: 'action' });
   };
 
+  const bright = turning?.face;
+  const noteInk = bright ? bright.ink : ink;
+  const noteWash = bright ? withAlpha(bright.bg, 0.94) : wash;
+
   return (
     <GestureDetector gesture={pan}>
       <Animated.View
+        ref={view}
         testID={testID}
-        pointerEvents={ghost ? 'none' : 'auto'}
+        // A card turning over takes the touches meant for the card under it until it has gone.
+        pointerEvents={ghost && !turning ? 'none' : 'auto'}
         aria-hidden={ghost || undefined}
         importantForAccessibility={ghost ? 'no-hide-descendants' : 'auto'}
         style={[StyleSheet.absoluteFill, card]}
         accessibilityLabel={ghost ? undefined : label}
         accessibilityActions={ghost ? undefined : offered.map((d) => ({ name: d, label: actions?.[d] ?? labels[d] }))}
         onAccessibilityAction={ghost ? undefined : onAction}
+        onLayout={(e) => {
+          cardW.set(e.nativeEvent.layout.width);
+          cardH.set(e.nativeEvent.layout.height);
+          if (settled && !ghost) measure();
+        }}
       >
-        <View style={StyleSheet.absoluteFill} pointerEvents={settled && !ghost ? 'box-none' : 'none'}>
-          {children}
-        </View>
+        <Animated.View style={[StyleSheet.absoluteFill, turns ? frontStyle : null]} pointerEvents={settled && !ghost ? 'box-none' : 'none'}>
+          {turns ? <TurnContext.Provider value={turnover}>{turning ? turning.front : children}</TurnContext.Provider> : children}
+        </Animated.View>
+        {turning ? (
+          <Animated.View
+            pointerEvents="none"
+            aria-hidden
+            importantForAccessibility="no-hide-descendants"
+            style={[StyleSheet.absoluteFill, backStyle]}
+            onLayout={() => {
+              backIn.set(1);
+            }}
+          >
+            <BackDensity.Provider value={{ compact: turning.compact }}>{turning.back}</BackDensity.Provider>
+            {burst ? (
+              <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius.card, overflow: 'hidden' }]}>
+                <Burst kind="comeback" color={bright?.soft ?? withAlpha(INK, 0.4)} />
+              </View>
+            ) : null}
+          </Animated.View>
+        ) : null}
         {ways.map(({ dir, style, at }) =>
           allow[dir] && labels[dir] ? (
             <Animated.View
@@ -389,10 +694,24 @@ export function SwipeCard({
             aria-hidden
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
-            style={[styles.stamp, styles.note, { top: '32%', borderColor: ink, backgroundColor: wash }, noteStyle]}
+            style={[styles.stamp, styles.note, { top: '32%', borderColor: noteInk, backgroundColor: noteWash }, noteStyle]}
           >
-            <Text allowFontScaling={false} style={[styles.noteText, { color: ink }]}>
+            <Text allowFontScaling={false} style={[styles.noteText, { color: noteInk }]}>
               {note}
+            </Text>
+          </Animated.View>
+        ) : null}
+        {turning?.dir === 'up' && labels.up ? (
+          // A Ceiling keeps its stamp, pressed onto the bright side.
+          <Animated.View
+            pointerEvents="none"
+            aria-hidden
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={[styles.stamp, { top: '30%', alignSelf: 'center', borderColor: noteInk, backgroundColor: noteWash }, turnStampStyle]}
+          >
+            <Text allowFontScaling={false} style={[styles.stampText, { color: noteInk }]}>
+              {labels.up}
             </Text>
           </Animated.View>
         ) : null}
@@ -438,6 +757,7 @@ export function DeckCard({ depth, pull, children }: PropsWithChildren<{ depth: n
  * At least 44 points, read out as a button, and pressable from VoiceOver and the keyboard.
  */
 export function CardButton({
+  ref,
   onPress,
   label,
   hint,
@@ -446,6 +766,7 @@ export function CardButton({
   children,
   testID,
 }: {
+  ref?: Ref<View>;
   onPress: () => void;
   label: string;
   hint?: string;
@@ -454,20 +775,27 @@ export function CardButton({
   children: ReactNode;
   testID?: string;
 }) {
+  const turnover = useTurnover();
   const down = useSharedValue(0);
+  // On a card that turns over, the finger is where its light starts.
+  const pressed = (x: number, y: number) => {
+    turnover?.noteTap({ x, y });
+    onPress();
+  };
   const tap = Gesture.Tap()
     .maxDistance(10)
     .onBegin(() => {
       down.set(withTiming(1, { duration: 70 }));
     })
-    .onFinalize((_e, success) => {
+    .onFinalize((e, success) => {
       down.set(withTiming(0, { duration: 160 }));
-      if (success) scheduleOnRN(onPress);
+      if (success) scheduleOnRN(pressed, e.absoluteX, e.absoluteY);
     });
-  const pressed = useAnimatedStyle(() => ({ transform: [{ scale: 1 - (1 - pressedScale) * down.get() }], opacity: 1 - 0.15 * down.get() }));
+  const press = useAnimatedStyle(() => ({ transform: [{ scale: 1 - (1 - pressedScale) * down.get() }], opacity: 1 - 0.15 * down.get() }));
   return (
     <GestureDetector gesture={tap}>
       <Animated.View
+        ref={ref}
         testID={testID}
         accessible
         accessibilityRole="button"
@@ -477,7 +805,7 @@ export function CardButton({
         onAccessibilityAction={(e) => {
           if (e.nativeEvent.actionName === 'activate') onPress();
         }}
-        style={[{ minHeight: 44, minWidth: 44 }, style, pressed]}
+        style={[{ minHeight: 44, minWidth: 44 }, style, press]}
       >
         {children}
       </Animated.View>

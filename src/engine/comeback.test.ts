@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { cleanPlanWords, comebackExit, comebackKeptToday, PLAN_WHENS, planLine, planOffered, planThens, type Plan } from './comeback';
+import { cleanPlanWords, comebackExit, comebackKeptToday, FLOOR_KEPT_NOTE, LIGHT_SOLID, lightOrigin, lightReach, PLAN_WHENS, planLine, planOffered, planThens, turnNote, type Plan } from './comeback';
 
 const walk = { floorLabel: 'Walk to the corner', twoMinuteLabel: 'Put on your shoes' };
 const noFirst = { floorLabel: 'Walk to the corner', twoMinuteLabel: null };
@@ -12,6 +12,37 @@ describe('the turnover', () => {
     expect(full).toMatchObject({ lightMs: 320, flipMs: 380, holdMs: 250, totalMs: 950 });
     expect(full.totalMs).toBeLessThanOrEqual(1200);
     expect(comebackExit({ firstMove: false, reduced: true })).toEqual({ lightMs: 0, flipMs: 0, holdMs: 0, crossfadeMs: 200, totalMs: 200 });
+  });
+});
+
+describe('the turnover’s light', () => {
+  const w = 300;
+  const h = 500;
+
+  it('starts from the button or the finger, kept on the card', () => {
+    expect(lightOrigin({ w, h, dir: 'down', at: { x: 220, y: 410 } })).toEqual({ x: 220, y: 410 });
+    expect(lightOrigin({ w, h, dir: 'up', at: { x: -20, y: 900 } })).toEqual({ x: 0, y: 500 });
+  });
+
+  it('starts from the edge a swipe went toward: the bottom for a Floor, the top for a Ceiling, under the thumb', () => {
+    expect(lightOrigin({ w, h, dir: 'down' })).toEqual({ x: 150, y: 500 });
+    expect(lightOrigin({ w, h, dir: 'up' })).toEqual({ x: 150, y: 0 });
+    expect(lightOrigin({ w, h, dir: 'down', x: 80 })).toEqual({ x: 80, y: 500 });
+    expect(lightOrigin({ w, h, dir: 'up', x: Number.NaN, at: { x: Number.NaN, y: 3 } })).toEqual({ x: 150, y: 0 });
+  });
+
+  it('grows until its full colour covers the farthest corner', () => {
+    const from = { x: 220, y: 410 };
+    const r = lightReach(from, w, h);
+    for (const [x, y] of [[0, 0], [w, 0], [0, h], [w, h]]) expect(Math.hypot(x - from.x, y - from.y)).toBeLessThanOrEqual(r * LIGHT_SOLID + 1e-9);
+    expect(r * LIGHT_SOLID).toBeCloseTo(Math.hypot(220, 410));
+  });
+
+  it('says the keep on the bright side: the note it came with, or the Floor’s, and nothing over a Ceiling’s stamp', () => {
+    expect(turnNote('down', 'First move done. Today is kept.')).toBe('First move done. Today is kept.');
+    expect(turnNote('down')).toBe(FLOOR_KEPT_NOTE);
+    expect(FLOOR_KEPT_NOTE).toBe('Floor kept. Today is kept.');
+    expect(turnNote('up')).toBeNull();
   });
 });
 

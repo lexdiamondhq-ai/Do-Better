@@ -1,19 +1,23 @@
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { usePreventRemove } from 'expo-router/react-navigation';
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { Platform, Pressable, ScrollView, View, type TextInput } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type TextInput } from 'react-native';
+import Animated, { Easing, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ask } from '@/components/Ask';
-import { HabitCard } from '@/components/HabitCard';
+import { ComebackCard, HabitCard } from '@/components/HabitCard';
 import { SuitGlyph } from '@/components/Suit';
 import { Body, Button, Display, Field, Label } from '@/components/ui';
 import { SUIT_INFO, SUITS } from '@/engine/cards';
+import { comebackExit, planLine } from '@/engine/comeback';
 import { exampleRecipe, inferSuit, ownWhy, PRINCIPLES, recipeFor, type EditField, type EditFocus } from '@/engine/playbook';
 import { useData } from '@/lib/data';
-import { useAdded } from '@/lib/deck';
+import { useAdded, useDeck } from '@/lib/deck';
 import * as feel from '@/lib/feel';
+import { usePlans } from '@/lib/plans';
 import { draftFromHabit, draftProblem, type Habit, type HabitDraft } from '@/lib/types';
+import { withAlpha } from '@/theme/color';
 import { useTheme } from '@/theme/ThemeProvider';
 import { CARD_COLORS, cardColors, fontScale, radius, space, suitColors, TAP, typeScale, WHITE } from '@/theme/tokens';
 
@@ -66,8 +70,45 @@ function Tip({ tip }: { tip: TipText }) {
   );
 }
 
+/** The fields that write the card's other side: focusing one turns the preview over to its Comeback. */
+const DARK_SIDE: readonly EditField[] = ['twoMinuteLabel', 'why'];
+
 /**
- * Make or edit a card. You write on the card itself: the preview at the top updates as you type. A new
+ * The card as you write it, pinned above the form. It shows its everyday face, and turns over to the dark
+ * Comeback side (the same turn as on Today) while you write the First move or the why, the words that side
+ * leads with. While the why is written, it shows in the first move's box (`why`), since a card this small
+ * has no room for its own why line. With Reduce Motion it crossfades.
+ */
+function PinnedPreview({ habit, kept, plan, dark, why, height, short }: { habit: Habit; kept: number; plan: string | null; dark: boolean; why: boolean; height: number; short: boolean }) {
+  const reduced = useReducedMotion();
+  const side = useSharedValue(dark ? 1 : 0);
+  useEffect(() => {
+    const { flipMs, crossfadeMs } = comebackExit({ firstMove: false, reduced });
+    side.set(withTiming(dark ? 1 : 0, { duration: reduced ? crossfadeMs : flipMs, easing: Easing.inOut(Easing.cubic), reduceMotion: ReduceMotion.Never }));
+  }, [dark, reduced, side]);
+  // Past its edge the card shows its other side, coming round to face you; it lifts a little as it turns.
+  const face = (s: number, back: boolean) => {
+    'worklet';
+    const shown = reduced ? (back ? s : 1 - s) : (s < 0.5) === !back ? 1 : 0;
+    const angle = reduced ? 0 : (s < 0.5 ? s : s - 1) * 180;
+    return { opacity: shown, transform: [{ perspective: 900 }, { rotateY: `${angle}deg` }, { scale: 1 + 0.04 * Math.sin(Math.PI * s) }] };
+  };
+  const front = useAnimatedStyle(() => face(side.get(), false));
+  const back = useAnimatedStyle(() => face(side.get(), true));
+  return (
+    <View aria-hidden importantForAccessibility="no-hide-descendants" style={{ height, transform: [{ rotate: '-1deg' }] }}>
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, front]}>
+        <HabitCard habit={habit} kept={kept} compact />
+      </Animated.View>
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, back]}>
+        <ComebackCard habit={habit} kept={kept} gap="yesterday" plan={plan} showWhy={why} compact tight tiny={short} />
+      </Animated.View>
+    </View>
+  );
+}
+
+/**
+ * Make or edit a card. You write on the card itself: the preview pinned at the top updates as you type. A new
  * card guesses its suit from its name until you pick one, and takes its suit's colour until you pick one.
  * Empty fields show examples from the card's own ready-made card, or from one of its suit.
  * Opened with `focus`, it scrolls to that field and puts the cursor in it, ready to change, or with
@@ -97,6 +138,12 @@ export default function EditHabit() {
   const [suitPicked, setSuitPicked] = useState(!!existing || !!fromRecipe);
   const [colorPicked, setColorPicked] = useState(!!existing);
   const [busy, setBusy] = useState(false);
+  // Which field has the cursor, so the preview can show the side it writes.
+  const [writing, setWriting] = useState<EditField | null>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const { height: screenH } = useWindowDimensions();
+  const deck = useDeck();
+  const plans = usePlans();
   const set = (patch: Partial<HabitDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
   const suit = suitPicked ? draft.suit : inferSuit(draft.name, draft.identity);
@@ -118,13 +165,7 @@ export default function EditHabit() {
   const played = !!existing && state.status === 'ready' && state.days.some((d) => d.habitId === existing.id && d.day < today);
   const suitLocked = played && !!existing?.suitSet;
   const guessed = played && existing?.suitSet === false;
-  const suitLabel = suitLocked
-    ? 'Suit · locked, its days are already dealt'
-    : guessed
-      ? 'Suit · guessed, pick the one that fits'
-      : suitPicked || nameless
-        ? 'Suit · the part of you it builds'
-        : 'Suit · guessed from the name, tap to choose';
+  const suitLabel = guessed ? 'Suit · guessed, pick the one that fits' : suitPicked || nameless ? 'Suit · the part of you it builds' : 'Suit · guessed from the name, tap to choose';
 
   // One input per field, so the return key can move on and a Playbook tip can open the right one.
   const name = useRef<TextInput>(null);
@@ -191,6 +232,17 @@ export default function EditHabit() {
     startedOn: '',
     archivedAt: null,
   };
+  const keptSoFar = (existing && deck?.cards.find((c) => c.habit.id === existing.id)?.allTime.kept) || 0;
+  const savedPlan = existing ? plans[existing.id] : undefined;
+  // The dark side leads with the saved plan, except while the First move is written under a plan that
+  // keeps the Floor: that plan never says the first move, so the box shows the first move being typed.
+  const planShown = savedPlan && !(writing === 'twoMinuteLabel' && savedPlan.then !== 'first') ? planLine(savedPlan, preview) : null;
+  const short = screenH < 760;
+  /** Focus and blur for the fields that write the other side, so the preview turns over for them. */
+  const writes = (field: EditField) => ({
+    onFocus: () => setWriting(field),
+    onBlur: () => setWriting((w) => (w === field ? null : w)),
+  });
 
   async function save() {
     if (problem) {
@@ -255,232 +307,271 @@ export default function EditHabit() {
   );
 
   return (
-    <ScrollView
-      ref={scroll}
-      keyboardShouldPersistTaps="handled"
-      // On the web every scroll counts as a drag, so a field opened by a tip would lose its focus as it scrolls into view.
-      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : Platform.OS === 'web' ? 'none' : 'on-drag'}
-      automaticallyAdjustKeyboardInsets
-      style={{ flex: 1, backgroundColor: t.bg }}
-      contentContainerStyle={{ padding: space.xl, paddingTop: space.lg, paddingBottom: insets.bottom + space.xxxl, gap: space.lg }}
-    >
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: TAP }}>
-        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Cancel" style={{ minHeight: TAP, justifyContent: 'center' }}>
-          <Body weight="bold" color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
-            Cancel
-          </Body>
-        </Pressable>
-        <Display size={typeScale.display.sm} header>
-          {existing ? 'Edit card' : 'New card'}
-        </Display>
-        <Pressable
-          onPress={save}
-          hitSlop={12}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel={existing ? 'Save card' : 'Add to deck'}
-          accessibilityState={{ disabled: busy }}
-          style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: ready ? t.text : 'transparent', borderWidth: 1.5, borderColor: ready ? t.text : t.border, justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
-        >
-          <Body weight="heavy" color={ready ? t.bg : t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
-            Save
-          </Body>
-        </Pressable>
-      </View>
-
-      <View style={{ height: 360, transform: [{ rotate: '-1.5deg' }], marginHorizontal: space.sm }} aria-hidden>
-        <HabitCard habit={preview} />
-      </View>
-
-      <Label style={{ marginTop: space.sm }}>The card</Label>
-      {spot('name', <Field label="Name" value={draft.name} onChangeText={(v) => set({ name: v })} placeholder={example.name} autoFocus={!existing && !recipe && !target} inputRef={name} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => ceiling.current?.focus()} />)}
-
-      <View style={{ gap: space.sm }}>
-        <Label>{suitLabel}</Label>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }} accessibilityRole="radiogroup" accessibilityLabel="Suit">
-          {SUITS.map((s) => {
-            const on = suitShown && suit === s;
-            const info = SUIT_INFO[s];
-            return (
-              <Pressable
-                key={s}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: on, disabled: suitLocked }}
-                accessibilityLabel={`${info.name}, ${info.part}. ${info.about}`}
-                disabled={suitLocked}
-                onPress={() => {
-                  feel.tick();
-                  setSuitPicked(true);
-                  set({ suit: s });
-                }}
-                style={({ pressed }) => ({
-                  width: '48.5%',
-                  borderRadius: radius.md,
-                  padding: space.md,
-                  gap: 4,
-                  backgroundColor: on ? suitColors[s].glyph : t.bgRaised,
-                  opacity: suitLocked && !on ? 0.4 : pressed ? 0.8 : 1,
-                  transform: [{ rotate: on ? (SUITS.indexOf(s) % 2 ? '1deg' : '-1deg') : '0deg' }],
-                })}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-                  <SuitGlyph suit={s} size={20} color={on ? WHITE : undefined} />
-                  <Body weight="heavy" color={on ? WHITE : t.text}>
-                    {info.part}
-                  </Body>
-                </View>
-                <Body size={12} color={on ? WHITE : t.textSecondary}>
-                  {info.about.slice(0, info.about.indexOf('.') + 1)}
-                </Body>
-              </Pressable>
-            );
-          })}
-        </View>
-        {suitLocked ? (
-          <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
-            A suit is set once its days are dealt, so your past hands never change. To build another part of you, archive this card and start a new one.
-          </Body>
-        ) : guessed ? (
-          <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
-            This card was made before suits, so its suit is a guess. When you save, its past days are dealt in the suit you pick, and the suit is set for good.
-          </Body>
-        ) : null}
-      </View>
-
-      {spot('ceilingLabel', <Field label="Ceiling · a great day" value={draft.ceilingLabel} onChangeText={(v) => set({ ceilingLabel: v })} placeholder={example.ceiling} inputRef={ceiling} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => floor.current?.focus()} />)}
-      {spot(
-        'floorLabel',
-        <Field label="Floor · still counts" value={draft.floorLabel} onChangeText={(v) => set({ floorLabel: v })} placeholder={example.floor} hint="Small enough to do on your worst day. Keeping it keeps the day and deals its card." inputRef={floor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => identity.current?.focus()} />,
-      )}
-
-      <Label style={{ marginTop: space.md }}>Make it stick</Label>
-      {spot(
-        'identity',
-        <Field label="I’m…" value={draft.identity} onChangeText={(v) => set({ identity: v })} placeholder={example.identity} hint="Every time you keep this card, it counts for this person in your Court." autoCapitalize="none" inputRef={identity} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => anchor.current?.focus()} />,
-      )}
-      {spot(
-        'anchor',
-        <View style={{ gap: space.sm }}>
-          <Field label="When it plays" value={draft.anchor} onChangeText={(v) => set({ anchor: v })} placeholder={example.anchor} hint="A moment that already happens every day. Add a time, like 7 am, if it has one." autoCapitalize="none" inputRef={anchor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => firstMove.current?.focus()} />
-          {/* The moments run edge to edge, except inside the ring a Playbook tip draws, where they scroll within it. */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            style={{ marginHorizontal: target === 'anchor' ? 0 : -space.xl, marginVertical: -4 }}
-            contentContainerStyle={{ paddingHorizontal: target === 'anchor' ? space.xs : space.xl, paddingVertical: 4, gap: space.sm }}
+    <View style={{ flex: 1, backgroundColor: t.bg }}>
+      {/* The header and the card stay pinned while the form scrolls under them. One Save, up here. */}
+      <View
+        style={{
+          paddingHorizontal: space.xl,
+          paddingTop: space.lg,
+          paddingBottom: space.md,
+          gap: space.md,
+          backgroundColor: t.bg,
+          zIndex: 1,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: scrolled ? t.border : 'transparent',
+          boxShadow: scrolled ? `0 12px 18px -14px ${withAlpha('#17121F', t.scheme === 'light' ? 0.45 : 0.9)}` : undefined,
+        }}
+      >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: TAP }}>
+          <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Cancel" style={{ minHeight: TAP, justifyContent: 'center' }}>
+            <Body weight="bold" color={t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+              Cancel
+            </Body>
+          </Pressable>
+          <Display size={typeScale.display.sm} header>
+            {existing ? 'Edit card' : 'New card'}
+          </Display>
+          <Pressable
+            onPress={save}
+            hitSlop={12}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={existing ? 'Save card' : 'Add to deck'}
+            accessibilityState={{ disabled: busy }}
+            style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: ready ? t.text : 'transparent', borderWidth: 1.5, borderColor: ready ? t.text : t.border, justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
           >
-            {MOMENTS.map((m) => {
-              const on = draft.anchor.trim().toLowerCase() === m;
+            <Body weight="heavy" color={ready ? t.bg : t.textSecondary} maxFontSizeMultiplier={fontScale.chrome}>
+              Save
+            </Body>
+          </Pressable>
+        </View>
+        <View style={{ marginHorizontal: space.xs }}>
+          <PinnedPreview
+            habit={preview}
+            kept={keptSoFar}
+            plan={planShown}
+            dark={!!writing && DARK_SIDE.includes(writing)}
+            why={writing === 'why'}
+            height={short ? 204 : 224}
+            short={short}
+          />
+        </View>
+      </View>
+      <ScrollView
+        ref={scroll}
+        keyboardShouldPersistTaps="handled"
+        // On the web every scroll counts as a drag, so a field opened by a tip would lose its focus as it scrolls into view.
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : Platform.OS === 'web' ? 'none' : 'on-drag'}
+        automaticallyAdjustKeyboardInsets
+        scrollEventThrottle={32}
+        onScroll={(e) => {
+          const now = e.nativeEvent.contentOffset.y > 4;
+          if (now !== scrolled) setScrolled(now);
+        }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: space.xl, paddingTop: space.md, paddingBottom: insets.bottom + space.xxxl, gap: space.lg }}
+      >
+        <Label>The card</Label>
+        {spot('name', <Field label="Name" value={draft.name} onChangeText={(v) => set({ name: v })} placeholder={example.name} autoFocus={!existing && !recipe && !target} inputRef={name} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => ceiling.current?.focus()} />)}
+
+        {suitLocked ? (
+          // A suit set at the first deal is one quiet row: there is nothing here to choose.
+          <View
+            accessible
+            accessibilityLabel={`Suit: ${SUIT_INFO[suit].name}, ${SUIT_INFO[suit].part}, set at the first deal`}
+            accessibilityHint="A suit is set once its days are dealt, so your past hands never change. To build another part of you, archive this card and start a new one."
+            style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: TAP, borderRadius: radius.md, backgroundColor: t.bgRaised, paddingHorizontal: space.lg }}
+          >
+            <SuitGlyph suit={suit} size={18} color={suitColors[suit].glyph} />
+            <Body weight="heavy" size={typeScale.text.sm} color={t.text} style={{ flex: 1 }}>
+              {`Suit: ${SUIT_INFO[suit].name} (set at the first deal)`}
+            </Body>
+          </View>
+        ) : (
+          <View style={{ gap: space.sm }}>
+            <Label>{suitLabel}</Label>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }} accessibilityRole="radiogroup" accessibilityLabel="Suit">
+              {SUITS.map((s) => {
+                const on = suitShown && suit === s;
+                const info = SUIT_INFO[s];
+                return (
+                  <Pressable
+                    key={s}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`${info.name}, ${info.part}. ${info.about}`}
+                    onPress={() => {
+                      feel.tick();
+                      setSuitPicked(true);
+                      set({ suit: s });
+                    }}
+                    style={({ pressed }) => ({
+                      width: '48.5%',
+                      borderRadius: radius.md,
+                      padding: space.md,
+                      gap: 4,
+                      backgroundColor: on ? suitColors[s].glyph : t.bgRaised,
+                      opacity: pressed ? 0.8 : 1,
+                      transform: [{ rotate: on ? (SUITS.indexOf(s) % 2 ? '1deg' : '-1deg') : '0deg' }],
+                    })}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                      <SuitGlyph suit={s} size={20} color={on ? WHITE : undefined} />
+                      <Body weight="heavy" color={on ? WHITE : t.text}>
+                        {info.part}
+                      </Body>
+                    </View>
+                    <Body size={12} color={on ? WHITE : t.textSecondary}>
+                      {info.about.slice(0, info.about.indexOf('.') + 1)}
+                    </Body>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {guessed ? (
+              <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary}>
+                This card was made before suits, so its suit is a guess. When you save, its past days are dealt in the suit you pick, and the suit is set for good.
+              </Body>
+            ) : null}
+          </View>
+        )}
+
+        {spot('ceilingLabel', <Field label="Ceiling · a great day" value={draft.ceilingLabel} onChangeText={(v) => set({ ceilingLabel: v })} placeholder={example.ceiling} inputRef={ceiling} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => floor.current?.focus()} />)}
+        {spot(
+          'floorLabel',
+          <Field label="Floor · still counts" value={draft.floorLabel} onChangeText={(v) => set({ floorLabel: v })} placeholder={example.floor} hint="Small enough to do on your worst day. Keeping it keeps the day and deals its card." inputRef={floor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => identity.current?.focus()} />,
+        )}
+
+        <Label style={{ marginTop: space.md }}>Make it stick</Label>
+        {spot(
+          'identity',
+          <Field label="I’m…" value={draft.identity} onChangeText={(v) => set({ identity: v })} placeholder={example.identity} hint="Every time you keep this card, it counts for this person in your Court." autoCapitalize="none" inputRef={identity} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => anchor.current?.focus()} />,
+        )}
+        {spot(
+          'anchor',
+          <View style={{ gap: space.sm }}>
+            <Field label="When it plays" value={draft.anchor} onChangeText={(v) => set({ anchor: v })} placeholder={example.anchor} hint="A moment that already happens every day. Add a time, like 7 am, if it has one." autoCapitalize="none" inputRef={anchor} returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => firstMove.current?.focus()} />
+            {/* The moments run edge to edge, except inside the ring a Playbook tip draws, where they scroll within it. */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              style={{ marginHorizontal: target === 'anchor' ? 0 : -space.xl, marginVertical: -4 }}
+              contentContainerStyle={{ paddingHorizontal: target === 'anchor' ? space.xs : space.xl, paddingVertical: 4, gap: space.sm }}
+            >
+              {MOMENTS.map((m) => {
+                const on = draft.anchor.trim().toLowerCase() === m;
+                return (
+                  <Pressable
+                    key={m}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Plays ${m}`}
+                    accessibilityState={{ selected: on }}
+                    hitSlop={{ top: 4, bottom: 4 }}
+                    onPress={() => {
+                      feel.tick();
+                      set({ anchor: m });
+                    }}
+                    style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? t.text : t.border, backgroundColor: on ? t.text : 'transparent', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
+                  >
+                    <Body weight="heavy" size={typeScale.text.sm} color={on ? t.bg : t.text} maxFontSizeMultiplier={fontScale.chrome}>
+                      {m}
+                    </Body>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            {draft.whenWhere.trim() ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.xs }}>
+                <Body size={typeScale.text.sm} color={t.textSecondary} style={{ flex: 1 }}>
+                  <Body size={typeScale.text.sm} weight="heavy" color={t.text}>
+                    {'Also noted: '}
+                  </Body>
+                  {draft.whenWhere.trim()}
+                </Body>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Remove the note ${draft.whenWhere.trim()}`} onPress={() => set({ whenWhere: '' })} hitSlop={8} style={{ minHeight: TAP, justifyContent: 'center' }}>
+                  <Body weight="heavy" size={typeScale.text.sm} color={t.textSecondary} style={{ textDecorationLine: 'underline' }}>
+                    Remove
+                  </Body>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>,
+        )}
+        {spot(
+          'twoMinuteLabel',
+          <Field
+            label="First move"
+            value={draft.twoMinuteLabel}
+            onChangeText={(v) => set({ twoMinuteLabel: v })}
+            placeholder={example.twoMinute}
+            hint="Offered the day after a miss. That day, doing just this keeps it."
+            inputRef={firstMove}
+            {...writes('twoMinuteLabel')}
+            returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => why.current?.focus()}
+          />,
+        )}
+        {spot(
+          'why',
+          <Field
+            label="Why it matters to you"
+            value={draft.why}
+            onChangeText={(v) => set({ why: v })}
+            placeholder={example.prompt}
+            hint="In your own words. The card shows it back on the hard days."
+            multiline
+            inputRef={why}
+            {...writes('why')}
+          />,
+        )}
+
+        <View style={{ gap: space.sm }}>
+          <Label>Card colour</Label>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }} accessibilityRole="radiogroup" accessibilityLabel="Card colour">
+            {CARD_COLORS.map((c) => {
+              const on = color === c;
               return (
                 <Pressable
-                  key={m}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Plays ${m}`}
+                  key={c}
+                  accessibilityRole="radio"
                   accessibilityState={{ selected: on }}
-                  hitSlop={{ top: 4, bottom: 4 }}
+                  accessibilityLabel={c}
                   onPress={() => {
                     feel.tick();
-                    set({ anchor: m });
+                    setColorPicked(true);
+                    set({ color: c });
                   }}
-                  style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? t.text : t.border, backgroundColor: on ? t.text : 'transparent', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
+                  style={{ width: TAP + 4, height: TAP + 4, borderRadius: (TAP + 4) / 2, borderWidth: on ? 3 : 0, borderColor: t.text, padding: 3 }}
                 >
-                  <Body weight="heavy" size={typeScale.text.sm} color={on ? t.bg : t.text} maxFontSizeMultiplier={fontScale.chrome}>
-                    {m}
-                  </Body>
+                  <View style={{ flex: 1, borderRadius: TAP / 2, backgroundColor: cardColors[c].bg, alignItems: 'center', justifyContent: 'center' }}>
+                    {on ? (
+                      <Body weight="heavy" color={cardColors[c].ink} maxFontSizeMultiplier={fontScale.graphic}>
+                        ✓
+                      </Body>
+                    ) : null}
+                  </View>
                 </Pressable>
               );
             })}
-          </ScrollView>
-          {draft.whenWhere.trim() ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.xs }}>
-              <Body size={typeScale.text.sm} color={t.textSecondary} style={{ flex: 1 }}>
-                <Body size={typeScale.text.sm} weight="heavy" color={t.text}>
-                  {'Also noted: '}
-                </Body>
-                {draft.whenWhere.trim()}
+          </View>
+        </View>
+
+        {existing ? (
+          <View
+            onLayout={(e) => {
+              tops.current.archive = e.nativeEvent.layout.y;
+            }}
+            style={target === 'archive' ? { borderRadius: radius.lg, borderWidth: 2.5, borderColor: t.text, padding: space.md, gap: space.sm } : null}
+          >
+            {target === 'archive' ? (
+              <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>
+                {`Archived, ${existing.name} leaves Today. Its kept days still count in your Court, and it can come back from You any time.`}
               </Body>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Remove the note ${draft.whenWhere.trim()}`} onPress={() => set({ whenWhere: '' })} hitSlop={8} style={{ minHeight: TAP, justifyContent: 'center' }}>
-                <Body weight="heavy" size={typeScale.text.sm} color={t.textSecondary} style={{ textDecorationLine: 'underline' }}>
-                  Remove
-                </Body>
-              </Pressable>
-            </View>
-          ) : null}
-        </View>,
-      )}
-      {spot(
-        'twoMinuteLabel',
-        <Field
-          label="First move"
-          value={draft.twoMinuteLabel}
-          onChangeText={(v) => set({ twoMinuteLabel: v })}
-          placeholder={example.twoMinute}
-          hint="Offered the day after a miss. That day, doing just this keeps it."
-          inputRef={firstMove}
-          returnKeyType="next" submitBehavior="submit" onSubmitEditing={() => why.current?.focus()}
-        />,
-      )}
-      {spot(
-        'why',
-        <Field
-          label="Why it matters to you"
-          value={draft.why}
-          onChangeText={(v) => set({ why: v })}
-          placeholder={example.prompt}
-          hint="In your own words. The card shows it back on the hard days."
-          multiline
-          inputRef={why}
-        />,
-      )}
-
-      <View style={{ gap: space.sm }}>
-        <Label>Card colour</Label>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }} accessibilityRole="radiogroup" accessibilityLabel="Card colour">
-          {CARD_COLORS.map((c) => {
-            const on = color === c;
-            return (
-              <Pressable
-                key={c}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={c}
-                onPress={() => {
-                  feel.tick();
-                  setColorPicked(true);
-                  set({ color: c });
-                }}
-                style={{ width: TAP + 4, height: TAP + 4, borderRadius: (TAP + 4) / 2, borderWidth: on ? 3 : 0, borderColor: t.text, padding: 3 }}
-              >
-                <View style={{ flex: 1, borderRadius: TAP / 2, backgroundColor: cardColors[c].bg, alignItems: 'center', justifyContent: 'center' }}>
-                  {on ? (
-                    <Body weight="heavy" color={cardColors[c].ink} maxFontSizeMultiplier={fontScale.graphic}>
-                      ✓
-                    </Body>
-                  ) : null}
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      <Button label={existing ? 'Save card' : 'Add to deck'} variant={ready ? 'primary' : 'ghost'} busy={busy} onPress={save} style={{ marginTop: space.md }} />
-      {existing ? (
-        <View
-          onLayout={(e) => {
-            tops.current.archive = e.nativeEvent.layout.y;
-          }}
-          style={target === 'archive' ? { borderRadius: radius.lg, borderWidth: 2.5, borderColor: t.text, padding: space.md, gap: space.sm } : null}
-        >
-          {target === 'archive' ? (
-            <Body size={typeScale.text.sm} weight="bold" color={t.textSecondary} style={{ textAlign: 'center' }}>
-              {`Archived, ${existing.name} leaves Today. Its kept days still count in your Court, and it can come back from You any time.`}
-            </Body>
-          ) : null}
-          <Button label="Archive card" variant={target === 'archive' ? 'ghost' : 'quiet'} onPress={archive} />
-        </View>
-      ) : null}
-    </ScrollView>
+            ) : null}
+            <Button label="Archive card" variant={target === 'archive' ? 'ghost' : 'quiet'} onPress={archive} />
+          </View>
+        ) : null}
+      </ScrollView>
+    </View>
   );
 }

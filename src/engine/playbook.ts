@@ -416,6 +416,8 @@ export type HabitFacts = {
   hasPlan?: boolean;
   /** Comebacks kept on this card in the last 30 days. */
   comebacks30?: number;
+  /** The ready-made card it was made from, if any, so an idea never suggests a card the deck already has. */
+  recipeKey?: string | null;
 };
 
 export type RecommendationContext = {
@@ -447,7 +449,7 @@ export type EditField = 'name' | 'identity' | 'floorLabel' | 'ceilingLabel' | 't
 export type EditFocus = EditField | 'archive';
 
 /** Where a recommendation goes when it isn't about one card's field. */
-export type RecommendationHref = '/' | '/call' | '/habit/edit' | '/you?sheet=arrange';
+export type RecommendationHref = '/' | '/call' | '/habit/edit' | '/you?sheet=arrange' | `/plan?habit=${string}`;
 
 export type Recommendation = {
   principle: Principle;
@@ -511,6 +513,18 @@ export function recommend(ctx: RecommendationContext): Recommendation[] {
     });
   } else if (!named && ctx.keptRate30 !== null && ctx.keptRate30 < 0.5) {
     add('first-move', 'Fewer than half your days were kept lately', { text: 'A Floor so small it takes no courage keeps far more days.' });
+  }
+
+  // A card that came back twice or more this month with no plan saved: a plan makes its next Comeback easier.
+  const again = habits.find((h) => (h.comebacks30 ?? 0) >= 2 && h.hasPlan === false);
+  if (again) {
+    const n = again.comebacks30 ?? 2;
+    add('obstacle', `${again.name}’s next Comeback`, {
+      text: `${again.name} came back ${n === 2 ? 'twice' : `${n} times`} this month. A plan for next time makes the next Comeback easier.`,
+      cta: `Make a plan for ${again.name}`,
+      habitId: again.id,
+      href: `/plan?habit=${again.id}`,
+    });
   }
 
   if (ctx.callPending) add('commitment', ctx.callClosesTonight ? 'Calls close at midnight' : 'Calls are open', { cta: 'Call your hand', href: '/call' });
@@ -596,12 +610,29 @@ export function keptLeast(habits: readonly HabitFacts[]): HabitFacts | null {
 
 const EVERGREEN: readonly PrincipleKey[] = ['celebrate', 'pile', 'swap', 'pair-up', 'obstacle', 'friction', 'add-first', 'environment', 'focus-block', 'sleep', 'lead-card'];
 
-/** One idea for today: the most useful recommendation, or a rotating favourite when nothing needs fixing. */
+/** Ideas that suggest making a card, and how to tell the deck already has one like it. */
+const SUGGESTS: Partial<Record<PrincipleKey, { recipes: readonly string[]; name: RegExp }>> = {
+  'focus-block': { recipes: ['deep-work'], name: /\bfocus/i },
+  sleep: { recipes: ['lights-out'], name: /\blights?[\s-]?out\b|\bbedtime\b|\bsleep/i },
+};
+
+/** Whether the deck already has the card an idea would suggest making. */
+function suggestsCardHeld(key: PrincipleKey, habits: readonly HabitFacts[]): boolean {
+  const like = SUGGESTS[key];
+  return !!like && habits.some((h) => (!!h.recipeKey && like.recipes.includes(h.recipeKey)) || like.name.test(h.name));
+}
+
+/**
+ * One idea for today: the most useful recommendation, or a rotating favourite when nothing needs fixing.
+ * The favourite never suggests a card the deck already has (a focus card, a lights-out card).
+ */
 export function ideaOfTheDay(ctx: RecommendationContext): Recommendation {
   const [top] = recommend(ctx);
   if (top) return top;
-  const index = ((daysBetween('2026-01-01', ctx.today) % EVERGREEN.length) + EVERGREEN.length) % EVERGREEN.length;
-  return { principle: PRINCIPLES[EVERGREEN[index]], reason: 'Today’s idea' };
+  const habits = ctx.habits ?? [];
+  const start = ((daysBetween('2026-01-01', ctx.today) % EVERGREEN.length) + EVERGREEN.length) % EVERGREEN.length;
+  const key = Array.from({ length: EVERGREEN.length }, (_, i) => EVERGREEN[(start + i) % EVERGREEN.length]).find((k) => !suggestsCardHeld(k, habits)) ?? EVERGREEN[start];
+  return { principle: PRINCIPLES[key], reason: 'Today’s idea' };
 }
 
 /** Recipes for the given identities first, then the rest, skipping cards already in the deck. */
